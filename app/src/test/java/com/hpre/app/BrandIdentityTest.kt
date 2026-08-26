@@ -7,6 +7,18 @@ import org.junit.Test
 
 class BrandIdentityTest {
     @Test
+    fun Vietnamese_navigation_resources_match_product_copy() {
+        val root = generateSequence(File(".").canonicalFile) { it.parentFile }
+            .first { File(it, "settings.gradle.kts").isFile }
+        val stringsXml = File(root, "app/src/main/res/values/strings.xml").readText()
+
+        assertTrue(stringsXml.contains("<string name=\"app_name\">HPre</string>"))
+        assertTrue(stringsXml.contains("<string name=\"nav_home\">Trang chủ</string>"))
+        assertTrue(stringsXml.contains("<string name=\"nav_subscriptions\">Kênh đăng ký</string>"))
+        assertTrue(stringsXml.contains("<string name=\"nav_library\">Thư viện</string>"))
+    }
+
+    @Test
     fun prospective_tracked_files_and_paths_do_not_contain_old_brand() {
         val banned = "flow" + "tube"
         val root = generateSequence(File(".").canonicalFile) { it.parentFile }

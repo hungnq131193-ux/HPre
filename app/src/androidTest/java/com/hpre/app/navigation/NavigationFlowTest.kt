@@ -151,9 +151,7 @@ class NavigationFlowTest {
         // Home screen is visible by default
         composeTestRule.onNodeWithTag("home_screen").assertIsDisplayed()
 
-        // Switch to Shorts tab
-        composeTestRule.onNodeWithTag("bottom_nav_shorts").performClick()
-        composeTestRule.onNodeWithTag("shorts_unavailable").assertIsDisplayed()
+        composeTestRule.onNodeWithTag("bottom_nav_shorts").assertDoesNotExist()
 
         // Switch to Subscriptions tab
         composeTestRule.onNodeWithTag("bottom_nav_subscriptions").performClick()

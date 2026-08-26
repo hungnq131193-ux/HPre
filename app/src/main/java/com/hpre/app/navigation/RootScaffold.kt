@@ -9,6 +9,9 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.navigationBars
+import androidx.compose.foundation.layout.statusBars
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.PlayCircleOutline
@@ -17,7 +20,6 @@ import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Subscriptions
 import androidx.compose.material.icons.filled.VideoLibrary
 import androidx.compose.material.icons.outlined.Home
-import androidx.compose.material.icons.outlined.PlayCircleOutline
 import androidx.compose.material.icons.outlined.Subscriptions
 import androidx.compose.material.icons.outlined.VideoLibrary
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -40,46 +42,42 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.annotation.StringRes
 import androidx.navigation.NavGraph.Companion.findStartDestination
 import androidx.navigation.NavHostController
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import com.hpre.app.di.AppContainer
+import com.hpre.app.R
 import com.hpre.app.player.SessionPlayerController
 import com.hpre.app.ui.player.MiniPlayer
 
 private sealed class BottomNavItem(
     val route: String,
-    val title: String,
+    @StringRes val titleRes: Int,
     val selectedIcon: ImageVector,
     val unselectedIcon: ImageVector
 ) {
     data object Home : BottomNavItem(
         route = Screen.Home.route,
-        title = "Home",
+        titleRes = R.string.nav_home,
         selectedIcon = Icons.Filled.Home,
         unselectedIcon = Icons.Outlined.Home
     )
 
-    data object Shorts : BottomNavItem(
-        route = Screen.Shorts.route,
-        title = "Shorts",
-        selectedIcon = Icons.Filled.PlayCircleOutline,
-        unselectedIcon = Icons.Outlined.PlayCircleOutline
-    )
-
     data object Subscriptions : BottomNavItem(
         route = Screen.Subscriptions.route,
-        title = "Subscriptions",
+        titleRes = R.string.nav_subscriptions,
         selectedIcon = Icons.Filled.Subscriptions,
         unselectedIcon = Icons.Outlined.Subscriptions
     )
 
     data object Library : BottomNavItem(
         route = Screen.Library.route,
-        title = "Library",
+        titleRes = R.string.nav_library,
         selectedIcon = Icons.Filled.VideoLibrary,
         unselectedIcon = Icons.Outlined.VideoLibrary
     )
@@ -87,7 +85,6 @@ private sealed class BottomNavItem(
 
 private val bottomNavItems = listOf(
     BottomNavItem.Home,
-    BottomNavItem.Shorts,
     BottomNavItem.Subscriptions,
     BottomNavItem.Library
 )
@@ -104,7 +101,6 @@ fun RootScaffold(
 
     val isTopLevelDestination = currentRoute in listOf(
         Screen.Home.route,
-        Screen.Shorts.route,
         Screen.Subscriptions.route,
         Screen.Library.route
     )
@@ -134,6 +130,7 @@ fun RootScaffold(
     }
 
     Scaffold(
+        contentWindowInsets = WindowInsets(0, 0, 0, 0),
         topBar = {
             if (isTopLevelDestination) {
                 TopAppBar(
@@ -161,7 +158,7 @@ fun RootScaffold(
                         ) {
                             Icon(
                                 imageVector = Icons.Default.Search,
-                                contentDescription = "Search"
+                                contentDescription = stringResource(R.string.action_search)
                             )
                         }
                         IconButton(
@@ -170,13 +167,14 @@ fun RootScaffold(
                         ) {
                             Icon(
                                 imageVector = Icons.Default.Settings,
-                                contentDescription = "Settings"
+                                contentDescription = stringResource(R.string.action_settings)
                             )
                         }
                     },
                     colors = TopAppBarDefaults.topAppBarColors(
                         containerColor = MaterialTheme.colorScheme.surface
                     ),
+                    windowInsets = WindowInsets.statusBars,
                     modifier = Modifier.testTag("root_top_bar")
                 )
             }
@@ -201,10 +199,12 @@ fun RootScaffold(
 
                 if (isTopLevelDestination) {
                     NavigationBar(
+                        windowInsets = WindowInsets.navigationBars,
                         modifier = Modifier.testTag("root_bottom_bar")
                     ) {
                         bottomNavItems.forEach { item ->
                             val selected = currentRoute == item.route
+                            val title = stringResource(item.titleRes)
                             NavigationBarItem(
                                 selected = selected,
                                 onClick = {
@@ -221,11 +221,11 @@ fun RootScaffold(
                                 icon = {
                                     Icon(
                                         imageVector = if (selected) item.selectedIcon else item.unselectedIcon,
-                                        contentDescription = item.title
+                                        contentDescription = title
                                     )
                                 },
-                                label = { Text(text = item.title) },
-                                modifier = Modifier.testTag("bottom_nav_${item.title.lowercase()}")
+                                label = { Text(text = title) },
+                                modifier = Modifier.testTag("bottom_nav_${item.route}")
                             )
                         }
                     }

@@ -57,11 +57,14 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.res.pluralStringResource
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import coil.compose.AsyncImage
 import com.hpre.app.model.ContentKey
+import com.hpre.app.R
 import com.hpre.app.model.VideoSummary
 import com.hpre.app.repository.HistoryRepository
 import com.hpre.app.repository.LocalPlaylist
@@ -93,7 +96,7 @@ fun LibraryScreen(
     ) {
         // Section: History Header & Recent Horizontal Row
         LibrarySectionHeader(
-            title = "History",
+            title = stringResource(R.string.library_history),
             count = historyList.size,
             onSeeAllClick = onNavigateToHistory,
             tag = "library_history_header"
@@ -101,7 +104,7 @@ fun LibraryScreen(
 
         if (historyList.isEmpty()) {
             Text(
-                text = "No watched videos yet",
+                text = stringResource(R.string.library_history_empty),
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)
@@ -136,7 +139,7 @@ fun LibraryScreen(
                 modifier = Modifier.clickable { onNavigateToPlaylists() }
             ) {
                 Text(
-                    text = "Playlists",
+                    text = stringResource(R.string.screen_playlists),
                     style = MaterialTheme.typography.titleMedium,
                     fontWeight = FontWeight.Bold
                 )
@@ -154,20 +157,23 @@ fun LibraryScreen(
                     onClick = { showCreatePlaylistDialog = true },
                     modifier = Modifier.testTag("library_create_playlist_button")
                 ) {
-                    Icon(imageVector = Icons.Default.Add, contentDescription = "New Playlist")
+                    Icon(
+                        imageVector = Icons.Default.Add,
+                        contentDescription = stringResource(R.string.playlist_new)
+                    )
                 }
                 TextButton(
                     onClick = onNavigateToPlaylists,
                     modifier = Modifier.testTag("library_see_all_playlists_button")
                 ) {
-                    Text("See all")
+                    Text(stringResource(R.string.action_see_all))
                 }
             }
         }
 
         if (playlistsList.isEmpty()) {
             Text(
-                text = "No local playlists created",
+                text = stringResource(R.string.library_playlists_empty),
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)
@@ -188,7 +194,7 @@ fun LibraryScreen(
 
         // Section: Subscriptions Header
         LibrarySectionHeader(
-            title = "Subscriptions",
+            title = stringResource(R.string.nav_subscriptions),
             count = subscriptionsList.size,
             onSeeAllClick = onNavigateToSubscriptions,
             tag = "library_subscriptions_header"
@@ -196,7 +202,7 @@ fun LibraryScreen(
 
         if (subscriptionsList.isEmpty()) {
             Text(
-                text = "No followed channels",
+                text = stringResource(R.string.library_subscriptions_empty),
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)
@@ -265,7 +271,7 @@ private fun LibrarySectionHeader(
             onClick = onSeeAllClick,
             modifier = Modifier.testTag("${tag}_see_all")
         ) {
-            Text("See all")
+            Text(stringResource(R.string.action_see_all))
         }
     }
 }
@@ -368,7 +374,11 @@ private fun PlaylistItemRow(
             )
             Spacer(modifier = Modifier.height(2.dp))
             Text(
-                text = "${playlist.entryCount} videos",
+                text = pluralStringResource(
+                    R.plurals.video_count,
+                    playlist.entryCount,
+                    playlist.entryCount
+                ),
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
@@ -427,12 +437,12 @@ fun CreatePlaylistDialog(
 
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text("New Playlist") },
+        title = { Text(stringResource(R.string.playlist_new)) },
         text = {
             OutlinedTextField(
                 value = title,
                 onValueChange = { title = it },
-                label = { Text("Title") },
+                label = { Text(stringResource(R.string.playlist_title)) },
                 singleLine = true,
                 modifier = Modifier
                     .fillMaxWidth()
@@ -449,12 +459,12 @@ fun CreatePlaylistDialog(
                 enabled = title.isNotBlank(),
                 modifier = Modifier.testTag("playlist_dialog_create_button")
             ) {
-                Text("Create")
+                Text(stringResource(R.string.action_create))
             }
         },
         dismissButton = {
             TextButton(onClick = onDismiss) {
-                Text("Cancel")
+                Text(stringResource(R.string.action_cancel))
             }
         }
     )

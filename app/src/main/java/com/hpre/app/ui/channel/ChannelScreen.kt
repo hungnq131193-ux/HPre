@@ -22,8 +22,11 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import com.hpre.app.model.ContentKey
+import com.hpre.app.R
+import com.hpre.app.core.designsystem.HPreSpacing
 import com.hpre.app.ui.common.EmptyPane
 import com.hpre.app.ui.common.ErrorPane
 import com.hpre.app.ui.common.LoadingPane
@@ -43,10 +46,18 @@ fun ChannelScreen(
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text((state as? ChannelUiState.Content)?.details?.channel?.name ?: "Channel") },
+                title = {
+                    Text(
+                        (state as? ChannelUiState.Content)?.details?.channel?.name
+                            ?: stringResource(R.string.screen_channel)
+                    )
+                },
                 navigationIcon = {
                     IconButton(onClick = onBack) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
+                        Icon(
+                            Icons.AutoMirrored.Filled.ArrowBack,
+                            contentDescription = stringResource(R.string.action_back)
+                        )
                     }
                 }
             )
@@ -55,14 +66,18 @@ fun ChannelScreen(
     ) { padding ->
         when (val current = state) {
             ChannelUiState.Loading -> LoadingPane(Modifier.padding(padding), "channel_loading")
-            ChannelUiState.Empty -> EmptyPane("No channel content", Modifier.padding(padding), "channel_empty")
+            ChannelUiState.Empty -> EmptyPane(
+                stringResource(R.string.channel_empty),
+                Modifier.padding(padding),
+                "channel_empty"
+            )
             is ChannelUiState.Error -> ErrorPane(current.error, viewModel::retry, Modifier.padding(padding), "channel_error")
             is ChannelUiState.Content -> LazyColumn(
                 Modifier.fillMaxSize().padding(padding).testTag("channel_content"),
-                verticalArrangement = Arrangement.spacedBy(12.dp)
+                verticalArrangement = Arrangement.spacedBy(HPreSpacing.Medium)
             ) {
                 item {
-                    Column(Modifier.fillMaxWidth().padding(16.dp)) {
+                    Column(Modifier.fillMaxWidth().padding(HPreSpacing.Large)) {
                         Text(current.details.channel.name, style = MaterialTheme.typography.headlineSmall)
                         current.details.channel.subscriberCountText?.let { Text(it) }
                         current.details.channel.description?.let { Text(it) }

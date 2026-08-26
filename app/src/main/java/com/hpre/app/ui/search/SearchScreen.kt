@@ -11,6 +11,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -57,12 +58,15 @@ import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.res.pluralStringResource
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import coil.compose.AsyncImage
 import com.hpre.app.model.Channel
+import com.hpre.app.R
 import com.hpre.app.model.ContentKey
 import com.hpre.app.model.PlaylistSummary
 import com.hpre.app.model.SearchFilter
@@ -101,6 +105,7 @@ fun SearchScreen(
     Column(
         modifier = modifier
             .fillMaxSize()
+            .imePadding()
             .testTag("search_screen")
     ) {
         // Search TopBar
@@ -109,7 +114,7 @@ fun SearchScreen(
                 OutlinedTextField(
                     value = query,
                     onValueChange = { viewModel.onQueryChanged(it) },
-                    placeholder = { Text(text = "Search HPre...") },
+                    placeholder = { Text(text = stringResource(R.string.search_hint)) },
                     singleLine = true,
                     keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
                     keyboardActions = KeyboardActions(
@@ -121,7 +126,10 @@ fun SearchScreen(
                     trailingIcon = {
                         if (query.isNotEmpty()) {
                             IconButton(onClick = { viewModel.onQueryChanged("") }) {
-                                Icon(imageVector = Icons.Default.Clear, contentDescription = "Clear search")
+                                Icon(
+                                    imageVector = Icons.Default.Clear,
+                                    contentDescription = stringResource(R.string.search_clear)
+                                )
                             }
                         }
                     },
@@ -144,7 +152,7 @@ fun SearchScreen(
                 ) {
                     Icon(
                         imageVector = Icons.AutoMirrored.Filled.ArrowBack,
-                        contentDescription = "Back"
+                        contentDescription = stringResource(R.string.action_back)
                     )
                 }
             }
@@ -162,7 +170,18 @@ fun SearchScreen(
                 FilterChip(
                     selected = (filter == itemFilter),
                     onClick = { viewModel.onFilterChanged(itemFilter) },
-                    label = { Text(text = itemFilter.name.lowercase().replaceFirstChar { it.uppercase() }) },
+                    label = {
+                        Text(
+                            text = stringResource(
+                                when (itemFilter) {
+                                    SearchFilter.ALL -> R.string.search_filter_all
+                                    SearchFilter.VIDEOS -> R.string.search_filter_videos
+                                    SearchFilter.CHANNELS -> R.string.search_filter_channels
+                                    SearchFilter.PLAYLISTS -> R.string.search_filter_playlists
+                                }
+                            )
+                        )
+                    },
                     modifier = Modifier.testTag("search_filter_${itemFilter.name}")
                 )
             }
@@ -191,14 +210,17 @@ fun SearchScreen(
                             onRemoveQuery = { viewModel.removeRecentQuery(it) }
                         )
                     } else {
-                        EmptyPane(message = "Type to search videos, channels, and playlists", testTag = "search_idle")
+                        EmptyPane(message = stringResource(R.string.search_idle), testTag = "search_idle")
                     }
                 }
                 is SearchUiState.Loading -> {
                     LoadingPane(testTag = "search_loading")
                 }
                 is SearchUiState.Empty -> {
-                    EmptyPane(message = "No results found for \"$query\"", testTag = "search_empty")
+                    EmptyPane(
+                        message = stringResource(R.string.search_empty, query),
+                        testTag = "search_empty"
+                    )
                 }
                 is SearchUiState.Error -> {
                     ErrorPane(
@@ -289,7 +311,7 @@ private fun RecentQueriesList(
                 IconButton(onClick = { onRemoveQuery(q) }) {
                     Icon(
                         imageVector = Icons.Default.Clear,
-                        contentDescription = "Remove recent search",
+                        contentDescription = stringResource(R.string.search_remove_recent),
                         tint = MaterialTheme.colorScheme.onSurfaceVariant,
                         modifier = Modifier.size(18.dp)
                     )
@@ -514,7 +536,7 @@ private fun PlaylistResultCard(
             val count = playlist.videoCount
             if (count != null) {
                 Text(
-                    text = "$count videos",
+                    text = pluralStringResource(R.plurals.video_count, count.toInt(), count),
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )

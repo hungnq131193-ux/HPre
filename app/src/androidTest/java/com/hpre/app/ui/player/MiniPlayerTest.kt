@@ -110,6 +110,7 @@ class MiniPlayerTest {
         composeTestRule.onNodeWithTag("mini-player", useUnmergedTree = true).assertExists()
         composeTestRule.onNodeWithTag("mini-player", useUnmergedTree = true).assertIsDisplayed()
         composeTestRule.onNodeWithText("Mini player title").assertIsDisplayed()
+        composeTestRule.onNodeWithText("Đang phát").assertIsDisplayed()
 
         // Play/Pause interaction
         composeTestRule.onNodeWithTag("mini_player_play_pause_button").performClick()

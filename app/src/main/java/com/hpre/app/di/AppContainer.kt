@@ -22,7 +22,6 @@ import com.hpre.app.player.AppScopedPlayerControllerProvider
 import com.hpre.app.player.StreamRecoveryCoordinator
 import com.hpre.app.repository.CatalogRepository
 import com.hpre.app.repository.RecommendationRepository
-import com.hpre.app.repository.ShortsFeedRepository
 import com.hpre.app.repository.VideoService
 import com.hpre.app.ui.watch.DefaultFullscreenHostHandler
 import com.hpre.app.ui.watch.FullscreenHostHandlerFactory
@@ -50,8 +49,6 @@ interface AppContainer {
         get() = RecommendationRepository(catalogRepository, searchHistoryRepository, historyRepository)
     val topicFeedSource: TopicFeedSource
         get() = CatalogTopicFeedSource(catalogRepository)
-    val shortsFeedRepository: ShortsFeedRepository
-        get() = ShortsFeedRepository(catalogRepository, searchHistoryRepository, historyRepository)
     val fullscreenHostHandlerFactory: FullscreenHostHandlerFactory
     val okHttpClient: OkHttpClient
     val mediaSourceFactory: MediaSourceFactory
@@ -136,10 +133,6 @@ class DefaultAppContainer(
 
     override val topicFeedSource: TopicFeedSource by lazy {
         CatalogTopicFeedSource(catalogRepository)
-    }
-
-    override val shortsFeedRepository: ShortsFeedRepository by lazy {
-        ShortsFeedRepository(catalogRepository, searchHistoryRepository, historyRepository)
     }
 
     override val fullscreenHostHandlerFactory: FullscreenHostHandlerFactory =

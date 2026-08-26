@@ -41,11 +41,13 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import coil.compose.AsyncImage
 import com.hpre.app.model.ContentKey
+import com.hpre.app.R
 import com.hpre.app.repository.HistoryRepository
 import com.hpre.app.repository.WatchHistoryItem
 
@@ -63,7 +65,7 @@ fun HistoryScreen(
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("Watch History") },
+                title = { Text(stringResource(R.string.screen_history)) },
                 navigationIcon = {
                     IconButton(
                         onClick = onNavigateBack,
@@ -71,7 +73,7 @@ fun HistoryScreen(
                     ) {
                         Icon(
                             imageVector = Icons.AutoMirrored.Filled.ArrowBack,
-                            contentDescription = "Back"
+                            contentDescription = stringResource(R.string.action_back)
                         )
                     }
                 },
@@ -83,7 +85,7 @@ fun HistoryScreen(
                         ) {
                             Icon(
                                 imageVector = Icons.Default.DeleteSweep,
-                                contentDescription = "Clear history"
+                                contentDescription = stringResource(R.string.history_clear)
                             )
                         }
                     }
@@ -101,7 +103,7 @@ fun HistoryScreen(
                 contentAlignment = Alignment.Center
             ) {
                 Text(
-                    text = "No watch history",
+                    text = stringResource(R.string.history_empty),
                     style = MaterialTheme.typography.bodyLarge,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
@@ -128,8 +130,8 @@ fun HistoryScreen(
     if (showClearConfirmDialog) {
         AlertDialog(
             onDismissRequest = { showClearConfirmDialog = false },
-            title = { Text("Clear Watch History?") },
-            text = { Text("This will remove all video watch records from this device.") },
+            title = { Text(stringResource(R.string.history_clear_title)) },
+            text = { Text(stringResource(R.string.history_clear_message)) },
             confirmButton = {
                 TextButton(
                     onClick = {
@@ -138,12 +140,12 @@ fun HistoryScreen(
                     },
                     modifier = Modifier.testTag("history_clear_dialog_confirm")
                 ) {
-                    Text("Clear", color = MaterialTheme.colorScheme.error)
+                    Text(stringResource(R.string.action_delete), color = MaterialTheme.colorScheme.error)
                 }
             },
             dismissButton = {
                 TextButton(onClick = { showClearConfirmDialog = false }) {
-                    Text("Cancel")
+                    Text(stringResource(R.string.action_cancel))
                 }
             }
         )
@@ -219,7 +221,7 @@ private fun HistoryItemRow(
                 val min = posSec / 60
                 val sec = posSec % 60
                 Text(
-                    text = "Resume at %d:%02d".format(min, sec),
+                    text = stringResource(R.string.history_resume_at, min, sec),
                     style = MaterialTheme.typography.labelSmall,
                     color = MaterialTheme.colorScheme.primary
                 )
@@ -231,7 +233,7 @@ private fun HistoryItemRow(
         ) {
             Icon(
                 imageVector = Icons.Default.Delete,
-                contentDescription = "Remove from history",
+                contentDescription = stringResource(R.string.history_remove),
                 tint = MaterialTheme.colorScheme.onSurfaceVariant
             )
         }

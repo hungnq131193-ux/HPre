@@ -67,6 +67,8 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.res.pluralStringResource
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -76,6 +78,7 @@ import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
 import androidx.lifecycle.SavedStateHandle
 import coil.compose.AsyncImage
+import com.hpre.app.R
 import com.hpre.app.model.ContentKey
 import com.hpre.app.model.VideoDetails
 import com.hpre.app.ui.common.ErrorPane
@@ -349,7 +352,7 @@ fun WatchScreen(
                         ) {
                             Icon(
                                 imageVector = Icons.AutoMirrored.Filled.ArrowBack,
-                                contentDescription = "Back",
+                                contentDescription = stringResource(R.string.action_back),
                                 tint = Color.White
                             )
                         }
@@ -438,10 +441,11 @@ fun WatchMetadataContent(
         Spacer(modifier = Modifier.height(6.dp))
 
         // View count & date metadata
-        val viewsText = details.viewCount?.let { "$it views" } ?: ""
-        val dateText = details.publishedTimestamp?.let { "• Timestamp: $it" } ?: ""
+        val viewsText = details.viewCount?.let {
+            pluralStringResource(R.plurals.watch_view_count, it.toInt(), it)
+        } ?: ""
         Text(
-            text = "$viewsText $dateText".trim(),
+            text = viewsText,
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant
         )
@@ -458,20 +462,26 @@ fun WatchMetadataContent(
             if (details.channelKey != null) {
                 AssistChip(
                     onClick = onToggleSubscription,
-                    label = { Text(if (isSubscribed) "Following locally" else "Follow locally") },
+                    label = {
+                        Text(
+                            stringResource(
+                                if (isSubscribed) R.string.watch_following else R.string.watch_follow
+                            )
+                        )
+                    },
                     modifier = Modifier.testTag("watch_follow_button")
                 )
             }
             AssistChip(
                 onClick = { showPlaylistSheet = true },
-                label = { Text("Save") },
+                label = { Text(stringResource(R.string.watch_save)) },
                 leadingIcon = { Icon(Icons.Default.BookmarkBorder, contentDescription = null) },
                 modifier = Modifier.testTag("watch_add_playlist_button")
             )
             if (ShareUrlValidator.isValid(details.canonicalUrl)) {
                 AssistChip(
                     onClick = { shareLauncher.launchShare(details.title, details.canonicalUrl) },
-                    label = { Text("Share") },
+                    label = { Text(stringResource(R.string.watch_share)) },
                     leadingIcon = { Icon(Icons.Default.Share, contentDescription = null) },
                     modifier = Modifier.testTag("watch_share_button")
                 )
@@ -494,7 +504,7 @@ fun WatchMetadataContent(
                 if (!details.channelAvatarUrl.isNullOrBlank()) {
                     AsyncImage(
                         model = details.channelAvatarUrl,
-                        contentDescription = "Channel Avatar",
+                        contentDescription = stringResource(R.string.watch_channel_avatar),
                         contentScale = ContentScale.Crop,
                         modifier = Modifier
                             .size(36.dp)
@@ -505,7 +515,7 @@ fun WatchMetadataContent(
 
                 Column {
                     Text(
-                        text = details.channelName ?: "Unknown Channel",
+                        text = details.channelName ?: stringResource(R.string.watch_unknown_channel),
                         style = MaterialTheme.typography.bodyMedium,
                         fontWeight = FontWeight.SemiBold,
                         maxLines = 1,
@@ -536,13 +546,15 @@ fun WatchMetadataContent(
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         Text(
-                            text = "Description",
+                            text = stringResource(R.string.watch_description),
                             style = MaterialTheme.typography.labelLarge,
                             fontWeight = FontWeight.SemiBold
                         )
                         Icon(
                             imageVector = if (isDescriptionExpanded) Icons.Default.KeyboardArrowUp else Icons.Default.KeyboardArrowDown,
-                            contentDescription = if (isDescriptionExpanded) "Collapse" else "Expand"
+                            contentDescription = stringResource(
+                                if (isDescriptionExpanded) R.string.watch_collapse else R.string.watch_expand
+                            )
                         )
                     }
 
@@ -600,13 +612,20 @@ fun AddToPlaylistDialog(
 
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text(if (isCreatingNew) "Create & Add to Playlist" else "Add to Playlist") },
+        title = {
+            Text(
+                stringResource(
+                    if (isCreatingNew) R.string.watch_create_and_add_playlist
+                    else R.string.watch_add_to_playlist
+                )
+            )
+        },
         text = {
             if (isCreatingNew) {
                 androidx.compose.material3.OutlinedTextField(
                     value = newTitle,
                     onValueChange = { newTitle = it },
-                    label = { Text("Playlist Title") },
+                    label = { Text(stringResource(R.string.watch_playlist_title)) },
                     singleLine = true,
                     modifier = Modifier.fillMaxWidth().testTag("watch_playlist_new_title_input")
                 )
@@ -614,7 +633,7 @@ fun AddToPlaylistDialog(
                 Column(modifier = Modifier.fillMaxWidth()) {
                     if (playlists.isEmpty()) {
                         Text(
-                            text = "No local playlists yet. Create one below!",
+                            text = stringResource(R.string.watch_no_playlists),
                             style = MaterialTheme.typography.bodyMedium,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                             modifier = Modifier.padding(bottom = 12.dp)
@@ -646,7 +665,7 @@ fun AddToPlaylistDialog(
                         onClick = { isCreatingNew = true },
                         modifier = Modifier.fillMaxWidth().testTag("watch_create_new_playlist_button")
                     ) {
-                        Text("+ New Playlist")
+                        Text(stringResource(R.string.watch_new_playlist))
                     }
                 }
             }
@@ -662,13 +681,13 @@ fun AddToPlaylistDialog(
                     enabled = newTitle.isNotBlank(),
                     modifier = Modifier.testTag("watch_create_playlist_confirm")
                 ) {
-                    Text("Create & Save")
+                    Text(stringResource(R.string.watch_create_and_save))
                 }
             }
         },
         dismissButton = {
             TextButton(onClick = onDismiss) {
-                Text("Cancel")
+                Text(stringResource(R.string.action_cancel))
             }
         }
     )

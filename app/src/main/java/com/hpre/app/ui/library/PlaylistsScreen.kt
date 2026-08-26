@@ -41,9 +41,12 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.res.pluralStringResource
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.hpre.app.repository.LocalPlaylist
+import com.hpre.app.R
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -62,7 +65,7 @@ fun PlaylistsScreen(
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("Playlists") },
+                title = { Text(stringResource(R.string.screen_playlists)) },
                 navigationIcon = {
                     IconButton(
                         onClick = onNavigateBack,
@@ -70,7 +73,7 @@ fun PlaylistsScreen(
                     ) {
                         Icon(
                             imageVector = Icons.AutoMirrored.Filled.ArrowBack,
-                            contentDescription = "Back"
+                            contentDescription = stringResource(R.string.action_back)
                         )
                     }
                 },
@@ -81,7 +84,7 @@ fun PlaylistsScreen(
                     ) {
                         Icon(
                             imageVector = Icons.Default.Add,
-                            contentDescription = "Create playlist"
+                            contentDescription = stringResource(R.string.playlist_create)
                         )
                     }
                 },
@@ -98,7 +101,7 @@ fun PlaylistsScreen(
                 contentAlignment = Alignment.Center
             ) {
                 Text(
-                    text = "No playlists",
+                    text = stringResource(R.string.playlists_empty),
                     style = MaterialTheme.typography.bodyLarge,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
@@ -193,7 +196,11 @@ private fun PlaylistManagementRow(
             )
             Spacer(modifier = Modifier.height(2.dp))
             Text(
-                text = "${playlist.entryCount} videos",
+                text = pluralStringResource(
+                    R.plurals.video_count,
+                    playlist.entryCount,
+                    playlist.entryCount
+                ),
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
@@ -204,7 +211,7 @@ private fun PlaylistManagementRow(
         ) {
             Icon(
                 imageVector = Icons.Default.Edit,
-                contentDescription = "Rename",
+                contentDescription = stringResource(R.string.playlist_rename),
                 tint = MaterialTheme.colorScheme.onSurfaceVariant
             )
         }
@@ -214,7 +221,7 @@ private fun PlaylistManagementRow(
         ) {
             Icon(
                 imageVector = Icons.Default.Delete,
-                contentDescription = "Delete",
+                contentDescription = stringResource(R.string.action_delete),
                 tint = MaterialTheme.colorScheme.error
             )
         }
@@ -231,12 +238,12 @@ fun RenamePlaylistDialog(
 
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text("Rename Playlist") },
+        title = { Text(stringResource(R.string.playlist_rename_title)) },
         text = {
             OutlinedTextField(
                 value = title,
                 onValueChange = { title = it },
-                label = { Text("Title") },
+                label = { Text(stringResource(R.string.playlist_title)) },
                 singleLine = true,
                 modifier = Modifier
                     .fillMaxWidth()
@@ -253,12 +260,12 @@ fun RenamePlaylistDialog(
                 enabled = title.isNotBlank(),
                 modifier = Modifier.testTag("playlist_rename_dialog_confirm")
             ) {
-                Text("Rename")
+                Text(stringResource(R.string.playlist_rename))
             }
         },
         dismissButton = {
             TextButton(onClick = onDismiss) {
-                Text("Cancel")
+                Text(stringResource(R.string.action_cancel))
             }
         }
     )
@@ -272,19 +279,19 @@ fun DeletePlaylistDialog(
 ) {
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text("Delete \"$playlistTitle\"?") },
-        text = { Text("This will permanently remove this local playlist and its video entries.") },
+        title = { Text(stringResource(R.string.playlist_delete_title, playlistTitle)) },
+        text = { Text(stringResource(R.string.playlist_delete_message)) },
         confirmButton = {
             TextButton(
                 onClick = onDelete,
                 modifier = Modifier.testTag("playlist_delete_dialog_confirm")
             ) {
-                Text("Delete", color = MaterialTheme.colorScheme.error)
+                Text(stringResource(R.string.action_delete), color = MaterialTheme.colorScheme.error)
             }
         },
         dismissButton = {
             TextButton(onClick = onDismiss) {
-                Text("Cancel")
+                Text(stringResource(R.string.action_cancel))
             }
         }
     )

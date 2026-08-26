@@ -22,18 +22,23 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import coil.compose.AsyncImage
 import com.hpre.app.model.ContentKey
 import com.hpre.app.model.VideoSummary
+import com.hpre.app.R
+import com.hpre.app.core.designsystem.HPreShapes
+import com.hpre.app.core.designsystem.HPreSpacing
 
 @Composable
 fun VideoCard(
@@ -46,16 +51,16 @@ fun VideoCard(
             .fillMaxWidth()
             .clickable { onClick(video.key) }
             .testTag("video_card_${video.key.nativeId}")
-            .padding(bottom = 16.dp)
+            .padding(bottom = HPreSpacing.Large)
     ) {
         // Thumbnail container with 16:9 ratio
         Box(
             modifier = Modifier
-                .padding(horizontal = 12.dp)
+                .padding(horizontal = HPreSpacing.Medium)
                 .fillMaxWidth()
                 .aspectRatio(16f / 9f)
-                .clip(RoundedCornerShape(12.dp))
-                .background(MaterialTheme.colorScheme.surfaceVariant)
+                .clip(RoundedCornerShape(HPreShapes.Card))
+                .background(MaterialTheme.colorScheme.surfaceContainerHighest)
         ) {
             if (video.thumbnailUrl != null) {
                 AsyncImage(
@@ -84,25 +89,25 @@ fun VideoCard(
             val durationText = VideoFormat.duration(video.durationSeconds)
             when {
                 video.isLive -> VideoBadge(
-                    text = "TRỰC TIẾP",
+                    text = stringResource(R.string.video_live),
                     background = MaterialTheme.colorScheme.error,
-                    modifier = Modifier.align(Alignment.BottomEnd).padding(8.dp)
+                    modifier = Modifier.align(Alignment.BottomEnd).padding(HPreSpacing.Small)
                 )
                 durationText.isNotEmpty() -> VideoBadge(
                     text = durationText,
                     background = Color.Black.copy(alpha = 0.8f),
-                    modifier = Modifier.align(Alignment.BottomEnd).padding(8.dp)
+                    modifier = Modifier.align(Alignment.BottomEnd).padding(HPreSpacing.Small)
                 )
             }
         }
 
-        Spacer(modifier = Modifier.height(10.dp))
+        Spacer(modifier = Modifier.height(HPreSpacing.Small))
 
         // Info Row (Avatar + Title/Metadata)
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(horizontal = 12.dp)
+                .padding(horizontal = HPreSpacing.Medium)
         ) {
             // Channel Avatar
             if (video.channelAvatarUrl != null) {
@@ -123,7 +128,7 @@ fun VideoCard(
                 )
             }
 
-            Spacer(modifier = Modifier.width(12.dp))
+            Spacer(modifier = Modifier.width(HPreSpacing.Medium))
 
             Column(modifier = Modifier.weight(1f)) {
                 Text(
@@ -136,7 +141,8 @@ fun VideoCard(
                 )
 
                 val viewsText = VideoFormat.viewCount(video.viewCount)
-                val ageText = VideoFormat.age(video.publishedTimestamp, System.currentTimeMillis())
+                val now = remember(video.key, video.publishedTimestamp) { System.currentTimeMillis() }
+                val ageText = VideoFormat.age(video.publishedTimestamp, now)
                 val metaParts = listOfNotNull(
                     video.channelName?.takeIf(String::isNotBlank),
                     viewsText.takeIf(String::isNotBlank),
@@ -166,7 +172,7 @@ private fun VideoBadge(
 ) {
     Box(
         modifier = modifier
-            .background(background, RoundedCornerShape(4.dp))
+            .background(background, RoundedCornerShape(HPreShapes.Badge))
             .padding(horizontal = 6.dp, vertical = 2.dp)
     ) {
         Text(

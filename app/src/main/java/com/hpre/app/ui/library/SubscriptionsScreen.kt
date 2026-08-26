@@ -16,19 +16,14 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Notifications
 import androidx.compose.material3.ButtonDefaults
-import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
-import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
-import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.runtime.getValue
@@ -37,58 +32,38 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import coil.compose.AsyncImage
 import com.hpre.app.model.ContentKey
+import com.hpre.app.R
 import com.hpre.app.repository.LocalSubscription
 import com.hpre.app.ui.common.ErrorPane
 import com.hpre.app.ui.common.LoadingPane
 import com.hpre.app.ui.common.VideoCard
 
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun SubscriptionsScreen(
     viewModel: LibraryViewModel,
     feedViewModel: SubscriptionFeedViewModel? = null,
     onChannelClick: (ContentKey) -> Unit,
     onVideoClick: (ContentKey) -> Unit = {},
-    onNavigateBack: () -> Unit,
     modifier: Modifier = Modifier
 ) {
     val subscriptionsList by viewModel.subscriptions.collectAsStateWithLifecycle()
     val feedState by (feedViewModel?.state ?: kotlinx.coroutines.flow.MutableStateFlow<SubscriptionFeedUiState>(SubscriptionFeedUiState.Empty)).collectAsStateWithLifecycle()
 
-    Scaffold(
-        topBar = {
-            TopAppBar(
-                title = { Text("Subscriptions") },
-                navigationIcon = {
-                    IconButton(
-                        onClick = onNavigateBack,
-                        modifier = Modifier.testTag("subscriptions_back_button")
-                    ) {
-                        Icon(
-                            imageVector = Icons.AutoMirrored.Filled.ArrowBack,
-                            contentDescription = "Back"
-                        )
-                    }
-                },
-                modifier = Modifier.testTag("subscriptions_top_bar")
-            )
-        },
-        modifier = modifier.fillMaxSize().testTag("subscriptions_screen")
-    ) { innerPadding ->
+    Box(modifier = modifier.fillMaxSize().testTag("subscriptions_screen")) {
         if (subscriptionsList.isEmpty()) {
             Box(
                 modifier = Modifier
-                    .fillMaxSize()
-                    .padding(innerPadding),
+                    .fillMaxSize(),
                 contentAlignment = Alignment.Center
             ) {
                 Text(
-                    text = "No subscriptions",
+                    text = stringResource(R.string.subscriptions_empty),
                     style = MaterialTheme.typography.bodyLarge,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
@@ -97,7 +72,6 @@ fun SubscriptionsScreen(
             LazyColumn(
                 modifier = Modifier
                     .fillMaxSize()
-                    .padding(innerPadding)
                     .testTag("subscriptions_list"),
                 verticalArrangement = Arrangement.spacedBy(8.dp)
             ) {
@@ -118,7 +92,7 @@ fun SubscriptionsScreen(
                         if (feed.failedChannels.isNotEmpty()) {
                             item {
                                 Text(
-                                    "Some local subscriptions could not be refreshed.",
+                                    stringResource(R.string.subscriptions_partial_error),
                                     color = MaterialTheme.colorScheme.error,
                                     modifier = Modifier.padding(16.dp).testTag("subscription_feed_partial_error")
                                 )
@@ -183,7 +157,7 @@ private fun SubscriptionListItem(
             )
             Spacer(modifier = Modifier.height(2.dp))
             Text(
-                text = "Followed locally",
+                text = stringResource(R.string.subscription_followed_local),
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.primary
             )
@@ -195,7 +169,7 @@ private fun SubscriptionListItem(
             ),
             modifier = Modifier.testTag("unsubscribe_button_${sub.channelKey.nativeId}")
         ) {
-            Text("Following locally")
+            Text(stringResource(R.string.subscription_following_local))
         }
     }
 }

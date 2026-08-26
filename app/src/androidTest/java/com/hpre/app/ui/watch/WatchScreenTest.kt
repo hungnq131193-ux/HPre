@@ -15,6 +15,7 @@ import androidx.compose.ui.test.hasTestTag
 import androidx.compose.ui.test.hasText
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onAllNodesWithText
+import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
@@ -326,6 +327,11 @@ class WatchScreenTest {
             composeTestRule.onAllNodes(androidx.compose.ui.test.hasTestTag("player_container"))
                 .fetchSemanticsNodes().isNotEmpty()
         }
+
+        // Controls expose localized accessibility descriptions.
+        composeTestRule.onNodeWithContentDescription("Tạm dừng").assertIsDisplayed()
+        composeTestRule.onNodeWithContentDescription("Tua lùi 10 giây").assertIsDisplayed()
+        composeTestRule.onNodeWithContentDescription("Tua tới 10 giây").assertIsDisplayed()
 
         // Test play/pause toggle dispatch
         composeTestRule.onNodeWithTag("control_play_pause").assertIsDisplayed()

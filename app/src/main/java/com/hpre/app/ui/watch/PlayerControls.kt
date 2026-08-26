@@ -46,11 +46,13 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.setProgress
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.hpre.app.R
 import com.hpre.app.player.PlaybackState
 import com.hpre.app.player.PlaybackStreamType
 import com.hpre.app.player.QualityOption
@@ -143,7 +145,7 @@ fun PlayerControlsOverlay(
                 ) {
                     Icon(
                         imageVector = Icons.Default.Replay10,
-                        contentDescription = "Rewind 10 seconds",
+                        contentDescription = stringResource(R.string.action_rewind_10),
                         tint = Color.White,
                         modifier = Modifier.size(36.dp)
                     )
@@ -157,7 +159,9 @@ fun PlayerControlsOverlay(
                 ) {
                     Icon(
                         imageVector = if (playbackState.isPlaying) Icons.Default.Pause else Icons.Default.PlayArrow,
-                        contentDescription = if (playbackState.isPlaying) "Pause" else "Play",
+                        contentDescription = stringResource(
+                            if (playbackState.isPlaying) R.string.action_pause else R.string.action_play
+                        ),
                         tint = Color.White,
                         modifier = Modifier.size(52.dp)
                     )
@@ -169,7 +173,7 @@ fun PlayerControlsOverlay(
                 ) {
                     Icon(
                         imageVector = Icons.Default.Forward10,
-                        contentDescription = "Fast forward 10 seconds",
+                        contentDescription = stringResource(R.string.action_forward_10),
                         tint = Color.White,
                         modifier = Modifier.size(36.dp)
                     )
@@ -191,7 +195,10 @@ fun PlayerControlsOverlay(
                     ) {
                         Icon(
                             imageVector = Icons.Default.Speed,
-                            contentDescription = "Playback Speed (${playbackState.playbackSpeed}x)",
+                            contentDescription = stringResource(
+                                R.string.playback_speed,
+                                playbackState.playbackSpeed.toString()
+                            ),
                             tint = Color.White
                         )
                     }
@@ -228,7 +235,11 @@ fun PlayerControlsOverlay(
                         ) {
                             Icon(
                                 imageVector = Icons.Default.HighQuality,
-                                contentDescription = "Quality Selection (${playbackState.selectedQuality?.label ?: "Auto"})",
+                                contentDescription = stringResource(
+                                    R.string.playback_quality,
+                                    playbackState.selectedQuality?.label
+                                        ?: stringResource(R.string.quality_auto)
+                                ),
                                 tint = Color.White
                             )
                         }
@@ -350,7 +361,10 @@ fun PlayerControlsOverlay(
                     ) {
                         Icon(
                             imageVector = if (isFullscreen) Icons.Default.FullscreenExit else Icons.Default.Fullscreen,
-                            contentDescription = if (isFullscreen) "Exit Fullscreen" else "Enter Fullscreen",
+                            contentDescription = stringResource(
+                                if (isFullscreen) R.string.action_exit_fullscreen
+                                else R.string.action_enter_fullscreen
+                            ),
                             tint = Color.White
                         )
                     }

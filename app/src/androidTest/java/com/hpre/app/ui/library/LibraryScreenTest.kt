@@ -304,8 +304,7 @@ class LibraryScreenTest {
             HPreTheme {
                 SubscriptionsScreen(
                     viewModel = viewModel,
-                    onChannelClick = {},
-                    onNavigateBack = {}
+                    onChannelClick = {}
                 )
             }
         }
@@ -317,7 +316,7 @@ class LibraryScreenTest {
         composeRule.onNodeWithTag("unsubscribe_button_c1").performClick()
         composeRule.waitForIdle()
         assertTrue(subRepo.subFlow.value.isEmpty())
-        composeRule.onNodeWithText("No subscriptions").assertIsDisplayed()
+        composeRule.onNodeWithText("Chưa theo dõi kênh nào").assertIsDisplayed()
     }
 
     @Test

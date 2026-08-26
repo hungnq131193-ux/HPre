@@ -7,11 +7,14 @@ import android.os.Build
 import android.os.Bundle
 import android.util.Rational
 import androidx.activity.ComponentActivity
+import androidx.activity.SystemBarStyle
 import androidx.activity.compose.setContent
+import androidx.activity.enableEdgeToEdge
 import androidx.annotation.RequiresApi
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.SideEffect
 import androidx.compose.ui.Modifier
 import com.hpre.app.core.designsystem.HPreTheme
 import com.hpre.app.navigation.RootScaffold
@@ -28,6 +31,7 @@ open class MainActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        enableEdgeToEdge()
         val initialUiState = app.playbackUiCoordinator.state.value
         val activeController = playerController
         if (activeController is com.hpre.app.player.SessionPlayerController) {
@@ -42,6 +46,27 @@ open class MainActivity : ComponentActivity() {
                 com.hpre.app.settings.AppTheme.SYSTEM -> androidx.compose.foundation.isSystemInDarkTheme()
                 com.hpre.app.settings.AppTheme.LIGHT -> false
                 com.hpre.app.settings.AppTheme.DARK -> true
+            }
+
+            SideEffect {
+                enableEdgeToEdge(
+                    statusBarStyle = if (darkTheme) {
+                        SystemBarStyle.dark(android.graphics.Color.TRANSPARENT)
+                    } else {
+                        SystemBarStyle.light(
+                            android.graphics.Color.TRANSPARENT,
+                            android.graphics.Color.TRANSPARENT
+                        )
+                    },
+                    navigationBarStyle = if (darkTheme) {
+                        SystemBarStyle.dark(android.graphics.Color.TRANSPARENT)
+                    } else {
+                        SystemBarStyle.light(
+                            android.graphics.Color.TRANSPARENT,
+                            android.graphics.Color.TRANSPARENT
+                        )
+                    }
+                )
             }
 
             HPreTheme(darkTheme = darkTheme) {

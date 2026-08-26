@@ -1,8 +1,5 @@
 package com.hpre.app.ui.player
 
-import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.animation.slideInVertically
-import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
@@ -25,7 +22,6 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -35,10 +31,14 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
+import com.hpre.app.R
+import com.hpre.app.core.designsystem.HPreShapes
+import com.hpre.app.core.designsystem.HPreSpacing
+import com.hpre.app.core.designsystem.MinimumTouchTarget
 import com.hpre.app.model.ContentKey
 import com.hpre.app.player.PlaybackState
 import com.hpre.app.player.PlayerController
@@ -58,9 +58,9 @@ fun MiniPlayer(
     }
 
     Card(
-        shape = RoundedCornerShape(topStart = 12.dp, topEnd = 12.dp),
+        shape = RoundedCornerShape(topStart = HPreShapes.Card, topEnd = HPreShapes.Card),
         colors = CardDefaults.cardColors(
-            containerColor = MaterialTheme.colorScheme.surfaceVariant
+            containerColor = MaterialTheme.colorScheme.surfaceContainerHigh
         ),
         elevation = CardDefaults.cardElevation(defaultElevation = 8.dp),
         modifier = modifier
@@ -95,7 +95,7 @@ fun MiniPlayer(
                 verticalAlignment = Alignment.CenterVertically,
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(horizontal = 12.dp, vertical = 8.dp)
+                    .padding(horizontal = HPreSpacing.Medium, vertical = HPreSpacing.Small)
             ) {
                 Box(
                     modifier = Modifier
@@ -113,15 +113,15 @@ fun MiniPlayer(
                     )
                 }
 
-                Spacer(modifier = Modifier.width(12.dp))
+                Spacer(modifier = Modifier.width(HPreSpacing.Medium))
 
                 Column(
                     modifier = Modifier
                         .weight(1f)
-                        .padding(end = 8.dp)
+                        .padding(end = HPreSpacing.Small)
                 ) {
                     Text(
-                        text = state.title ?: "HPre video",
+                        text = state.title ?: stringResource(R.string.video_fallback_title),
                         style = MaterialTheme.typography.bodyMedium,
                         fontWeight = FontWeight.SemiBold,
                         maxLines = 1,
@@ -129,7 +129,9 @@ fun MiniPlayer(
                         modifier = Modifier.testTag("mini_player_title")
                     )
                     Text(
-                        text = if (state.isPlaying) "Playing" else "Paused",
+                        text = stringResource(
+                            if (state.isPlaying) R.string.status_playing else R.string.status_paused
+                        ),
                         style = MaterialTheme.typography.labelSmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
@@ -138,27 +140,27 @@ fun MiniPlayer(
                 IconButton(
                     onClick = { playerController.playPause() },
                     modifier = Modifier
-                        .size(36.dp)
+                        .size(MinimumTouchTarget)
                         .testTag("mini_player_play_pause_button")
                 ) {
                     Icon(
                         imageVector = if (state.isPlaying) Icons.Default.Pause else Icons.Default.PlayArrow,
-                        contentDescription = if (state.isPlaying) "Pause" else "Play",
+                        contentDescription = stringResource(
+                            if (state.isPlaying) R.string.action_pause else R.string.action_play
+                        ),
                         tint = MaterialTheme.colorScheme.onSurfaceVariant
                     )
                 }
 
-                Spacer(modifier = Modifier.width(4.dp))
-
                 IconButton(
                     onClick = onDismiss,
                     modifier = Modifier
-                        .size(36.dp)
+                        .size(MinimumTouchTarget)
                         .testTag("mini_player_close_button")
                 ) {
                     Icon(
                         imageVector = Icons.Default.Close,
-                        contentDescription = "Close Mini Player",
+                        contentDescription = stringResource(R.string.mini_player_close),
                         tint = MaterialTheme.colorScheme.onSurfaceVariant
                     )
                 }

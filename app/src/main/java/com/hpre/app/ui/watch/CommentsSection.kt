@@ -10,7 +10,9 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
+import com.hpre.app.R
 import com.hpre.app.model.CommentPage
 import com.hpre.app.ui.common.AsyncState
 import com.hpre.app.ui.common.EmptyPane
@@ -25,10 +27,13 @@ fun CommentsSection(
     modifier: Modifier = Modifier
 ) {
     Column(modifier.fillMaxWidth().testTag("comments_section")) {
-        Text("Comments")
+        Text(stringResource(R.string.screen_comments))
         when (state) {
             AsyncState.Loading -> LoadingPane(testTag = "comments_loading")
-            AsyncState.Empty -> EmptyPane("Comments unavailable or empty", testTag = "comments_empty")
+            AsyncState.Empty -> EmptyPane(
+                stringResource(R.string.comments_empty),
+                testTag = "comments_empty"
+            )
             is AsyncState.Error -> ErrorPane(state.error, onRetry, testTag = "comments_error")
             is AsyncState.Content -> {
                 state.value.comments.forEach { comment ->
@@ -40,7 +45,7 @@ fun CommentsSection(
                 }
                 if (state.value.nextPageToken != null) {
                     Button(onClick = onLoadMore, modifier = Modifier.testTag("comments_load_more")) {
-                        Text("Load more")
+                        Text(stringResource(R.string.comments_load_more))
                     }
                 }
             }

@@ -21,6 +21,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
@@ -30,6 +31,7 @@ import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.navArgument
 import com.hpre.app.di.AppContainer
+import com.hpre.app.R
 import com.hpre.app.model.ContentKey
 import com.hpre.app.ui.common.UnavailablePane
 import com.hpre.app.ui.home.HomeScreen
@@ -85,18 +87,6 @@ fun HPreNavHost(
             )
         }
 
-        composable(Screen.Shorts.route) {
-            val shortsViewModel: com.hpre.app.ui.shorts.ShortsViewModel = viewModel(
-                factory = com.hpre.app.ui.shorts.ShortsViewModel.provideFactory(
-                    container.shortsFeedRepository,
-                    container.videoService,
-                    container.createPlayerController(),
-                    container.playlistRepository
-                )
-            )
-            com.hpre.app.ui.shorts.ShortsScreen(shortsViewModel)
-        }
-
         composable(Screen.Subscriptions.route) {
             val libraryViewModel: com.hpre.app.ui.library.LibraryViewModel = viewModel(
                 factory = com.hpre.app.ui.library.LibraryViewModel.provideFactory(
@@ -119,7 +109,6 @@ fun HPreNavHost(
                 onChannelClick = { key ->
                     navController.navigate(Screen.Channel.createRoute(key))
                 },
-                onNavigateBack = { navController.popBackStack() },
                 onVideoClick = { navController.navigate(Screen.Watch.createRoute(it)) }
             )
         }
@@ -214,7 +203,7 @@ fun HPreNavHost(
                 entry.arguments?.getString("nativeId")
             )
             if (key == null) {
-                UnavailablePane("Channel")
+                UnavailablePane(stringResource(R.string.screen_channel))
             } else {
                 val model: com.hpre.app.ui.channel.ChannelViewModel = viewModel(
                     factory = com.hpre.app.ui.channel.ChannelViewModel.provideFactory(container.videoService)
@@ -240,7 +229,7 @@ fun HPreNavHost(
             val key = Screen.ChannelUnavailable.parseNavArgument(rawServiceId, rawNativeId)
             val displayId = key?.nativeId ?: ""
             UnavailablePane(
-                featureName = "Channel ($displayId) Unavailable",
+                featureName = stringResource(R.string.channel_unavailable, displayId),
                 modifier = Modifier.testTag("channel_unavailable_screen")
             )
         }
@@ -257,7 +246,7 @@ fun HPreNavHost(
             val key = Screen.PlaylistUnavailable.parseNavArgument(rawServiceId, rawNativeId)
             val displayId = key?.nativeId ?: ""
             UnavailablePane(
-                featureName = "Playlist ($displayId) Unavailable",
+                featureName = stringResource(R.string.playlist_unavailable, displayId),
                 modifier = Modifier.testTag("playlist_unavailable_screen")
             )
         }
@@ -275,7 +264,7 @@ fun HPreNavHost(
 
             if (key == null) {
                 UnavailablePane(
-                    featureName = "Video Unavailable",
+                    featureName = stringResource(R.string.video_unavailable),
                     modifier = Modifier.testTag("invalid_watch_screen")
                 )
             } else {

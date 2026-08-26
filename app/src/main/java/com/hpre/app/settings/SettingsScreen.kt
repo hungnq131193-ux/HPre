@@ -34,8 +34,10 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import com.hpre.app.R
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -54,7 +56,7 @@ fun SettingsScreen(
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("Settings") },
+                title = { Text(stringResource(R.string.action_settings)) },
                 navigationIcon = {
                     IconButton(
                         onClick = onNavigateBack,
@@ -62,7 +64,7 @@ fun SettingsScreen(
                     ) {
                         Icon(
                             imageVector = Icons.AutoMirrored.Filled.ArrowBack,
-                            contentDescription = "Back"
+                            contentDescription = stringResource(R.string.action_back)
                         )
                     }
                 },
@@ -78,14 +80,14 @@ fun SettingsScreen(
                 .verticalScroll(rememberScrollState())
         ) {
             // General / Appearance Section
-            SettingsSectionHeader("Appearance")
+            SettingsSectionHeader(stringResource(R.string.settings_appearance))
 
             SettingsClickableItem(
-                title = "Theme",
+                title = stringResource(R.string.settings_theme),
                 subtitle = when (settings.theme) {
-                    AppTheme.SYSTEM -> "System default"
-                    AppTheme.LIGHT -> "Light"
-                    AppTheme.DARK -> "Dark"
+                    AppTheme.SYSTEM -> stringResource(R.string.settings_theme_system)
+                    AppTheme.LIGHT -> stringResource(R.string.settings_theme_light)
+                    AppTheme.DARK -> stringResource(R.string.settings_theme_dark)
                 },
                 tag = "setting_theme_item",
                 onClick = { showThemeDialog = true }
@@ -94,34 +96,34 @@ fun SettingsScreen(
             HorizontalDivider()
 
             // Playback Section
-            SettingsSectionHeader("Playback")
+            SettingsSectionHeader(stringResource(R.string.settings_playback))
 
             SettingsSwitchItem(
-                title = "Background playback",
-                subtitle = "Keep playing audio when app is in background",
+                title = stringResource(R.string.settings_background_playback),
+                subtitle = stringResource(R.string.settings_background_playback_summary),
                 checked = settings.backgroundPlaybackEnabled,
                 tag = "setting_background_playback_switch",
                 onCheckedChange = { viewModel.setBackgroundPlayback(it) }
             )
 
             SettingsSwitchItem(
-                title = "Picture-in-Picture",
-                subtitle = "Automatically enter PiP mode when leaving Watch screen",
+                title = stringResource(R.string.settings_pip),
+                subtitle = stringResource(R.string.settings_pip_summary),
                 checked = settings.pipEnabled,
                 tag = "setting_pip_switch",
                 onCheckedChange = { viewModel.setPip(it) }
             )
 
             SettingsClickableItem(
-                title = "Default speed",
+                title = stringResource(R.string.settings_default_speed),
                 subtitle = "${settings.defaultPlaybackSpeed}x",
                 tag = "setting_default_speed_item",
                 onClick = { showSpeedDialog = true }
             )
 
             SettingsSwitchItem(
-                title = "Autoplay next",
-                subtitle = "Automatically play next video when current finishes",
+                title = stringResource(R.string.settings_autoplay),
+                subtitle = stringResource(R.string.settings_autoplay_summary),
                 checked = settings.autoplay,
                 tag = "setting_autoplay_switch",
                 onCheckedChange = { viewModel.setAutoplay(it) }
@@ -130,18 +132,18 @@ fun SettingsScreen(
             HorizontalDivider()
 
             // Quality Section
-            SettingsSectionHeader("Video Quality")
+            SettingsSectionHeader(stringResource(R.string.settings_video_quality))
 
             SettingsClickableItem(
-                title = "Wi-Fi video quality",
-                subtitle = settings.wifiQuality.label,
+                title = stringResource(R.string.settings_wifi_quality),
+                subtitle = qualityLabel(settings.wifiQuality),
                 tag = "setting_wifi_quality_item",
                 onClick = { showWifiQualityDialog = true }
             )
 
             SettingsClickableItem(
-                title = "Mobile video quality",
-                subtitle = settings.mobileQuality.label,
+                title = stringResource(R.string.settings_mobile_quality),
+                subtitle = qualityLabel(settings.mobileQuality),
                 tag = "setting_mobile_quality_item",
                 onClick = { showMobileQualityDialog = true }
             )
@@ -149,11 +151,11 @@ fun SettingsScreen(
             HorizontalDivider()
 
             // History Section
-            SettingsSectionHeader("History & Privacy")
+            SettingsSectionHeader(stringResource(R.string.settings_history_privacy))
 
             SettingsSwitchItem(
-                title = "Record watch history",
-                subtitle = "Save watched videos locally on this device",
+                title = stringResource(R.string.settings_record_history),
+                subtitle = stringResource(R.string.settings_record_history_summary),
                 checked = settings.historyEnabled,
                 tag = "setting_history_switch",
                 onCheckedChange = { viewModel.setHistory(it) }
@@ -163,11 +165,11 @@ fun SettingsScreen(
 
     if (showThemeDialog) {
         SingleChoiceDialog(
-            title = "Choose Theme",
+            title = stringResource(R.string.settings_choose_theme),
             options = listOf(
-                AppTheme.SYSTEM to "System default",
-                AppTheme.LIGHT to "Light",
-                AppTheme.DARK to "Dark"
+                AppTheme.SYSTEM to stringResource(R.string.settings_theme_system),
+                AppTheme.LIGHT to stringResource(R.string.settings_theme_light),
+                AppTheme.DARK to stringResource(R.string.settings_theme_dark)
             ),
             selectedOption = settings.theme,
             tagPrefix = "theme_option",
@@ -181,8 +183,8 @@ fun SettingsScreen(
 
     if (showWifiQualityDialog) {
         SingleChoiceDialog(
-            title = "Wi-Fi Quality Preference",
-            options = QualityPreferenceSetting.values().map { it to it.label },
+            title = stringResource(R.string.settings_choose_wifi_quality),
+            options = QualityPreferenceSetting.values().map { it to qualityLabel(it) },
             selectedOption = settings.wifiQuality,
             tagPrefix = "wifi_quality_option",
             onOptionSelected = {
@@ -195,8 +197,8 @@ fun SettingsScreen(
 
     if (showMobileQualityDialog) {
         SingleChoiceDialog(
-            title = "Mobile Network Quality Preference",
-            options = QualityPreferenceSetting.values().map { it to it.label },
+            title = stringResource(R.string.settings_choose_mobile_quality),
+            options = QualityPreferenceSetting.values().map { it to qualityLabel(it) },
             selectedOption = settings.mobileQuality,
             tagPrefix = "mobile_quality_option",
             onOptionSelected = {
@@ -210,7 +212,7 @@ fun SettingsScreen(
     if (showSpeedDialog) {
         val speedOptions = listOf(0.5f, 0.75f, 1.0f, 1.25f, 1.5f, 2.0f)
         SingleChoiceDialog(
-            title = "Default Playback Speed",
+            title = stringResource(R.string.settings_choose_speed),
             options = speedOptions.map { it to "${it}x" },
             selectedOption = settings.defaultPlaybackSpeed,
             tagPrefix = "speed_option",
@@ -233,6 +235,16 @@ private fun SettingsSectionHeader(title: String) {
         modifier = Modifier.padding(start = 16.dp, end = 16.dp, top = 16.dp, bottom = 8.dp)
     )
 }
+
+@Composable
+private fun qualityLabel(quality: QualityPreferenceSetting): String = stringResource(
+    when (quality) {
+        QualityPreferenceSetting.AUTO -> R.string.quality_auto
+        QualityPreferenceSetting.HIGH_1080P -> R.string.quality_high
+        QualityPreferenceSetting.MEDIUM_720P -> R.string.quality_medium
+        QualityPreferenceSetting.LOW_360P -> R.string.quality_low
+    }
+)
 
 @Composable
 private fun SettingsClickableItem(
@@ -338,7 +350,7 @@ private fun <T> SingleChoiceDialog(
         },
         confirmButton = {
             TextButton(onClick = onDismiss) {
-                Text("Cancel")
+                Text(stringResource(R.string.action_cancel))
             }
         }
     )

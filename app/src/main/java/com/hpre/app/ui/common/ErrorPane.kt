@@ -15,10 +15,12 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import com.hpre.app.core.error.AppError
 import com.hpre.app.core.error.RetryPolicy
+import com.hpre.app.R
 
 sealed interface AsyncState<out T> {
     data object Loading : AsyncState<Nothing>
@@ -44,7 +46,7 @@ fun LoadingPane(
 
 @Composable
 fun EmptyPane(
-    message: String = "No items available",
+    message: String? = null,
     modifier: Modifier = Modifier,
     testTag: String = "empty_pane"
 ) {
@@ -55,7 +57,7 @@ fun EmptyPane(
         contentAlignment = Alignment.Center
     ) {
         Text(
-            text = message,
+            text = message ?: stringResource(R.string.empty_default),
             style = MaterialTheme.typography.bodyLarge,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
             textAlign = TextAlign.Center,
@@ -72,16 +74,16 @@ fun ErrorPane(
     testTag: String = "error_pane"
 ) {
     val message = when (error) {
-        AppError.NetworkError -> "Network connection error. Check your internet connection."
-        AppError.RateLimited -> "Rate limit reached. Please wait a moment."
-        AppError.ContentUnavailable -> "This content is unavailable."
-        AppError.AgeRestricted -> "This content is age-restricted."
-        AppError.GeoRestricted -> "This content is not available in your region."
-        AppError.LoginRequired -> "This content requires login which is not supported."
-        AppError.StreamExpired -> "Playback stream has expired."
-        AppError.UnsupportedFormat -> "This format is not supported."
-        AppError.ExtractionFailed -> "Failed to load content from provider."
-        AppError.Unknown -> "An unexpected error occurred."
+        AppError.NetworkError -> stringResource(R.string.error_network)
+        AppError.RateLimited -> stringResource(R.string.error_rate_limited)
+        AppError.ContentUnavailable -> stringResource(R.string.error_content_unavailable)
+        AppError.AgeRestricted -> stringResource(R.string.error_age_restricted)
+        AppError.GeoRestricted -> stringResource(R.string.error_geo_restricted)
+        AppError.LoginRequired -> stringResource(R.string.error_login_required)
+        AppError.StreamExpired -> stringResource(R.string.error_stream_expired)
+        AppError.UnsupportedFormat -> stringResource(R.string.error_unsupported_format)
+        AppError.ExtractionFailed -> stringResource(R.string.error_extraction_failed)
+        AppError.Unknown -> stringResource(R.string.error_unknown)
     }
 
     val isRetryable = RetryPolicy.isManualRetryable(error)
@@ -109,7 +111,7 @@ fun ErrorPane(
                     onClick = onRetry,
                     modifier = Modifier.testTag("error_retry_button")
                 ) {
-                    Text(text = "Retry")
+                    Text(text = stringResource(R.string.action_retry))
                 }
             }
         }
@@ -141,7 +143,7 @@ fun UnavailablePane(
             )
             Spacer(modifier = Modifier.height(8.dp))
             Text(
-                text = "This feature is not supported or not available in the current provider.",
+                text = stringResource(R.string.unavailable_message),
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 textAlign = TextAlign.Center

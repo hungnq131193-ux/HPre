@@ -38,11 +38,14 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import coil.compose.AsyncImage
 import com.hpre.app.model.ContentKey
+import com.hpre.app.R
+import com.hpre.app.core.designsystem.MinimumTouchTarget
 import com.hpre.app.repository.LocalPlaylistEntry
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -63,7 +66,9 @@ fun PlaylistDetailScreen(
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text(detail?.playlist?.title ?: "Playlist") },
+                title = {
+                    Text(detail?.playlist?.title ?: stringResource(R.string.playlist_default))
+                },
                 navigationIcon = {
                     IconButton(
                         onClick = onNavigateBack,
@@ -71,7 +76,7 @@ fun PlaylistDetailScreen(
                     ) {
                         Icon(
                             imageVector = Icons.AutoMirrored.Filled.ArrowBack,
-                            contentDescription = "Back"
+                            contentDescription = stringResource(R.string.action_back)
                         )
                     }
                 },
@@ -89,7 +94,7 @@ fun PlaylistDetailScreen(
                 contentAlignment = Alignment.Center
             ) {
                 Text(
-                    text = "No videos in playlist",
+                    text = stringResource(R.string.playlist_empty),
                     style = MaterialTheme.typography.bodyLarge,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
@@ -180,32 +185,32 @@ private fun PlaylistEntryItemRow(
             IconButton(
                 onClick = onMoveUp,
                 enabled = canMoveUp,
-                modifier = Modifier.size(36.dp).testTag("playlist_entry_move_up_${entry.videoKey.nativeId}")
+                modifier = Modifier.size(MinimumTouchTarget).testTag("playlist_entry_move_up_${entry.videoKey.nativeId}")
             ) {
                 Icon(
                     imageVector = Icons.Default.ArrowUpward,
-                    contentDescription = "Move up",
+                    contentDescription = stringResource(R.string.playlist_move_up),
                     tint = if (canMoveUp) MaterialTheme.colorScheme.onSurfaceVariant else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.3f)
                 )
             }
             IconButton(
                 onClick = onMoveDown,
                 enabled = canMoveDown,
-                modifier = Modifier.size(36.dp).testTag("playlist_entry_move_down_${entry.videoKey.nativeId}")
+                modifier = Modifier.size(MinimumTouchTarget).testTag("playlist_entry_move_down_${entry.videoKey.nativeId}")
             ) {
                 Icon(
                     imageVector = Icons.Default.ArrowDownward,
-                    contentDescription = "Move down",
+                    contentDescription = stringResource(R.string.playlist_move_down),
                     tint = if (canMoveDown) MaterialTheme.colorScheme.onSurfaceVariant else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.3f)
                 )
             }
             IconButton(
                 onClick = onRemove,
-                modifier = Modifier.size(36.dp).testTag("playlist_entry_remove_${entry.videoKey.nativeId}")
+                modifier = Modifier.size(MinimumTouchTarget).testTag("playlist_entry_remove_${entry.videoKey.nativeId}")
             ) {
                 Icon(
                     imageVector = Icons.Default.Delete,
-                    contentDescription = "Remove from playlist",
+                    contentDescription = stringResource(R.string.playlist_remove_video),
                     tint = MaterialTheme.colorScheme.error
                 )
             }

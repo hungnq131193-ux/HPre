@@ -23,9 +23,11 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.hpre.app.model.ContentKey
+import com.hpre.app.R
 import com.hpre.app.ui.common.EmptyPane
 import com.hpre.app.ui.common.ErrorPane
 import com.hpre.app.ui.common.LoadingPane
@@ -72,7 +74,7 @@ fun HomeScreen(
                 LoadingPane(testTag = "home_loading")
             }
             is HomeUiState.Empty -> {
-                EmptyPane(message = "Không có video phù hợp", testTag = "home_empty")
+                EmptyPane(message = stringResource(R.string.home_empty), testTag = "home_empty")
             }
             is HomeUiState.Error -> {
                 ErrorPane(
