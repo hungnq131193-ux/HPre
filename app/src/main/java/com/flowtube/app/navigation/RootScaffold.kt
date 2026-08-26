@@ -1,0 +1,243 @@
+package com.flowtube.app.navigation
+
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Home
+import androidx.compose.material.icons.filled.PlayCircleOutline
+import androidx.compose.material.icons.filled.Search
+import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material.icons.filled.Subscriptions
+import androidx.compose.material.icons.filled.VideoLibrary
+import androidx.compose.material.icons.outlined.Home
+import androidx.compose.material.icons.outlined.PlayCircleOutline
+import androidx.compose.material.icons.outlined.Subscriptions
+import androidx.compose.material.icons.outlined.VideoLibrary
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.NavigationBar
+import androidx.compose.material3.NavigationBarItem
+import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Text
+import androidx.compose.material3.TopAppBar
+import androidx.compose.material3.TopAppBarDefaults
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.dp
+import androidx.navigation.NavGraph.Companion.findStartDestination
+import androidx.navigation.NavHostController
+import androidx.navigation.compose.currentBackStackEntryAsState
+import androidx.navigation.compose.rememberNavController
+import com.flowtube.app.di.AppContainer
+import com.flowtube.app.player.SessionPlayerController
+import com.flowtube.app.ui.player.MiniPlayer
+
+private sealed class BottomNavItem(
+    val route: String,
+    val title: String,
+    val selectedIcon: ImageVector,
+    val unselectedIcon: ImageVector
+) {
+    data object Home : BottomNavItem(
+        route = Screen.Home.route,
+        title = "Home",
+        selectedIcon = Icons.Filled.Home,
+        unselectedIcon = Icons.Outlined.Home
+    )
+
+    data object Shorts : BottomNavItem(
+        route = Screen.Shorts.route,
+        title = "Shorts",
+        selectedIcon = Icons.Filled.PlayCircleOutline,
+        unselectedIcon = Icons.Outlined.PlayCircleOutline
+    )
+
+    data object Subscriptions : BottomNavItem(
+        route = Screen.Subscriptions.route,
+        title = "Subscriptions",
+        selectedIcon = Icons.Filled.Subscriptions,
+        unselectedIcon = Icons.Outlined.Subscriptions
+    )
+
+    data object Library : BottomNavItem(
+        route = Screen.Library.route,
+        title = "Library",
+        selectedIcon = Icons.Filled.VideoLibrary,
+        unselectedIcon = Icons.Outlined.VideoLibrary
+    )
+}
+
+private val bottomNavItems = listOf(
+    BottomNavItem.Home,
+    BottomNavItem.Shorts,
+    BottomNavItem.Subscriptions,
+    BottomNavItem.Library
+)
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun RootScaffold(
+    container: AppContainer,
+    navController: NavHostController = rememberNavController(),
+    modifier: Modifier = Modifier
+) {
+    val navBackStackEntry by navController.currentBackStackEntryAsState()
+    val currentRoute = navBackStackEntry?.destination?.route
+
+    val isTopLevelDestination = currentRoute in listOf(
+        Screen.Home.route,
+        Screen.Shorts.route,
+        Screen.Subscriptions.route,
+        Screen.Library.route
+    )
+
+    val isWatchScreen = currentRoute?.startsWith("watch/") == true
+    val app = LocalContext.current.applicationContext as? com.flowtube.app.FlowTubeApplication
+
+    DisposableEffect(isWatchScreen, app) {
+        app?.playbackUiCoordinator?.setWatchVisible(isWatchScreen)
+        onDispose {
+            app?.playbackUiCoordinator?.setWatchVisible(false)
+        }
+    }
+
+    val playerController = remember(container) { container.createPlayerController() }
+    val playbackState by playerController.state.collectAsStateWithLifecycle()
+    val hasActiveMedia = playbackState.key != null
+
+    val playbackUiState by (app?.playbackUiCoordinator?.state ?: kotlinx.coroutines.flow.MutableStateFlow(com.flowtube.app.player.PlaybackUiState())).collectAsStateWithLifecycle()
+    androidx.compose.runtime.LaunchedEffect(playbackUiState.backgroundPlaybackEnabled, playbackUiState.isInPip, playerController) {
+        if (playerController is SessionPlayerController) {
+            playerController.updateLifecyclePolicy(
+                backgroundEnabled = playbackUiState.backgroundPlaybackEnabled,
+                pipActiveOrEntering = playbackUiState.isInPip
+            )
+        }
+    }
+
+    Scaffold(
+        topBar = {
+            if (isTopLevelDestination) {
+                TopAppBar(
+                    title = {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Icon(
+                                imageVector = Icons.Default.PlayCircleOutline,
+                                contentDescription = null,
+                                tint = MaterialTheme.colorScheme.primary,
+                                modifier = Modifier.size(28.dp)
+                            )
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text(
+                                text = "FlowTube",
+                                style = MaterialTheme.typography.titleLarge,
+                                fontWeight = FontWeight.Bold,
+                                color = MaterialTheme.colorScheme.onSurface
+                            )
+                        }
+                    },
+                    actions = {
+                        IconButton(
+                            onClick = { navController.navigate(Screen.Search.route) },
+                            modifier = Modifier.testTag("top_bar_search_button")
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Search,
+                                contentDescription = "Search"
+                            )
+                        }
+                        IconButton(
+                            onClick = { navController.navigate(Screen.Settings.route) },
+                            modifier = Modifier.testTag("top_bar_settings_button")
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Settings,
+                                contentDescription = "Settings"
+                            )
+                        }
+                    },
+                    colors = TopAppBarDefaults.topAppBarColors(
+                        containerColor = MaterialTheme.colorScheme.surface
+                    ),
+                    modifier = Modifier.testTag("root_top_bar")
+                )
+            }
+        },
+        bottomBar = {
+            Column(modifier = Modifier.fillMaxWidth()) {
+                if (!isWatchScreen && hasActiveMedia) {
+                    MiniPlayer(
+                        playerController = playerController,
+                        onExpandWatch = { key ->
+                            navController.navigate(Screen.Watch.createRoute(key))
+                        },
+                        onDismiss = {
+                            if (playerController is SessionPlayerController) {
+                                playerController.clearMedia()
+                            } else {
+                                playerController.pause()
+                            }
+                        }
+                    )
+                }
+
+                if (isTopLevelDestination) {
+                    NavigationBar(
+                        modifier = Modifier.testTag("root_bottom_bar")
+                    ) {
+                        bottomNavItems.forEach { item ->
+                            val selected = currentRoute == item.route
+                            NavigationBarItem(
+                                selected = selected,
+                                onClick = {
+                                    if (currentRoute != item.route) {
+                                        navController.navigate(item.route) {
+                                            popUpTo(navController.graph.findStartDestination().id) {
+                                                saveState = true
+                                            }
+                                            launchSingleTop = true
+                                            restoreState = true
+                                        }
+                                    }
+                                },
+                                icon = {
+                                    Icon(
+                                        imageVector = if (selected) item.selectedIcon else item.unselectedIcon,
+                                        contentDescription = item.title
+                                    )
+                                },
+                                label = { Text(text = item.title) },
+                                modifier = Modifier.testTag("bottom_nav_${item.title.lowercase()}")
+                            )
+                        }
+                    }
+                }
+            }
+        },
+        modifier = modifier.fillMaxSize().testTag("root_scaffold")
+    ) { innerPadding ->
+        FlowTubeNavHost(
+            navController = navController,
+            container = container,
+            modifier = Modifier.padding(innerPadding)
+        )
+    }
+}

@@ -1,0 +1,9 @@
+<?xml version='1.0' encoding='UTF-8' ?>
+<testsuite name="com.flowtube.app.integration.playback.LivePlaybackGateTest" tests="1" failures="0" errors="0" skipped="0" time="86.177" timestamp="2026-08-25T12:57:21" hostname="localhost">
+  <properties>
+    <property name="device" value="FlowTubeApi35(AVD) - 15" />
+    <property name="flavor" value="" />
+    <property name="project" value=":app" />
+  </properties>
+  <testcase name="live_foreground_media3_playback_gate" classname="com.flowtube.app.integration.playback.LivePlaybackGateTest" time="85.365" />
+</testsuite>
