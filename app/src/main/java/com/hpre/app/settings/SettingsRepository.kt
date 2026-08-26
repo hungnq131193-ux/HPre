@@ -37,6 +37,7 @@ class DataStoreSettingsRepository(
         const val DEFAULT_HISTORY_ENABLED = DataStorePlaybackPreferences.DEFAULT_HISTORY_ENABLED
         const val DEFAULT_SPEED = 1.0f
         const val DEFAULT_AUTOPLAY = true
+        val DEFAULT_THEME = AppTheme.DARK
     }
 
     override val settings: Flow<AppSettings> = dataStore.data.map { preferences ->
@@ -45,9 +46,9 @@ class DataStoreSettingsRepository(
             try {
                 AppTheme.valueOf(it)
             } catch (_: IllegalArgumentException) {
-                AppTheme.SYSTEM
+                DEFAULT_THEME
             }
-        } ?: AppTheme.SYSTEM
+        } ?: DEFAULT_THEME
 
         val wifiQualityStr = preferences[KEY_WIFI_QUALITY]
         val wifiQuality = wifiQualityStr?.let {

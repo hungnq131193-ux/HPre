@@ -5,8 +5,9 @@ Record one row per device/build. Do not mark remote playback passed from metadat
 | Flow | API 26 | API 31+ | Current device | Build ID | Result | Notes |
 |---|---|---|---|---|---|---|
 | HPre signed release evidence | Not run | API 35 emulator or physical device | API 35 emulator or physical device | Fresh HPre APK | Not run | Regenerate facts, XML, hashes, and release notes from one real run before distribution. |
-| Deterministic build gate | N/A | N/A | Local Windows build | Debug APK | Pass | 435 unit tests passed, lint passed, AndroidTest sources compiled, and debug APK assembled on 2026-08-26. |
+| Deterministic build gate | N/A | N/A | Local Windows build | Debug APK | Pass | 452 unit tests across 63 classes passed with 0 failures, lint passed with 0 errors, AndroidTest sources compiled, and debug APK assembled on 2026-08-26. |
 | Install and launch | Not run | Not run | No device attached | Debug APK | Not run | `adb devices` returned no attached device in this session. |
+| Launcher icon rendering | Not run | Not run | No device attached | Debug APK | Not run | Adaptive icon packaged as `res/mipmap-anydpi-v21/ic_launcher{,_round}.xml` with background/foreground/monochrome layers; lint reports no icon warnings. Verify mask shapes and themed-icon tint on an API 33+ launcher. |
 | Home to real playback | Not run | Not run | API 35 emulator | Fresh HPre APK | Not run | Requires new live verification run for HPre build. |
 | Search to Watch | Not run | Not run | No device attached | Debug APK | Not run | Instrumentation source compiled; runtime device test not run. |
 | Seek +/-10 seconds | Not run | Not run | API 35 emulator | Fresh HPre APK | Not run | Requires new live verification run for HPre build. |
@@ -23,6 +24,8 @@ Record one row per device/build. Do not mark remote playback passed from metadat
 | Expired stream refresh once | Not run | Not run | No device attached | Debug APK | Not run | Recovery unit tests passed; live service behavior not run. |
 | Upstream smoke | Not run | Not run | No device/query supplied | Debug APK | Not run | Requires an attached device and an explicitly approved public query. |
 | Playback startup comparison | Not run | Not run | No device/baseline | Debug APK | Not run | No same-device/network before-and-after baseline was available. |
+| Vietnam trending fallback | Not run | Not run | No device attached | Debug APK | Not run | Provider is initialized with `vi-VN` localization and `VN` content country, and the trending kiosk is force-localized to VN. Confirm against a live provider that a signal-free Home feed returns Vietnam trending; region correctness cannot be asserted offline. |
+| YouTube-familiar Home UI | Not run | Not run | No device attached | Debug APK | Not run | Unit formatting/topic-state tests passed and instrumentation sources compiled; 360dp chip scrolling, dark/light contrast, rounded cards, Vietnamese metadata, and live badge require device verification. |
 
 ## Remaining Device Coverage
 

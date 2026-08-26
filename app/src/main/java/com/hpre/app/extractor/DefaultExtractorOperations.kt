@@ -18,6 +18,9 @@ import org.schabi.newpipe.extractor.channel.tabs.ChannelTabInfo
 import org.schabi.newpipe.extractor.comments.CommentsInfo
 import org.schabi.newpipe.extractor.exceptions.ContentNotSupportedException
 import org.schabi.newpipe.extractor.exceptions.ExtractionException
+import org.schabi.newpipe.extractor.kiosk.KioskList
+import org.schabi.newpipe.extractor.localization.ContentCountry
+import org.schabi.newpipe.extractor.localization.Localization
 import org.schabi.newpipe.extractor.playlist.PlaylistInfo
 import org.schabi.newpipe.extractor.search.SearchInfo
 import org.schabi.newpipe.extractor.stream.StreamInfo as ExtractorStreamInfo
@@ -176,10 +179,26 @@ internal class DefaultExtractorOperations(
 
     override fun trending(): List<VideoSummary> {
         val kioskList = streamingService.kioskList
+        // Kiosk extractors are built from the list's own locale, not the global default,
+        // so the VN region has to be forced here for the trending feed to be Vietnamese.
+        ExtractorLocalization.apply(KioskLocalizable(kioskList))
         val defaultKiosk = kioskList.defaultKioskExtractor
         defaultKiosk.fetchPage()
         val infoItems = defaultKiosk.initialPage.items
         return infoItems.filterIsInstance<org.schabi.newpipe.extractor.stream.StreamInfoItem>()
             .mapNotNull { NewPipeMappers.mapStreamInfoItemToSummary(it, serviceId) }
+    }
+
+    /** Adapts the provider's [KioskList] to the testable localization seam. */
+    private class KioskLocalizable(
+        private val kioskList: KioskList
+    ) : ExtractorLocalization.Localizable {
+        override fun forceLocalization(localization: Localization) {
+            kioskList.forceLocalization(localization)
+        }
+
+        override fun forceContentCountry(contentCountry: ContentCountry) {
+            kioskList.forceContentCountry(contentCountry)
+        }
     }
 }

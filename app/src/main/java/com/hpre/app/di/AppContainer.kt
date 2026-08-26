@@ -27,6 +27,8 @@ import com.hpre.app.repository.VideoService
 import com.hpre.app.ui.watch.DefaultFullscreenHostHandler
 import com.hpre.app.ui.watch.FullscreenHostHandlerFactory
 import com.hpre.app.settings.playbackDataStore
+import com.hpre.app.ui.home.CatalogTopicFeedSource
+import com.hpre.app.ui.home.TopicFeedSource
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -46,6 +48,8 @@ interface AppContainer {
     val catalogRepository: CatalogRepository
     val recommendationRepository: RecommendationRepository
         get() = RecommendationRepository(catalogRepository, searchHistoryRepository, historyRepository)
+    val topicFeedSource: TopicFeedSource
+        get() = CatalogTopicFeedSource(catalogRepository)
     val shortsFeedRepository: ShortsFeedRepository
         get() = ShortsFeedRepository(catalogRepository, searchHistoryRepository, historyRepository)
     val fullscreenHostHandlerFactory: FullscreenHostHandlerFactory
@@ -128,6 +132,10 @@ class DefaultAppContainer(
             searchHistoryRepository = searchHistoryRepository,
             historyRepository = historyRepository
         )
+    }
+
+    override val topicFeedSource: TopicFeedSource by lazy {
+        CatalogTopicFeedSource(catalogRepository)
     }
 
     override val shortsFeedRepository: ShortsFeedRepository by lazy {

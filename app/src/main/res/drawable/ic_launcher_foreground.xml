@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Adaptive icon foreground: rounded play glyph inside a 270-degree motion ring.
+  Ring: centre 54,54 radius 30, stroke 4.5 -> outer radius 32.25, which stays
+  inside the 66dp adaptive-icon safe zone (radius 33) centred in 108dp.
+  Arc runs clockwise from 45deg to -45deg, leaving the gap on the right so the
+  glyph points through it.
+-->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+
+    <path
+        android:pathData="M75.21,75.21 A30,30 0 1 1 75.21,32.79"
+        android:strokeColor="#FFFFFF"
+        android:strokeWidth="4.5"
+        android:strokeAlpha="0.6"
+        android:strokeLineCap="round" />
+
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M43,43.5 L43,64.5 Q43,69 46.9,66.75 L65.1,56.25 Q69,54 65.1,51.75 L46.9,41.25 Q43,39 43,43.5 Z" />
+</vector>

@@ -36,6 +36,8 @@ class RecommendationRepository(
             .filter(String::isNotBlank)
             .distinct()
 
+        // New user with no local signals: fall back to trending. The provider is initialized
+        // with the VN content country (see ExtractorLocalization), so this is Vietnam trending.
         if (topics.isEmpty()) return catalogRepository.getTrending(forceRefresh)
 
         val (searchResults, trendingResult) = supervisorScope {

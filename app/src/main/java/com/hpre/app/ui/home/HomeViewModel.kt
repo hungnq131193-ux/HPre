@@ -20,12 +20,23 @@ sealed interface HomeUiState {
     data class Error(val error: AppError) : HomeUiState
 }
 
+data class HomeChip(val label: String, val query: String?)
+
+data class HomeChipsState(
+    val chips: List<HomeChip>,
+    val selectedIndex: Int = 0
+)
+
 class HomeViewModel(
-    private val repository: HomeRecommendationSource
+    private val repository: HomeRecommendationSource,
+    private val topicFeedSource: TopicFeedSource
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow<HomeUiState>(HomeUiState.Loading)
     val uiState: StateFlow<HomeUiState> = _uiState.asStateFlow()
+
+    private val _chipsState = MutableStateFlow(HomeChipsState(DEFAULT_CHIPS))
+    val chipsState: StateFlow<HomeChipsState> = _chipsState.asStateFlow()
 
     private var activeLoadJob: Job? = null
     private var loadGeneration: Long = 0L
@@ -40,8 +51,11 @@ class HomeViewModel(
         _uiState.value = HomeUiState.Loading
 
         activeLoadJob = viewModelScope.launch {
+            val selectedChip = _chipsState.value.chips[_chipsState.value.selectedIndex]
             val result = try {
-                repository.home(forceRefresh = forceRefresh)
+                selectedChip.query?.let { query ->
+                    topicFeedSource.videos(query, forceRefresh)
+                } ?: repository.home(forceRefresh = forceRefresh)
             } catch (ce: kotlinx.coroutines.CancellationException) {
                 throw ce
             } catch (t: Throwable) {
@@ -64,16 +78,37 @@ class HomeViewModel(
         }
     }
 
+    fun selectChip(index: Int) {
+        if (index !in _chipsState.value.chips.indices) return
+        if (_chipsState.value.selectedIndex == index) return
+        _chipsState.value = _chipsState.value.copy(selectedIndex = index)
+        load(forceRefresh = false)
+    }
+
     fun retry() {
         load(forceRefresh = true)
     }
 
     companion object {
-        fun provideFactory(repository: HomeRecommendationSource): ViewModelProvider.Factory =
+        val DEFAULT_CHIPS = listOf(
+            HomeChip("Tất cả", null),
+            HomeChip("Âm nhạc", "âm nhạc"),
+            HomeChip("Trò chơi", "trò chơi"),
+            HomeChip("Phim ảnh", "phim ảnh"),
+            HomeChip("Thể thao", "thể thao"),
+            HomeChip("Tin tức", "tin tức"),
+            HomeChip("Học tập", "học tập"),
+            HomeChip("Ẩm thực", "ẩm thực")
+        )
+
+        fun provideFactory(
+            repository: HomeRecommendationSource,
+            topicFeedSource: TopicFeedSource
+        ): ViewModelProvider.Factory =
             object : ViewModelProvider.Factory {
                 @Suppress("UNCHECKED_CAST")
                 override fun <T : ViewModel> create(modelClass: Class<T>): T {
-                    return HomeViewModel(repository) as T
+                    return HomeViewModel(repository, topicFeedSource) as T
                 }
             }
     }

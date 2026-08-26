@@ -35,6 +35,21 @@ class HomeViewModelTest {
 
     private val testDispatcher = StandardTestDispatcher()
 
+    private class FakeTopicFeedSource : TopicFeedSource {
+        val calls = mutableListOf<Pair<String, Boolean>>()
+        var handler: suspend (String, Boolean) -> AppResult<List<VideoSummary>> = { _, _ ->
+            AppResult.Success(emptyList())
+        }
+
+        override suspend fun videos(
+            query: String,
+            forceRefresh: Boolean
+        ): AppResult<List<VideoSummary>> {
+            calls += query to forceRefresh
+            return handler(query, forceRefresh)
+        }
+    }
+
     @Before
     fun setUp() {
         Dispatchers.setMain(testDispatcher)
@@ -81,7 +96,7 @@ class HomeViewModelTest {
             trendingResponse = AppResult.Success(listOf(summary("1"), summary("2")))
         )
         val repository = CatalogRepository(videoService = fakeService, repositoryScope = this)
-        val viewModel = HomeViewModel(repository = recommendations(repository))
+        val viewModel = HomeViewModel(recommendations(repository), FakeTopicFeedSource())
 
         // Initially loading
         assertTrue(viewModel.uiState.value is HomeUiState.Loading)
@@ -99,7 +114,7 @@ class HomeViewModelTest {
             trendingResponse = AppResult.Success(emptyList())
         )
         val repository = CatalogRepository(videoService = fakeService, repositoryScope = this)
-        val viewModel = HomeViewModel(repository = recommendations(repository))
+        val viewModel = HomeViewModel(recommendations(repository), FakeTopicFeedSource())
 
         advanceUntilIdle()
 
@@ -112,7 +127,7 @@ class HomeViewModelTest {
             trendingResponse = AppResult.Failure(AppError.NetworkError)
         )
         val repository = CatalogRepository(videoService = fakeService, repositoryScope = this)
-        val viewModel = HomeViewModel(repository = recommendations(repository))
+        val viewModel = HomeViewModel(recommendations(repository), FakeTopicFeedSource())
 
         advanceUntilIdle()
 
@@ -134,7 +149,7 @@ class HomeViewModelTest {
             }
         }
         val repository = CatalogRepository(videoService = fakeService, repositoryScope = this)
-        val viewModel = HomeViewModel(repository = recommendations(repository))
+        val viewModel = HomeViewModel(recommendations(repository), FakeTopicFeedSource())
 
         advanceUntilIdle()
         assertTrue(viewModel.uiState.value is HomeUiState.Error)
@@ -165,7 +180,7 @@ class HomeViewModelTest {
                 AppResult.Success(listOf(summary("fresh_2")))
             }
         }
-        val viewModel = HomeViewModel(repository = source)
+        val viewModel = HomeViewModel(source, FakeTopicFeedSource())
 
         // Advance 10ms to let call 1 hit delay
         testDispatcher.scheduler.advanceTimeBy(10)
@@ -197,12 +212,111 @@ class HomeViewModelTest {
         }
 
         val repository = CatalogRepository(videoService = fakeService, repositoryScope = this)
-        val viewModel = HomeViewModel(repository = recommendations(repository))
+        val viewModel = HomeViewModel(recommendations(repository), FakeTopicFeedSource())
 
         advanceUntilIdle()
 
         val state = viewModel.uiState.value
         assertTrue("Expected HomeUiState.Error, got $state", state is HomeUiState.Error)
         assertEquals(AppError.Unknown, (state as HomeUiState.Error).error)
+    }
+
+    @Test
+    fun selecting_topic_updates_chip_and_loads_topic_videos() = runTest(testDispatcher) {
+        val topicSource = FakeTopicFeedSource().apply {
+            handler = { _, _ -> AppResult.Success(listOf(summary("music"))) }
+        }
+        val viewModel = HomeViewModel(
+            repository = HomeRecommendationSource { AppResult.Success(listOf(summary("all"))) },
+            topicFeedSource = topicSource
+        )
+        advanceUntilIdle()
+
+        viewModel.selectChip(1)
+        advanceUntilIdle()
+
+        assertEquals(1, viewModel.chipsState.value.selectedIndex)
+        assertEquals(listOf("âm nhạc" to false), topicSource.calls)
+        assertEquals(
+            "music",
+            (viewModel.uiState.value as HomeUiState.Content).videos.single().key.nativeId
+        )
+    }
+
+    @Test
+    fun retry_refreshes_current_topic_and_empty_keeps_selection() = runTest(testDispatcher) {
+        val topicSource = FakeTopicFeedSource()
+        val viewModel = HomeViewModel(
+            repository = HomeRecommendationSource { AppResult.Success(listOf(summary("all"))) },
+            topicFeedSource = topicSource
+        )
+        advanceUntilIdle()
+
+        viewModel.selectChip(1)
+        advanceUntilIdle()
+        assertTrue(viewModel.uiState.value is HomeUiState.Empty)
+        assertEquals(1, viewModel.chipsState.value.selectedIndex)
+
+        viewModel.retry()
+        advanceUntilIdle()
+        assertEquals(listOf("âm nhạc" to false, "âm nhạc" to true), topicSource.calls)
+    }
+
+    @Test
+    fun selecting_all_after_topic_loads_recommendations_again() = runTest(testDispatcher) {
+        var recommendationCalls = 0
+        val viewModel = HomeViewModel(
+            repository = HomeRecommendationSource {
+                recommendationCalls++
+                AppResult.Success(listOf(summary("all_$recommendationCalls")))
+            },
+            topicFeedSource = FakeTopicFeedSource()
+        )
+        advanceUntilIdle()
+
+        viewModel.selectChip(1)
+        advanceUntilIdle()
+        viewModel.selectChip(0)
+        advanceUntilIdle()
+
+        assertEquals(2, recommendationCalls)
+        assertEquals(0, viewModel.chipsState.value.selectedIndex)
+    }
+
+    @Test
+    fun stale_topic_response_does_not_overwrite_newer_chip() = runTest(testDispatcher) {
+        val topicSource = FakeTopicFeedSource().apply {
+            handler = { query, _ ->
+                if (query == "âm nhạc") {
+                    withContext(NonCancellable) {
+                        kotlinx.coroutines.delay(1_000)
+                        AppResult.Success(listOf(summary("stale")))
+                    }
+                } else {
+                    kotlinx.coroutines.delay(200)
+                    AppResult.Success(listOf(summary("fresh")))
+                }
+            }
+        }
+        val viewModel = HomeViewModel(
+            repository = HomeRecommendationSource { AppResult.Success(listOf(summary("all"))) },
+            topicFeedSource = topicSource
+        )
+        advanceUntilIdle()
+
+        viewModel.selectChip(1)
+        advanceTimeBy(10)
+        viewModel.selectChip(2)
+        advanceTimeBy(250)
+
+        assertEquals(
+            "fresh",
+            (viewModel.uiState.value as HomeUiState.Content).videos.single().key.nativeId
+        )
+        advanceUntilIdle()
+        assertEquals(
+            "fresh",
+            (viewModel.uiState.value as HomeUiState.Content).videos.single().key.nativeId
+        )
     }
 }

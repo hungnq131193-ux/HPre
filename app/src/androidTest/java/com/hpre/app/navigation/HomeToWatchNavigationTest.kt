@@ -1,15 +1,19 @@
 package com.hpre.app.navigation
 
 import androidx.compose.ui.test.assertIsDisplayed
+import androidx.compose.ui.test.assertIsSelected
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.performScrollTo
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import com.hpre.app.core.designsystem.HPreTheme
 import com.hpre.app.di.AppContainer
 import com.hpre.app.model.ContentKey
 import com.hpre.app.model.StreamInfo
+import com.hpre.app.model.SearchPage
+import com.hpre.app.model.SearchResultItem
 import com.hpre.app.model.VideoDetails
 import com.hpre.app.model.VideoSummary
 import com.hpre.app.player.PlayerController
@@ -181,6 +185,10 @@ class HomeToWatchNavigationTest {
         }
 
         composeTestRule.onNodeWithTag("video_card_item999").assertIsDisplayed()
+        composeTestRule.onNodeWithTag("home_filter_chips").assertIsDisplayed()
+        composeTestRule.onNodeWithTag("home_filter_chip_0").assertIsSelected()
+        composeTestRule.onNodeWithText("Tất cả").assertIsDisplayed()
+        composeTestRule.onNodeWithText("Âm nhạc").assertIsDisplayed()
         composeTestRule.onNodeWithTag("video_card_item999").performClick()
 
         // Verify Watch screen is shown
@@ -195,6 +203,49 @@ class HomeToWatchNavigationTest {
         // Press back
         composeTestRule.onNodeWithTag("watch_back_button").performClick()
         composeTestRule.onNodeWithTag("home_screen").assertIsDisplayed()
+    }
+
+    @Test
+    fun selecting_home_topic_keeps_chips_visible_and_loads_real_results() {
+        val topicPage = kotlinx.coroutines.CompletableDeferred<SearchPage>()
+        val fakeService = FakeVideoService(
+            trendingResponse = com.hpre.app.core.error.AppResult.Success(listOf(summary("all")))
+        )
+        fakeService.searchHandler = { query, _, _ ->
+            if (query == "âm nhạc") {
+                com.hpre.app.core.error.AppResult.Success(topicPage.await())
+            } else {
+                com.hpre.app.core.error.AppResult.Success(SearchPage(emptyList()))
+            }
+        }
+        val container = TestContainer(fakeService)
+
+        composeTestRule.setContent {
+            HPreTheme {
+                RootScaffold(container = container)
+            }
+        }
+
+        composeTestRule.waitUntil(5_000) {
+            composeTestRule.onAllNodes(androidx.compose.ui.test.hasTestTag("video_card_all"))
+                .fetchSemanticsNodes().isNotEmpty()
+        }
+        composeTestRule.onNodeWithTag("home_filter_chip_1").performClick()
+        composeTestRule.onNodeWithTag("home_loading").assertIsDisplayed()
+        composeTestRule.onNodeWithTag("home_filter_chips").assertIsDisplayed()
+        composeTestRule.onNodeWithTag("home_filter_chip_7").performScrollTo().assertIsDisplayed()
+
+        topicPage.complete(
+            SearchPage(items = listOf(SearchResultItem.VideoItem(summary("music_topic"))))
+        )
+        composeTestRule.waitUntil(5_000) {
+            composeTestRule.onAllNodes(androidx.compose.ui.test.hasTestTag("video_card_music_topic"))
+                .fetchSemanticsNodes().isNotEmpty()
+        }
+
+        composeTestRule.onNodeWithTag("home_filter_chips").assertIsDisplayed()
+        composeTestRule.onNodeWithTag("home_filter_chip_1").assertIsSelected()
+        composeTestRule.onNodeWithTag("video_card_music_topic").assertIsDisplayed()
     }
 }
 

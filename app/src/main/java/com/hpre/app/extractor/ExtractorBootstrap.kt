@@ -13,7 +13,13 @@ object ExtractorBootstrap {
         if (initialized.get()) return
         synchronized(lock) {
             if (!initialized.get()) {
-                NewPipe.init(downloader)
+                // Request Vietnamese metadata and VN content region so provider-side
+                // feeds (trending kiosk, search) are localized for Vietnam.
+                NewPipe.init(
+                    downloader,
+                    ExtractorLocalization.LOCALIZATION,
+                    ExtractorLocalization.CONTENT_COUNTRY
+                )
                 initialized.set(true)
             }
         }

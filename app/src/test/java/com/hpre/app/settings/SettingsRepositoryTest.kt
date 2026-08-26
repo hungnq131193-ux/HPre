@@ -1,6 +1,9 @@
 package com.hpre.app.settings
 
+import androidx.datastore.core.DataStore
+import androidx.datastore.preferences.core.Preferences
 import androidx.datastore.preferences.core.PreferenceDataStoreFactory
+import androidx.datastore.preferences.core.edit
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -19,13 +22,14 @@ class SettingsRepositoryTest {
 
     private lateinit var tempFile: File
     private lateinit var testScope: CoroutineScope
+    private lateinit var dataStore: DataStore<Preferences>
     private lateinit var repository: SettingsRepository
 
     @Before
     fun setUp() {
         tempFile = File(System.getProperty("java.io.tmpdir"), "test_settings_${System.currentTimeMillis()}.preferences_pb")
         testScope = CoroutineScope(Dispatchers.Unconfined + Job())
-        val dataStore = PreferenceDataStoreFactory.create(
+        dataStore = PreferenceDataStoreFactory.create(
             scope = testScope,
             produceFile = { tempFile }
         )
@@ -43,7 +47,7 @@ class SettingsRepositoryTest {
     @Test
     fun default_settings_match_specification() = runTest {
         val settings = repository.settings.first()
-        assertEquals(AppTheme.SYSTEM, settings.theme)
+        assertEquals(AppTheme.DARK, settings.theme)
         assertTrue(settings.backgroundPlaybackEnabled)
         assertTrue(settings.pipEnabled)
         assertTrue(settings.historyEnabled)
@@ -51,6 +55,15 @@ class SettingsRepositoryTest {
         assertEquals(QualityPreferenceSetting.AUTO, settings.mobileQuality)
         assertEquals(1.0f, settings.defaultPlaybackSpeed, 0.001f)
         assertTrue(settings.autoplay)
+    }
+
+    @Test
+    fun invalid_stored_theme_falls_back_to_dark() = runTest {
+        dataStore.edit { preferences ->
+            preferences[DataStoreSettingsRepository.KEY_THEME] = "NOT_A_THEME"
+        }
+
+        assertEquals(AppTheme.DARK, repository.settings.first().theme)
     }
 
     @Test

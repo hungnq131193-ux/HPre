@@ -14,7 +14,7 @@ enum class QualityPreferenceSetting(val label: String, val maxResolution: Int?) 
 }
 
 data class AppSettings(
-    val theme: AppTheme = AppTheme.SYSTEM,
+    val theme: AppTheme = AppTheme.DARK,
     val backgroundPlaybackEnabled: Boolean = true,
     val pipEnabled: Boolean = true,
     val historyEnabled: Boolean = true,

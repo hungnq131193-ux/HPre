@@ -3,6 +3,7 @@ package com.hpre.app.ui.search
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
+import androidx.compose.foundation.layout.Column
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithTag
@@ -31,6 +32,33 @@ class SearchScreenTest {
 
     @get:Rule
     val composeTestRule = createComposeRule()
+
+    @Test
+    fun video_cards_render_vietnamese_metadata_and_truthful_live_badge() {
+        val published = System.currentTimeMillis() - 90L * 86_400_000L
+        val normal = summary("metadata").copy(
+            viewCount = 1_500_000,
+            publishedTimestamp = published
+        )
+        val live = summary("live").copy(
+            durationSeconds = 61,
+            isLive = true
+        )
+
+        composeTestRule.setContent {
+            HPreTheme {
+                Column {
+                    com.hpre.app.ui.common.VideoCard(normal, onClick = {})
+                    com.hpre.app.ui.common.VideoCard(live, onClick = {})
+                }
+            }
+        }
+
+        composeTestRule.onNodeWithText("1,5 Tr lượt xem", substring = true).assertIsDisplayed()
+        composeTestRule.onNodeWithText("3 tháng trước", substring = true).assertIsDisplayed()
+        composeTestRule.onNodeWithText("TRỰC TIẾP").assertIsDisplayed()
+        composeTestRule.onNodeWithText("1:01").assertDoesNotExist()
+    }
 
     @Test
     fun production_compose_integration_searchResultsList_with_injected_lazyListState_and_swipe_cycle() {

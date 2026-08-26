@@ -1,11 +1,21 @@
 package com.hpre.app.ui.home
 
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.FilterChip
+import androidx.compose.material3.FilterChipDefaults
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Text
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.material3.pulltorefresh.rememberPullToRefreshState
@@ -29,14 +39,40 @@ fun HomeScreen(
     modifier: Modifier = Modifier
 ) {
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
+    val chipsState by viewModel.chipsState.collectAsStateWithLifecycle()
 
-    Box(modifier = modifier.fillMaxSize().testTag("home_screen")) {
-        when (val state = uiState) {
+    Column(modifier = modifier.fillMaxSize().testTag("home_screen")) {
+        LazyRow(
+            contentPadding = PaddingValues(horizontal = 12.dp),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(vertical = 8.dp)
+                .testTag("home_filter_chips")
+        ) {
+            itemsIndexed(chipsState.chips) { index, chip ->
+                FilterChip(
+                    selected = index == chipsState.selectedIndex,
+                    onClick = { viewModel.selectChip(index) },
+                    label = { Text(chip.label) },
+                    shape = RoundedCornerShape(8.dp),
+                    modifier = Modifier.testTag("home_filter_chip_$index"),
+                    colors = FilterChipDefaults.filterChipColors(
+                        containerColor = MaterialTheme.colorScheme.surfaceContainer,
+                        selectedContainerColor = MaterialTheme.colorScheme.onSurface,
+                        selectedLabelColor = MaterialTheme.colorScheme.surface
+                    )
+                )
+            }
+        }
+
+        Box(modifier = Modifier.weight(1f).fillMaxWidth()) {
+            when (val state = uiState) {
             is HomeUiState.Loading -> {
                 LoadingPane(testTag = "home_loading")
             }
             is HomeUiState.Empty -> {
-                EmptyPane(message = "No recommendations available", testTag = "home_empty")
+                EmptyPane(message = "Không có video phù hợp", testTag = "home_empty")
             }
             is HomeUiState.Error -> {
                 ErrorPane(
@@ -68,6 +104,7 @@ fun HomeScreen(
                         }
                     }
                 }
+            }
             }
         }
     }

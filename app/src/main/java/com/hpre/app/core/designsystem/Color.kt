@@ -8,7 +8,8 @@ val HPreRedLight = Color(0xFFFF6F60)
 
 // Dark Theme Colors
 val HPreDarkBackground = Color(0xFF0F0F0F)
-val HPreDarkSurface = Color(0xFF1E1E1E)
+val HPreDarkSurface = Color(0xFF212121)
+val HPreDarkSurfaceContainer = Color(0xFF272727)
 val HPreDarkSurfaceVariant = Color(0xFF282828)
 val HPreDarkOnBackground = Color(0xFFF1F1F1)
 val HPreDarkOnSurface = Color(0xFFF1F1F1)

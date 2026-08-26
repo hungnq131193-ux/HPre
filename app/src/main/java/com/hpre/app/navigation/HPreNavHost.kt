@@ -50,7 +50,10 @@ fun HPreNavHost(
     ) {
         composable(Screen.Home.route) {
             val homeViewModel: HomeViewModel = viewModel(
-                factory = HomeViewModel.provideFactory(container.recommendationRepository)
+                factory = HomeViewModel.provideFactory(
+                    repository = container.recommendationRepository,
+                    topicFeedSource = container.topicFeedSource
+                )
             )
             HomeScreen(
                 viewModel = homeViewModel,
