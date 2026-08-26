@@ -4,7 +4,7 @@ The upstream suite is diagnostic and separate from deterministic CI. Supply an a
 
 ```powershell
 $env:JAVA_HOME='C:\Users\HUNG\AppData\Local\Temp\opencode\jdk17\jdk-17.0.14+7'
-.\gradlew.bat connectedDebugAndroidTest '-Pandroid.testInstrumentationRunnerArguments.flowtubeSmokeQuery=<approved-query>'
+.\gradlew.bat connectedDebugAndroidTest '-Pandroid.testInstrumentationRunnerArguments.hpreSmokeQuery=<approved-query>'
 ```
 
 The test evaluates at most five search candidates. For each candidate it maps search, video details and stream information into provider-neutral domain types, then performs at most three bounded direct-range or manifest probes. It does not instantiate Media3 and does not prove decode, rendering or playback.

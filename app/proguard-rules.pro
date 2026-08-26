@@ -1,11 +1,11 @@
-# FlowTube ProGuard / R8 Rules
+# HPre ProGuard / R8 Rules
 # Keep rules are added strictly on observed need during minification.
 
-# FlowTube Application & Components entrypoints
--keep class com.flowtube.app.FlowTubeApplication {
+# HPre Application & Components entrypoints
+-keep class com.hpre.app.HPreApplication {
     public <init>();
 }
--keep class com.flowtube.app.MainActivity {
+-keep class com.hpre.app.MainActivity {
     public <init>();
 }
 

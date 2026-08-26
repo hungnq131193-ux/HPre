@@ -6,17 +6,17 @@ plugins {
 }
 
 android {
-    namespace = "com.flowtube.app"
+    namespace = "com.hpre.app"
     compileSdk = 35
 
     defaultConfig {
-        applicationId = "com.flowtube.app"
+        applicationId = "com.hpre.app"
         minSdk = 26
         targetSdk = 35
         versionCode = 1
         versionName = "1.0.0"
 
-        testInstrumentationRunner = "com.flowtube.app.testing.FlowTubeTestRunner"
+        testInstrumentationRunner = "com.hpre.app.testing.HPreTestRunner"
         vectorDrawables {
             useSupportLibrary = true
         }

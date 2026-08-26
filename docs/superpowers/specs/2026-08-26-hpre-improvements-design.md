@@ -5,13 +5,13 @@
 
 ## Goal
 
-Rename the Android application and all internal identifiers from FlowTube to HPre, complete useful Shorts playback, personalize Home recommendations from local activity, make the Watch screen fit phones, reduce perceived playback startup time, and render a thinner seek bar.
+Migrate the Android application and all internal identifiers from the legacy identity to HPre, complete useful Shorts playback, personalize Home recommendations from local activity, make the Watch screen fit phones, reduce perceived playback startup time, and render a thinner seek bar.
 
 ## Delivery Strategy
 
 Implement the work as independently verifiable vertical slices:
 
-1. Rename the complete application from FlowTube to HPre.
+1. Fully migrate the application identity and codebase to HPre.
 2. Improve Watch layout, controls, and playback startup behavior.
 3. Add local recommendation ranking to Home.
 4. Complete Shorts discovery and playback.
@@ -20,15 +20,15 @@ Each slice must leave the application buildable and tested. This avoids a long-l
 
 ## Complete Rebrand
 
-The rename intentionally changes the Android identity and does not preserve upgrade compatibility with an installed FlowTube build.
+The rename intentionally establishes the new Android identity and does not preserve upgrade compatibility with any legacy installation.
 
-- Change namespace and application ID from `com.flowtube.app` to `com.hpre.app`.
-- Move production, unit-test, and instrumentation-test packages to `com.hpre.app`.
-- Rename `FlowTube*` classes and symbols to `HPre*`, including the application, playback service, database, test runner, theme, and related test fixtures.
+- Ensure namespace and application ID are exactly `com.hpre.app`.
+- Place production, unit-test, and instrumentation-test packages under `com.hpre.app`.
+- Use `HPre*` naming for classes and symbols, including the application, playback service, database, test runner, theme, and related test fixtures.
 - Change visible labels, notification/channel names, accessibility text, test tags where brand-specific, and documentation to HPre.
-- Rename Room schema paths and schema identity to match `HPreDatabase` while preserving the current schema version for the new application identity.
-- Update manifest component names, Gradle configuration, package declarations, imports, ProGuard rules, test commands, evidence templates, and design/plan documentation.
-- Remove every case-insensitive occurrence of `flowtube` from tracked source, tests, configuration, schemas, and documentation.
+- Set Room schema paths and schema identity to match `HPreDatabase` while preserving the current schema version for the new application identity.
+- Align manifest component names, Gradle configuration, package declarations, imports, ProGuard rules, test commands, evidence templates, and design/plan documentation with HPre.
+- Ensure zero occurrences of the legacy brand exist across tracked source, tests, configuration, schemas, and documentation.
 
 Generated build output and persisted brainstorming/session artifacts are not product source and should be removed or excluded rather than manually rewritten. The final repository scan applies to tracked project files after generated output is cleaned.
 
@@ -36,9 +36,9 @@ The repository working-directory name is not tracked project content and is out 
 
 ### Release Evidence Artifacts
 
-The recorded release evidence under `docs/evidence/`, `docs/release-evidence.md`, and `ReleaseEvidenceAuditTest` describes a FlowTube build verified on one specific emulator run. That evidence is self-verifying: the audit test asserts exact FlowTube identifiers and the SHA-256 hashes of the evidence files themselves. Rewriting those identifiers invalidates the hashes, while recomputing the hashes would fabricate provenance for a run that never happened under the HPre identity.
+The historical release evidence under `docs/evidence/`, `docs/release-evidence.md`, and `ReleaseEvidenceAuditTest` described a legacy build verified on one specific emulator run. That evidence was self-verifying: the audit test asserted exact legacy identifiers and the SHA-256 hashes of the evidence files themselves. Rewriting those identifiers invalidates the hashes, while recomputing the hashes would fabricate provenance for a run that never happened under the HPre identity.
 
-The rebrand therefore deletes the old release evidence artifacts and their audit test. HPre release evidence must be generated from a real verification run before distribution; no historical evidence value is edited, recomputed, or invented.
+The rebrand therefore deletes the legacy release evidence artifacts and their audit test. HPre release evidence must be generated from a real verification run before distribution; no historical evidence value is edited, recomputed, or invented.
 
 ## Watch Screen and Controls
 
@@ -120,7 +120,7 @@ Shorts discovery derives a bounded candidate feed from recent searches and watch
 ## Testing and Acceptance
 
 - Build and run the full unit-test suite after the package rename.
-- Scan tracked source, tests, manifests, Gradle files, Room schemas, and documentation case-insensitively; no `FlowTube`, `flowtube`, or `com.flowtube.app` remains.
+- Scan prospective tracked source, tests, manifests, Gradle files, Room schemas, and documentation case-insensitively; no legacy brand remains in file contents or paths.
 - Test rebranded application ID, manifest components, Room schema location, MediaSession service, notification identity, and navigation routes.
 - Test recommendation ranking for recency, title matching, channel affinity, deduplication, recently watched exclusion, partial failure, and trending fallback.
 - Test Shorts filtering at the three-minute boundary, deduplication, empty fallback, active-page handoff, and single-player ownership.
@@ -132,7 +132,7 @@ Shorts discovery derives a bounded candidate feed from recent searches and watch
 
 ## Out of Scope
 
-- Migration or shared data with the old `com.flowtube.app` installation.
+- Migration or shared data with installations using the legacy application ID.
 - Remote accounts, cloud synchronization, analytics, recommendation AI, or a backend.
 - Guaranteed semantic Shorts classification from an upstream source that does not expose it reliably.
 - Multiple concurrent players, per-card players, or speculative video preloading.

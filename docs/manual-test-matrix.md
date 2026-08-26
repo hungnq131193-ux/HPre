@@ -1,24 +1,28 @@
-# FlowTube V1 Manual Test Matrix
+# HPre V1 Manual Test Matrix
 
 Record one row per device/build. Do not mark remote playback passed from metadata or stream-resolution evidence alone.
 
 | Flow | API 26 | API 31+ | Current device | Build ID | Result | Notes |
 |---|---|---|---|---|---|---|
-| Install and launch | Not run | API 35 emulator | API 35 emulator | Local debug | Pass | Automated device suite installs and launches the test APK. |
-| Home to real playback | Not run | Previously verified | API 35 emulator | 2026-08-25 evidence build | Pass | See `docs/evidence/task5c-live-playback-android35-facts.json`. |
-| Search to Watch | Not run | API 35 emulator | API 35 emulator | Local debug | Pass | Deterministic `EndToEndNavigationTest`. |
-| Seek +/-10 seconds | Not run | Previously verified | API 35 emulator | 2026-08-25 evidence build | Pass | Live playback evidence records seek and post-seek advance. |
-| Speed and available quality | Not run | Previously verified | API 35 emulator | 2026-08-25 evidence build | Pass | Quality generation switch verified; speed controls covered deterministically. |
-| Fullscreen and back | Not run | API 35 emulator | API 35 emulator | Local debug | Pass | Watch instrumentation suite. |
-| Mini-player restore/dismiss | Not run | API 35 emulator | API 35 emulator | Local debug | Pass | Mini-player and E2E instrumentation tests. |
-| Background notification/lock controls | Not run | API 35 emulator | API 35 emulator | Local debug | Pass | MediaSession service instrumentation; physical lock-screen observation still recommended. |
-| PiP when supported | Not run | API 35 emulator | API 35 emulator | Local debug | Pass | Eligibility/lifecycle tests; visual OEM behavior remains device-specific. |
-| History resume/clear | Not run | API 35 emulator | API 35 emulator | Local debug | Pass | DAO, repository and Library instrumentation tests. |
-| Local follow and playlists | Not run | API 35 emulator | API 35 emulator | Local debug | Pass | Local-only labels and CRUD/reorder tests. |
-| System/light/dark theme | Not run | API 35 emulator | API 35 emulator | Local debug | Pass | Settings instrumentation test. |
-| Rotation/recreation | Not run | API 35 emulator | API 35 emulator | Local debug | Pass | Watch recreation and session tests. |
-| Offline/mapped extractor error | Not run | API 35 emulator | API 35 emulator | Local debug | Pass | Fake-backed error and retry tests. |
-| Expired stream refresh once | Not run | API 35 emulator | API 35 emulator | Local debug | Pass | Recovery unit/service tests. |
+| HPre signed release evidence | Not run | API 35 emulator or physical device | API 35 emulator or physical device | Fresh HPre APK | Not run | Regenerate facts, XML, hashes, and release notes from one real run before distribution. |
+| Deterministic build gate | N/A | N/A | Local Windows build | Debug APK | Pass | 435 unit tests passed, lint passed, AndroidTest sources compiled, and debug APK assembled on 2026-08-26. |
+| Install and launch | Not run | Not run | No device attached | Debug APK | Not run | `adb devices` returned no attached device in this session. |
+| Home to real playback | Not run | Not run | API 35 emulator | Fresh HPre APK | Not run | Requires new live verification run for HPre build. |
+| Search to Watch | Not run | Not run | No device attached | Debug APK | Not run | Instrumentation source compiled; runtime device test not run. |
+| Seek +/-10 seconds | Not run | Not run | API 35 emulator | Fresh HPre APK | Not run | Requires new live verification run for HPre build. |
+| Speed and available quality | Not run | Not run | API 35 emulator | Fresh HPre APK | Not run | Requires new live verification run for HPre build; speed controls covered deterministically. |
+| Fullscreen and back | Not run | Not run | No device attached | Debug APK | Not run | Unit coverage passed; instrumentation runtime not run. |
+| Mini-player restore/dismiss | Not run | Not run | No device attached | Debug APK | Not run | Instrumentation source compiled; runtime not run. |
+| Background notification/lock controls | Not run | Not run | No device attached | Debug APK | Not run | Physical lock-screen and notification behavior remains unverified. |
+| PiP when supported | Not run | Not run | No device attached | Debug APK | Not run | Eligibility unit tests passed; visual OEM behavior remains unverified. |
+| History resume/clear | Not run | Not run | No device attached | Debug APK | Not run | DAO/repository unit tests passed; device persistence flow not run. |
+| Local follow and playlists | Not run | Not run | No device attached | Debug APK | Not run | Repository unit tests passed; device UI flow not run. |
+| System/light/dark theme | Not run | Not run | No device attached | Debug APK | Not run | Instrumentation source compiled; runtime not run. |
+| Rotation/recreation | Not run | Not run | No device attached | Debug APK | Not run | Session unit tests passed; device recreation flow not run. |
+| Offline/mapped extractor error | Not run | Not run | No device attached | Debug APK | Not run | Fake-backed unit coverage passed; device offline flow not run. |
+| Expired stream refresh once | Not run | Not run | No device attached | Debug APK | Not run | Recovery unit tests passed; live service behavior not run. |
+| Upstream smoke | Not run | Not run | No device/query supplied | Debug APK | Not run | Requires an attached device and an explicitly approved public query. |
+| Playback startup comparison | Not run | Not run | No device/baseline | Debug APK | Not run | No same-device/network before-and-after baseline was available. |
 
 ## Remaining Device Coverage
 

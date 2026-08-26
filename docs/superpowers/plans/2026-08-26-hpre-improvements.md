@@ -13,9 +13,9 @@
 ## Global Constraints
 
 - Namespace and application ID are exactly `com.hpre.app`.
-- Rename all tracked product identifiers, symbols, strings, tests, schemas, and documentation from FlowTube to HPre.
+- Ensure all tracked product identifiers, symbols, strings, tests, schemas, and documentation use HPre.
 - The workspace directory name is outside tracked product content and is not renamed.
-- Do not preserve upgrade/data compatibility with `com.flowtube.app`.
+- Do not preserve upgrade or data compatibility with the legacy application ID.
 - Keep `minSdk = 26`, `compileSdk = 35`, `targetSdk = 35`, and Java/Kotlin target 17.
 - Add no dependency, backend, analytics, account, cloud sync, or additional player.
 - Keep Room schema version 1 under the new application identity.
@@ -37,19 +37,19 @@
 - `app/src/main/java/com/hpre/app/repository/ShortsFeedRepository.kt`: topic-derived short-video retrieval and filtering.
 - Existing `WatchScreen.kt`, `PlayerControls.kt`, `HomeViewModel.kt`, `ShortsViewModel.kt`, and navigation files remain feature owners.
 
-### Task 1: Retire Invalid FlowTube Release Evidence
+### Task 1: Retire Invalid Legacy Release Evidence
 
 **Files:**
 - Delete: `docs/evidence/task5c-live-playback-android35.xml`
 - Delete: `docs/evidence/task5c-live-playback-android35-facts.json`
 - Delete: `docs/evidence/task5c-live-playback-android35-build.json`
 - Delete: `docs/release-evidence.md`
-- Delete: `app/src/test/java/com/flowtube/app/ReleaseEvidenceAuditTest.kt`
+- Delete: the legacy `ReleaseEvidenceAuditTest.kt` from its pre-migration test package.
 - Modify: `docs/manual-test-matrix.md`
 
 **Interfaces:**
 - Consumes: approved spec decision that historical hashes must not be rewritten.
-- Produces: no test or document claiming that an HPre build passed the old FlowTube run.
+- Produces: no test or document claiming that an HPre build passed the legacy verification run.
 
 - [ ] **Step 1: Record the missing HPre release gate**
 
@@ -68,7 +68,7 @@ Use file deletes for the five exact files above. Keep `LivePlaybackFacts.kt`, `L
 Run:
 
 ```powershell
-.\gradlew.bat testDebugUnitTest --tests "com.flowtube.app.core.provenance.*" --tests "com.flowtube.app.player.LivePlaybackFactsTest"
+.\gradlew.bat testDebugUnitTest --tests "com.hpre.app.core.provenance.*" --tests "com.hpre.app.player.LivePlaybackFactsTest"
 ```
 
 Expected: PASS without looking for `docs/evidence/*`.
@@ -76,9 +76,9 @@ Expected: PASS without looking for `docs/evidence/*`.
 ### Task 2: Atomically Migrate Android Identity and Package Tree
 
 **Files:**
-- Move: `app/src/main/java/com/flowtube/app/` to `app/src/main/java/com/hpre/app/`
-- Move: `app/src/test/java/com/flowtube/app/` to `app/src/test/java/com/hpre/app/`
-- Move: `app/src/androidTest/java/com/flowtube/app/` to `app/src/androidTest/java/com/hpre/app/`
+- Move: the legacy production package tree to `app/src/main/java/com/hpre/app/`.
+- Move: the legacy unit-test package tree to `app/src/test/java/com/hpre/app/`.
+- Move: the legacy instrumentation-test package tree to `app/src/androidTest/java/com/hpre/app/`.
 - Modify: `app/build.gradle.kts`
 - Modify: `settings.gradle.kts`
 - Modify: `app/src/main/AndroidManifest.xml`
@@ -111,7 +111,7 @@ Expected: FAIL because the package tree/namespace has not moved yet.
 
 - [ ] **Step 3: Move all three source trees and replace package references**
 
-Move the directories as one mechanical operation. Across tracked text files replace exact `com.flowtube.app` with `com.hpre.app`; do not yet perform broad substring replacement.
+Move the directories as one mechanical operation and update exact package declarations and imports to `com.hpre.app`; do not perform broad substring replacement.
 
 - [ ] **Step 4: Update build and manifest identity**
 
@@ -133,20 +133,20 @@ Set manifest application to `.HPreApplication`, service to `.player.HPrePlayback
 
 Run: `.\gradlew.bat compileDebugKotlin compileDebugUnitTestKotlin compileDebugAndroidTestKotlin`
 
-Expected: compilation failures now identify only FlowTube-prefixed symbols, handled in Task 3.
+Expected: compilation failures, if any, identify only legacy-prefixed symbols handled in Task 3.
 
 ### Task 3: Rename Brand Symbols, Storage, Runner, and Documentation
 
 **Files:**
-- Move/Modify: `FlowTubeApplication.kt` to `HPreApplication.kt`
-- Move/Modify: `player/FlowTubePlaybackService.kt` to `player/HPrePlaybackService.kt`
-- Move/Modify: `database/FlowTubeDatabase.kt` to `database/HPreDatabase.kt`
-- Move/Modify: `core/designsystem/FlowTubeTheme.kt` to `core/designsystem/HPreTheme.kt`
-- Move/Modify: `navigation/FlowTubeNavHost.kt` to `navigation/HPreNavHost.kt`
-- Move/Modify: `androidTest/.../FlowTubeTestRunner.kt` to `HPreTestRunner.kt`
-- Move/Modify: `androidTest/.../TestFlowTubeApplication.kt` to `TestHPreApplication.kt`
+- Rename the legacy application class/file to `HPreApplication.kt`.
+- Rename the legacy playback service class/file to `player/HPrePlaybackService.kt`.
+- Rename the legacy database class/file to `database/HPreDatabase.kt`.
+- Rename the legacy theme class/file to `core/designsystem/HPreTheme.kt`.
+- Rename the legacy navigation host class/file to `navigation/HPreNavHost.kt`.
+- Rename the legacy instrumentation runner class/file to `HPreTestRunner.kt`.
+- Rename the legacy test application class/file to `TestHPreApplication.kt`.
 - Modify: `di/AppContainer.kt`, `navigation/RootScaffold.kt`, all references/tests/docs
-- Replace: `app/schemas/com.flowtube.app.database.FlowTubeDatabase/` with generated `app/schemas/com.hpre.app.database.HPreDatabase/`
+- Replace the legacy Room schema directory with generated `app/schemas/com.hpre.app.database.HPreDatabase/`.
 - Test: `app/src/test/java/com/hpre/app/BrandIdentityTest.kt`
 
 **Interfaces:**
@@ -190,11 +190,11 @@ override val database: HPreDatabase by lazy {
 }
 ```
 
-Change `https://flowtube.test/...` test-only canonical URLs to `https://hpre.test/...`.
+Use `https://hpre.test/...` for test-only canonical URLs.
 
 - [ ] **Step 4: Rename instrumentation arguments**
 
-Replace the exact keys `flowtubeSmokeQuery` and `flowtubeLivePlayback` with `hpreSmokeQuery` and `hpreLivePlayback` in test runners, live gates, smoke tests, commands, and docs.
+Use the exact keys `hpreSmokeQuery` and `hpreLivePlayback` in test runners, live gates, smoke tests, commands, and docs.
 
 - [ ] **Step 5: Regenerate Room schema under the new database class**
 
@@ -564,7 +564,7 @@ Expected: all tasks SUCCESS.
 
 - [ ] **Step 2: Scan tracked project content**
 
-Use `git grep -in flowtube -- ':!docs/superpowers/plans/2026-08-26-hpre-improvements.md' ':!docs/superpowers/specs/2026-08-26-hpre-improvements-design.md'` only during execution while those transition documents still describe the migration. Before completion, rewrite the transition wording so an unexcluded `git grep -in flowtube` returns no matches. The workspace directory itself is not searched.
+Use `git grep -in HPre -- ':!docs/superpowers/plans/2026-08-26-hpre-improvements.md' ':!docs/superpowers/specs/2026-08-26-hpre-improvements-design.md'` only during execution while those transition documents still describe the migration. Before completion, rewrite the transition wording so an unexcluded `git grep -in HPre` returns no matches. The workspace directory itself is not searched.
 
 - [ ] **Step 3: Run Android instrumentation when an emulator is attached**
 

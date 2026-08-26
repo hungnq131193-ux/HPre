@@ -9,10 +9,10 @@
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
 
     <application
-        android:name=".FlowTubeApplication"
+        android:name=".HPreApplication"
         android:allowBackup="false"
         android:icon="@android:drawable/sym_def_app_icon"
-        android:label="FlowTube"
+        android:label="HPre"
         android:roundIcon="@android:drawable/sym_def_app_icon"
         android:supportsRtl="true"
         android:theme="@android:style/Theme.Material.Light.NoActionBar">
@@ -29,7 +29,7 @@
         </activity>
 
         <service
-            android:name=".player.FlowTubePlaybackService"
+            android:name=".player.HPrePlaybackService"
             android:exported="false"
             android:foregroundServiceType="mediaPlayback">
             <intent-filter>

@@ -26,5 +26,5 @@ dependencyResolutionManagement {
     }
 }
 
-rootProject.name = "FlowTube"
+rootProject.name = "HPre"
 include(":app")
