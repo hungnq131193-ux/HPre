@@ -1,5 +1,6 @@
 package com.hpre.app.player
 
+import com.hpre.app.model.ContentKey
 import kotlinx.coroutines.flow.StateFlow
 
 data class PipEligibility(
@@ -20,6 +21,19 @@ interface PlaybackPolicyBridge {
 }
 
 object PlaybackPolicy {
+    fun prepareSnapshotPosition(
+        existing: PlaybackSnapshot?,
+        key: ContentKey,
+        requestedPositionMs: Long
+    ): Long {
+        val requested = requestedPositionMs.coerceAtLeast(0L)
+        return if (requested == 0L && existing?.key == key && existing.positionMs > 0L) {
+            existing.positionMs
+        } else {
+            requested
+        }
+    }
+
     fun shouldContinueInBackground(
         backgroundEnabled: Boolean,
         enteringPip: Boolean = false,

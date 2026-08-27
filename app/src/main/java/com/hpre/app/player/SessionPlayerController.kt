@@ -541,9 +541,14 @@ class SessionPlayerController(
         }
 
         val pending = PendingPrepare(key, startPositionMs, playWhenReady, initialQuality, clampedSpeed)
+        val snapshotPosition = PlaybackPolicy.prepareSnapshotPosition(
+            existing = snapshotStore.load(),
+            key = key,
+            requestedPositionMs = startPositionMs
+        )
         val snap = PlaybackSnapshot(
             key = key,
-            positionMs = startPositionMs.coerceAtLeast(0L),
+            positionMs = snapshotPosition,
             playWhenReady = playWhenReady,
             selectedQuality = initialQuality?.takeIf { option -> available.contains(option) },
             playbackSpeed = clampedSpeed,

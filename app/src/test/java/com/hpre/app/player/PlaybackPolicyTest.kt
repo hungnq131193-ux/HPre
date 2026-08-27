@@ -1,11 +1,26 @@
 package com.hpre.app.player
 
 import com.hpre.app.model.ContentKey
+import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class PlaybackPolicyTest {
+    @Test
+    fun prepare_snapshot_preserves_positive_position_only_for_same_video() {
+        val key = ContentKey(0, "same")
+        val existing = PlaybackSnapshot(key, 42_000L, playWhenReady = true)
+
+        assertEquals(42_000L, PlaybackPolicy.prepareSnapshotPosition(existing, key, 0L))
+        assertEquals(12_000L, PlaybackPolicy.prepareSnapshotPosition(existing, key, 12_000L))
+        assertEquals(
+            0L,
+            PlaybackPolicy.prepareSnapshotPosition(existing, ContentKey(0, "different"), 0L)
+        )
+        assertEquals(0L, PlaybackPolicy.prepareSnapshotPosition(null, key, 0L))
+    }
+
     @Test
     fun background_playback_continues_only_when_enabled() {
         assertTrue(PlaybackPolicy.shouldContinueInBackground(backgroundEnabled = true, enteringPip = false))
