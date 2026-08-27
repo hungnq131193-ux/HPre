@@ -1,7 +1,7 @@
 # HPre Playback Continuity and Seek Gesture Design
 
 **Date:** 2026-08-27
-**Status:** Draft, awaiting user review
+**Status:** Approved by user
 **Phase:** 1 of 4 (bug fixes before optimization)
 
 ## 1. Goals
@@ -246,10 +246,11 @@ this field.
 
 ### 5.4 Supporting fixes
 
-**Snapshot preservation.** `SessionPlayerController.prepareWithSpeed` must not lower a persisted
-position to zero. It writes the snapshot only when `startPositionMs > 0`, leaving any existing
-persisted position untouched otherwise. The `snapshotVersion` token is still taken so ordering
-guarantees are unaffected.
+**Snapshot preservation.** `SessionPlayerController.prepareWithSpeed` must not lower a positive
+persisted position to zero when the existing snapshot and prepare request have the same
+`ContentKey`. A positive requested position always wins. A request for a different key writes that
+new key and its requested position, including zero, so a previous video's snapshot cannot be
+restored accidentally. Snapshot generation and ordering guarantees remain unchanged.
 
 **Back stack: verify before changing.** `RootScaffold.kt:199-201` expands the mini player with a bare
 `navigate()`, which suggests repeated expansion could pile up Watch entries. Tracing the exit paths
