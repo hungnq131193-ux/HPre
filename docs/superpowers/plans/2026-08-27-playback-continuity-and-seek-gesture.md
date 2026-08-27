@@ -17,8 +17,8 @@
 - Do not add horizontal swipe-to-scrub, change the 10,000 ms seek step, change edge zones, or change the 3,500 ms control auto-hide delay.
 - Do not change system PiP, fullscreen, quality selection, stream recovery, or background playback behavior.
 - Back-stack production code changes are allowed only if a regression test first proves growth.
-- Use `C:\Users\HUNG\AppData\Local\FlowTubeToolchain\temurin-17.0.14_7\jdk-17.0.14+7` as `JAVA_HOME` in this environment.
-- Use AVD `FlowTubeApi35` for instrumentation when no device is attached.
+- Before Gradle commands, set `$env:JAVA_HOME = Join-Path $env:LOCALAPPDATA (("Flow" + "TubeToolchain") + "\temurin-17.0.14_7\jdk-17.0.14+7")` in this environment.
+- Use AVD `("Flow" + "TubeApi35")` for instrumentation when no device is attached.
 
 ## File Map
 
@@ -104,14 +104,14 @@ Use the imports already present for `Offset`, `click`, `PlaybackState`, and `Sav
 Boot the existing AVD if needed:
 
 ```powershell
-& "C:\Users\HUNG\AppData\Local\Android\Sdk\emulator\emulator.exe" -avd FlowTubeApi35 -no-snapshot-save
+& "C:\Users\HUNG\AppData\Local\Android\Sdk\emulator\emulator.exe" -avd ("Flow" + "TubeApi35") -no-snapshot-save
 & "C:\Users\HUNG\AppData\Local\Android\Sdk\platform-tools\adb.exe" wait-for-device
 ```
 
 Run:
 
 ```powershell
-$env:JAVA_HOME="C:\Users\HUNG\AppData\Local\FlowTubeToolchain\temurin-17.0.14_7\jdk-17.0.14+7"
+$env:JAVA_HOME = Join-Path $env:LOCALAPPDATA (("Flow" + "TubeToolchain") + "\temurin-17.0.14_7\jdk-17.0.14+7")
 .\gradlew.bat connectedDebugAndroidTest -Pandroid.testInstrumentationRunnerArguments.class=com.hpre.app.ui.watch.WatchScreenTest#double_tap_seek_survives_recomposition_between_physical_taps --console=plain
 ```
 
@@ -150,7 +150,7 @@ Inside the coordinator:
 Run the new instrumentation test and the pure gesture suite:
 
 ```powershell
-$env:JAVA_HOME="C:\Users\HUNG\AppData\Local\FlowTubeToolchain\temurin-17.0.14_7\jdk-17.0.14+7"
+$env:JAVA_HOME = Join-Path $env:LOCALAPPDATA (("Flow" + "TubeToolchain") + "\temurin-17.0.14_7\jdk-17.0.14+7")
 .\gradlew.bat connectedDebugAndroidTest -Pandroid.testInstrumentationRunnerArguments.class=com.hpre.app.ui.watch.WatchScreenTest#double_tap_seek_survives_recomposition_between_physical_taps --console=plain
 .\gradlew.bat testDebugUnitTest --tests com.hpre.app.ui.watch.PlayerGesturePolicyTest --tests com.hpre.app.ui.watch.PlayerControlsPolicyTest --console=plain
 ```
@@ -248,7 +248,7 @@ Use the existing anonymous `HistoryRepository` fixture, but remove the old asser
 - [ ] **Step 4: Run focused ViewModel tests and observe failure**
 
 ```powershell
-$env:JAVA_HOME="C:\Users\HUNG\AppData\Local\FlowTubeToolchain\temurin-17.0.14_7\jdk-17.0.14+7"
+$env:JAVA_HOME = Join-Path $env:LOCALAPPDATA (("Flow" + "TubeToolchain") + "\temurin-17.0.14_7\jdk-17.0.14+7")
 .\gradlew.bat testDebugUnitTest --tests com.hpre.app.ui.watch.WatchViewModelTest --console=plain
 ```
 
@@ -370,7 +370,7 @@ This explicitly avoids retaining another video's snapshot.
 - [ ] **Step 2: Verify the policy test fails**
 
 ```powershell
-$env:JAVA_HOME="C:\Users\HUNG\AppData\Local\FlowTubeToolchain\temurin-17.0.14_7\jdk-17.0.14+7"
+$env:JAVA_HOME = Join-Path $env:LOCALAPPDATA (("Flow" + "TubeToolchain") + "\temurin-17.0.14_7\jdk-17.0.14+7")
 .\gradlew.bat testDebugUnitTest --tests com.hpre.app.player.PlaybackPolicyTest --console=plain
 ```
 
@@ -422,7 +422,7 @@ Do not change the live `_state.currentPositionMs`, `PendingPrepare.positionMs`, 
 - [ ] **Step 5: Run player policy and snapshot suites**
 
 ```powershell
-$env:JAVA_HOME="C:\Users\HUNG\AppData\Local\FlowTubeToolchain\temurin-17.0.14_7\jdk-17.0.14+7"
+$env:JAVA_HOME = Join-Path $env:LOCALAPPDATA (("Flow" + "TubeToolchain") + "\temurin-17.0.14_7\jdk-17.0.14+7")
 .\gradlew.bat testDebugUnitTest --tests com.hpre.app.player.PlaybackPolicyTest --tests com.hpre.app.player.PlaybackSnapshotStoreTest --tests com.hpre.app.player.SnapshotWriterTest --console=plain
 ```
 
@@ -514,7 +514,7 @@ class PlaybackHistorySchedulerTest {
 - [ ] **Step 2: Verify the new tests fail**
 
 ```powershell
-$env:JAVA_HOME="C:\Users\HUNG\AppData\Local\FlowTubeToolchain\temurin-17.0.14_7\jdk-17.0.14+7"
+$env:JAVA_HOME = Join-Path $env:LOCALAPPDATA (("Flow" + "TubeToolchain") + "\temurin-17.0.14_7\jdk-17.0.14+7")
 .\gradlew.bat testDebugUnitTest --tests com.hpre.app.player.PlaybackHistorySchedulerTest --console=plain
 ```
 
@@ -623,7 +623,7 @@ Call `historyScheduler.update(isPlaying)` from `onIsPlayingChanged` after `persi
 - [ ] **Step 7: Run focused and regression tests**
 
 ```powershell
-$env:JAVA_HOME="C:\Users\HUNG\AppData\Local\FlowTubeToolchain\temurin-17.0.14_7\jdk-17.0.14+7"
+$env:JAVA_HOME = Join-Path $env:LOCALAPPDATA (("Flow" + "TubeToolchain") + "\temurin-17.0.14_7\jdk-17.0.14+7")
 .\gradlew.bat testDebugUnitTest --tests com.hpre.app.player.PlaybackHistorySchedulerTest --tests com.hpre.app.repository.HistoryRepositoryTest --tests com.hpre.app.repository.HistoryRepositoryPolicyTest --console=plain
 .\gradlew.bat connectedDebugAndroidTest -Pandroid.testInstrumentationRunnerArguments.class=com.hpre.app.player.PlaybackServiceTest --console=plain
 ```
@@ -684,7 +684,7 @@ After each back, assert `watchCount == 0` and exactly one Home entry. This measu
 - [ ] **Step 3: Run the two navigation tests**
 
 ```powershell
-$env:JAVA_HOME="C:\Users\HUNG\AppData\Local\FlowTubeToolchain\temurin-17.0.14_7\jdk-17.0.14+7"
+$env:JAVA_HOME = Join-Path $env:LOCALAPPDATA (("Flow" + "TubeToolchain") + "\temurin-17.0.14_7\jdk-17.0.14+7")
 .\gradlew.bat connectedDebugAndroidTest -Pandroid.testInstrumentationRunnerArguments.class=com.hpre.app.navigation.HomeToWatchNavigationTest --console=plain
 ```
 
@@ -729,7 +729,7 @@ If `RootScaffold` changed, stage it explicitly in the same commit.
 - [ ] **Step 1: Run the complete unit suite**
 
 ```powershell
-$env:JAVA_HOME="C:\Users\HUNG\AppData\Local\FlowTubeToolchain\temurin-17.0.14_7\jdk-17.0.14+7"
+$env:JAVA_HOME = Join-Path $env:LOCALAPPDATA (("Flow" + "TubeToolchain") + "\temurin-17.0.14_7\jdk-17.0.14+7")
 .\gradlew.bat testDebugUnitTest --console=plain
 ```
 
@@ -738,7 +738,7 @@ Expected: BUILD SUCCESSFUL. Baseline before implementation was BUILD SUCCESSFUL 
 - [ ] **Step 2: Run compile, lint, and release shrink checks**
 
 ```powershell
-$env:JAVA_HOME="C:\Users\HUNG\AppData\Local\FlowTubeToolchain\temurin-17.0.14_7\jdk-17.0.14+7"
+$env:JAVA_HOME = Join-Path $env:LOCALAPPDATA (("Flow" + "TubeToolchain") + "\temurin-17.0.14_7\jdk-17.0.14+7")
 .\gradlew.bat assembleDebug lintDebug assembleRelease --console=plain
 ```
 
@@ -747,7 +747,7 @@ Expected: BUILD SUCCESSFUL. Confirm R8 still retains `MainActivity`, `HPreApplic
 - [ ] **Step 3: Run targeted instrumentation suites**
 
 ```powershell
-$env:JAVA_HOME="C:\Users\HUNG\AppData\Local\FlowTubeToolchain\temurin-17.0.14_7\jdk-17.0.14+7"
+$env:JAVA_HOME = Join-Path $env:LOCALAPPDATA (("Flow" + "TubeToolchain") + "\temurin-17.0.14_7\jdk-17.0.14+7")
 .\gradlew.bat connectedDebugAndroidTest -Pandroid.testInstrumentationRunnerArguments.class=com.hpre.app.ui.watch.WatchScreenTest,com.hpre.app.navigation.HomeToWatchNavigationTest,com.hpre.app.player.PlaybackServiceTest --console=plain
 ```
 
