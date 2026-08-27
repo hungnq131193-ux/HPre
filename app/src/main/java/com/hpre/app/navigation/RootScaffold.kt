@@ -11,6 +11,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.navigationBars
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.statusBars
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Home
@@ -184,6 +185,14 @@ fun RootScaffold(
                 if (!isWatchScreen && hasActiveMedia) {
                     MiniPlayer(
                         playerController = playerController,
+                        // The navigation bar below already consumes the system inset. Without it
+                        // (search, channel, history, ...) the mini player would sit underneath the
+                        // system navigation bar, so pad it here instead.
+                        modifier = if (isTopLevelDestination) {
+                            Modifier
+                        } else {
+                            Modifier.navigationBarsPadding()
+                        },
                         onExpandWatch = { key ->
                             navController.navigate(Screen.Watch.createRoute(key))
                         },

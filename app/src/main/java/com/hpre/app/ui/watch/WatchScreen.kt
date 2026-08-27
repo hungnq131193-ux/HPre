@@ -119,6 +119,16 @@ interface FullscreenHostHandler {
     fun enterFullscreen()
     fun exitFullscreen()
     fun onConfigurationChange()
+
+    /**
+     * Re-applies the immersive window state while fullscreen is already active.
+     *
+     * Needed because a host recreation (process death restore, or a configuration change the
+     * activity does not handle itself) hands back a window with the system bars visible again,
+     * while the restored fullscreen flag equals the previous one, so no enter transition fires.
+     * Must never capture or clear the saved original orientation.
+     */
+    fun reapplyFullscreen() {}
 }
 
 class DefaultFullscreenHostHandler(
@@ -159,6 +169,14 @@ class DefaultFullscreenHostHandler(
 
     override fun onConfigurationChange() {
         // Safe no-op during config change to avoid altering saved state
+    }
+
+    override fun reapplyFullscreen() {
+        val act = activity ?: return
+        if (act.isFinishing || act.isDestroyed) return
+
+        act.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
+        systemUiController?.hideSystemBars()
     }
 }
 
@@ -267,6 +285,8 @@ fun WatchScreen(
     }
 
     var wasFullscreen by remember(hostHandler) { mutableStateOf(isFullscreen) }
+    // Tracks whether this specific host instance ran an enter transition itself.
+    val hostRanEnter = remember(hostHandler) { mutableStateOf(false) }
     DisposableEffect(hostHandler) {
         onDispose {
             val isChangingConfig = activity?.isChangingConfigurations == true
@@ -276,9 +296,19 @@ fun WatchScreen(
         }
     }
 
+    // A recreated host is handed a window with the system bars visible again while the restored
+    // fullscreen flag matches the previous one, so no enter transition fires and the status bar
+    // would overlap the video. Re-apply the immersive state once per fresh host instead.
+    LaunchedEffect(hostHandler) {
+        if (isFullscreen && !hostRanEnter.value) {
+            hostHandler.reapplyFullscreen()
+        }
+    }
+
     DisposableEffect(isFullscreen, hostHandler) {
         if (wasFullscreen != isFullscreen) {
             if (isFullscreen) {
+                hostRanEnter.value = true
                 hostHandler.enterFullscreen()
             } else {
                 hostHandler.exitFullscreen()
@@ -313,7 +343,15 @@ fun WatchScreen(
             )
         }
     } else {
-        Column(modifier = modifier.fillMaxSize().testTag("watch_screen")) {
+        // The watch route has no top bar and the host scaffold passes zero content insets, so
+        // without this the 16:9 player starts at y=0 and the translucent status bar crops its top
+        // edge. Padding here lets the full frame be visible instead.
+        Column(
+            modifier = modifier
+                .fillMaxSize()
+                .statusBarsPadding()
+                .testTag("watch_screen")
+        ) {
                 // Video Player Container (16:9 aspect ratio)
                 Box(
                     modifier = Modifier
@@ -338,12 +376,13 @@ fun WatchScreen(
                         onToggleFullscreen = { viewModel.setFullscreen(true) }
                     )
 
+                    // No statusBarsPadding here: the screen Column already consumes that inset, so
+                    // the player box starts below the status bar.
                     Surface(
                         color = Color.Black.copy(alpha = 0.55f),
                         shape = CircleShape,
                         modifier = Modifier
                             .align(Alignment.TopStart)
-                            .statusBarsPadding()
                             .padding(8.dp)
                     ) {
                         IconButton(

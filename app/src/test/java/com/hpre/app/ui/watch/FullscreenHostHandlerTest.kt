@@ -164,6 +164,65 @@ class FullscreenHostHandlerTest {
     }
 
     @Test
+    fun recreated_host_reapplies_immersive_state_without_touching_saved_original_orientation() {
+        val savedState = SavedStateHandle()
+        val initialActivity = TestActivity(orientation = ActivityInfo.SCREEN_ORIENTATION_PORTRAIT)
+        val handler1 = DefaultFullscreenHostHandler(
+            activity = initialActivity,
+            savedStateHandle = savedState,
+            systemUiController = FakeWindowSystemUiController()
+        )
+        handler1.enterFullscreen()
+
+        // A recreated host is handed a window with the system bars visible again.
+        val recreatedActivity = TestActivity(orientation = ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE)
+        val systemUi2 = FakeWindowSystemUiController()
+        val handler2 = DefaultFullscreenHostHandler(
+            activity = recreatedActivity,
+            savedStateHandle = savedState,
+            systemUiController = systemUi2
+        )
+        assertFalse("Fresh host starts with system bars visible", systemUi2.isHidden)
+
+        handler2.reapplyFullscreen()
+
+        assertTrue("Reapply must hide the system bars again", systemUi2.isHidden)
+        assertEquals(1, systemUi2.hideCalls)
+        assertEquals(0, systemUi2.showCalls)
+        assertEquals(ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE, recreatedActivity.requestedOrientation)
+        // The pre-fullscreen orientation must survive so exiting still restores portrait.
+        assertEquals(
+            ActivityInfo.SCREEN_ORIENTATION_PORTRAIT,
+            savedState.get<Int>(DefaultFullscreenHostHandler.KEY_ORIG_ORIENTATION)
+        )
+
+        handler2.exitFullscreen()
+
+        assertEquals(ActivityInfo.SCREEN_ORIENTATION_PORTRAIT, recreatedActivity.requestedOrientation)
+        assertFalse(savedState.contains(DefaultFullscreenHostHandler.KEY_ORIG_ORIENTATION))
+    }
+
+    @Test
+    fun reapply_on_a_destroyed_host_is_a_no_op() {
+        val savedState = SavedStateHandle()
+        val activity = TestActivity(
+            orientation = ActivityInfo.SCREEN_ORIENTATION_PORTRAIT,
+            destroyed = true
+        )
+        val systemUi = FakeWindowSystemUiController()
+        val handler = DefaultFullscreenHostHandler(
+            activity = activity,
+            savedStateHandle = savedState,
+            systemUiController = systemUi
+        )
+
+        handler.reapplyFullscreen()
+
+        assertEquals(0, systemUi.hideCalls)
+        assertEquals(ActivityInfo.SCREEN_ORIENTATION_PORTRAIT, activity.requestedOrientation)
+    }
+
+    @Test
     fun config_change_disposal_exits_zero_times_and_preserves_landscape_and_saved_state() {
         val savedState = SavedStateHandle()
         val activity = TestActivity(orientation = ActivityInfo.SCREEN_ORIENTATION_PORTRAIT, changingConfigurations = true)

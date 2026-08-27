@@ -21,6 +21,7 @@ import com.hpre.app.player.PlayerController
 import com.hpre.app.player.QualityOption
 import com.hpre.app.repository.CatalogRepository
 import com.hpre.app.repository.VideoService
+import com.hpre.app.repository.WatchRecommendationSource
 import com.hpre.app.ui.common.AsyncState
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineDispatcher
@@ -53,6 +54,7 @@ class WatchViewModel(
     private val historyRepository: com.hpre.app.repository.HistoryRepository? = null,
     private val subscriptionRepository: com.hpre.app.repository.SubscriptionRepository? = null,
     private val playlistRepository: com.hpre.app.repository.PlaylistRepository? = null,
+    private val watchRecommendationSource: WatchRecommendationSource? = null,
     private val ioDispatcher: CoroutineDispatcher = Dispatchers.IO
 ) : ViewModel() {
 
@@ -66,6 +68,7 @@ class WatchViewModel(
             historyRepository: com.hpre.app.repository.HistoryRepository? = null,
             subscriptionRepository: com.hpre.app.repository.SubscriptionRepository? = null,
             playlistRepository: com.hpre.app.repository.PlaylistRepository? = null,
+            watchRecommendationSource: WatchRecommendationSource? = null,
             ioDispatcher: CoroutineDispatcher = Dispatchers.IO
         ): ViewModelProvider.Factory = object : ViewModelProvider.Factory {
             @Suppress("UNCHECKED_CAST")
@@ -79,6 +82,7 @@ class WatchViewModel(
                     historyRepository = historyRepository,
                     subscriptionRepository = subscriptionRepository,
                     playlistRepository = playlistRepository,
+                    watchRecommendationSource = watchRecommendationSource,
                     ioDispatcher = ioDispatcher
                 ) as T
             }
@@ -93,6 +97,7 @@ class WatchViewModel(
                     historyRepository = historyRepository,
                     subscriptionRepository = subscriptionRepository,
                     playlistRepository = playlistRepository,
+                    watchRecommendationSource = watchRecommendationSource,
                     ioDispatcher = ioDispatcher
                 ) as T
             }
@@ -105,6 +110,7 @@ class WatchViewModel(
             historyRepository: com.hpre.app.repository.HistoryRepository? = null,
             subscriptionRepository: com.hpre.app.repository.SubscriptionRepository? = null,
             playlistRepository: com.hpre.app.repository.PlaylistRepository? = null,
+            watchRecommendationSource: WatchRecommendationSource? = null,
             ioDispatcher: CoroutineDispatcher = Dispatchers.IO
         ): ViewModelProvider.Factory = provideFactory(
             videoService = videoService,
@@ -113,6 +119,7 @@ class WatchViewModel(
             historyRepository = historyRepository,
             subscriptionRepository = subscriptionRepository,
             playlistRepository = playlistRepository,
+            watchRecommendationSource = watchRecommendationSource,
             ioDispatcher = ioDispatcher
         )
     }
@@ -188,7 +195,6 @@ class WatchViewModel(
                     catalogRepository?.video(key, forceRefresh = forceRefresh) ?: videoService.video(key)
                 }
                 val streamDeferred = async { videoService.streamInfo(key) }
-                val historyDeferred = async { historyRepository?.getHistoryItem(key) }
 
                 val streamResult = streamDeferred.await()
 
@@ -196,7 +202,6 @@ class WatchViewModel(
 
                 if (streamResult is AppResult.Failure) {
                     detailsDeferred.cancel()
-                    historyDeferred.cancel()
                     _uiState.update { it.copy(isLoading = false, error = streamResult.error) }
                     return@launch
                 }
@@ -214,21 +219,25 @@ class WatchViewModel(
                     }
                 }
                 if (!preparedCurrentSession) return@launch
-                loadRelated(key, generation)
+                if (watchRecommendationSource == null) {
+                    loadRelated(key, null, generation, forceRefresh)
+                }
                 loadComments(key, generation, null, append = false)
 
-                val historyResult = historyDeferred.await()
-                if (generation != currentGeneration || currentKey != key) return@launch
-                val historyItem = (historyResult as? AppResult.Success)?.value
-                if (historyItem != null &&
-                    com.hpre.app.repository.HistoryRepository.shouldOfferResume(
-                        historyItem.playbackPositionMs,
-                        historyItem.durationSeconds
-                    )
-                ) {
-                    synchronized(sessionGuard) {
-                        if (generation == currentGeneration && currentKey == key) {
-                            playerController.seekTo(historyItem.playbackPositionMs)
+                launch {
+                    val historyResult = historyRepository?.getHistoryItem(key)
+                    if (generation != currentGeneration || currentKey != key) return@launch
+                    val historyItem = (historyResult as? AppResult.Success)?.value
+                    if (historyItem != null &&
+                        com.hpre.app.repository.HistoryRepository.shouldOfferResume(
+                            historyItem.playbackPositionMs,
+                            historyItem.durationSeconds
+                        )
+                    ) {
+                        synchronized(sessionGuard) {
+                            if (generation == currentGeneration && currentKey == key) {
+                                playerController.seekTo(historyItem.playbackPositionMs)
+                            }
                         }
                     }
                 }
@@ -238,6 +247,9 @@ class WatchViewModel(
                         if (generation != currentGeneration || currentKey != key) return@launch
                         _uiState.update {
                             it.copy(isLoading = false, details = detailsResult.value, error = null)
+                        }
+                        if (watchRecommendationSource != null) {
+                            loadRelated(key, detailsResult.value, generation, forceRefresh)
                         }
                     }
                     is AppResult.Failure -> {
@@ -261,7 +273,10 @@ class WatchViewModel(
         }
     }
 
-    fun retryRelated() = currentKey?.let { loadRelated(it, currentGeneration) }
+    fun retryRelated() {
+        val key = currentKey ?: return
+        loadRelated(key, _uiState.value.details, currentGeneration, forceRefresh = true)
+    }
 
     fun retryComments() = currentKey?.let {
         loadComments(it, currentGeneration, null, append = false)
@@ -274,12 +289,22 @@ class WatchViewModel(
         loadComments(key, currentGeneration, token, append = true)
     }
 
-    private fun loadRelated(key: ContentKey, generation: Long) {
+    private fun loadRelated(
+        key: ContentKey,
+        details: VideoDetails?,
+        generation: Long,
+        forceRefresh: Boolean
+    ) {
         relatedJob?.cancel()
         _relatedState.value = AsyncState.Loading
         relatedJob = viewModelScope.launch(ioDispatcher) {
             try {
-                val nextState = when (val result = videoService.related(key)) {
+                val result = if (watchRecommendationSource != null && details != null) {
+                    watchRecommendationSource.recommendations(key, details, forceRefresh)
+                } else {
+                    videoService.related(key)
+                }
+                val nextState = when (result) {
                     is AppResult.Success -> if (result.value.isEmpty()) AsyncState.Empty else AsyncState.Content(result.value)
                     is AppResult.Failure -> AsyncState.Error(result.error)
                 }

@@ -10,7 +10,10 @@ import com.hpre.app.model.PageToken
 import com.hpre.app.model.SearchFilter
 import com.hpre.app.model.SearchResultItem
 import com.hpre.app.repository.CatalogRepository
+import com.hpre.app.repository.LocalSearchHistoryItem
+import com.hpre.app.repository.SearchHistoryRepository
 import com.hpre.app.repository.VideoService
+import com.hpre.app.settings.PlaybackPreferences
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.FlowPreview
 import kotlinx.coroutines.Job
@@ -18,12 +21,16 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.debounce
 import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.flowOf
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
+import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 
@@ -39,10 +46,18 @@ sealed interface SearchUiState {
     data class Error(val error: AppError) : SearchUiState
 }
 
+data class SearchHistoryUiState(
+    val items: List<LocalSearchHistoryItem> = emptyList(),
+    val isMutationInFlight: Boolean = false,
+    val error: AppError? = null
+)
+
 @OptIn(FlowPreview::class, ExperimentalCoroutinesApi::class)
 class SearchViewModel(
     private val repository: CatalogRepository,
-    private val videoService: VideoService
+    private val videoService: VideoService,
+    private val searchHistoryRepository: SearchHistoryRepository? = null,
+    private val playbackPreferences: PlaybackPreferences? = null
 ) : ViewModel() {
 
     private val _query = MutableStateFlow("")
@@ -54,9 +69,17 @@ class SearchViewModel(
     private val _uiState = MutableStateFlow<SearchUiState>(SearchUiState.Idle)
     val uiState: StateFlow<SearchUiState> = _uiState.asStateFlow()
 
-    // Local in-memory recent search queries
-    private val _recentQueries = MutableStateFlow<List<String>>(emptyList())
-    val recentQueries: StateFlow<List<String>> = _recentQueries.asStateFlow()
+    private val _historyMutation = MutableStateFlow(SearchHistoryUiState())
+    private val observedHistory = searchHistoryRepository?.observeRecentQueries(20)
+        ?: flowOf(emptyList())
+    val historyState: StateFlow<SearchHistoryUiState> = combine(
+        observedHistory,
+        _historyMutation
+    ) { items, mutation -> mutation.copy(items = items) }
+        .stateIn(viewModelScope, SharingStarted.Eagerly, SearchHistoryUiState())
+    val recentQueries: StateFlow<List<String>> = historyState
+        .map { state -> state.items.map(LocalSearchHistoryItem::query) }
+        .stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
 
     // Search suggestions flow with debouncing
     val suggestions: StateFlow<List<String>> = _query
@@ -271,32 +294,71 @@ class SearchViewModel(
         return result
     }
 
-    private fun recordRecentQuery(q: String) {
-        val current = _recentQueries.value.toMutableList()
-        current.remove(q)
-        current.add(0, q)
-        if (current.size > 20) {
-            current.removeAt(current.size - 1)
+    private fun recordRecentQuery(query: String) {
+        val history = searchHistoryRepository ?: return
+        val preferences = playbackPreferences ?: return
+        viewModelScope.launch {
+            if (!preferences.isHistoryEnabled.first()) return@launch
+            try {
+                when (val result = history.recordQuery(query)) {
+                    is AppResult.Success -> Unit
+                    is AppResult.Failure -> _historyMutation.update { it.copy(error = result.error) }
+                }
+            } catch (cancelled: kotlinx.coroutines.CancellationException) {
+                throw cancelled
+            } catch (_: Throwable) {
+                _historyMutation.update { it.copy(error = AppError.Unknown) }
+            }
         }
-        _recentQueries.value = current
     }
 
-    fun removeRecentQuery(q: String) {
-        _recentQueries.value = _recentQueries.value.filter { it != q }
+    fun removeRecentQuery(query: String) {
+        mutateHistory { it.deleteQuery(query) }
     }
 
     fun clearRecentQueries() {
-        _recentQueries.value = emptyList()
+        mutateHistory(SearchHistoryRepository::clearHistory)
+    }
+
+    fun consumeHistoryError() {
+        _historyMutation.update { it.copy(error = null) }
+    }
+
+    private fun mutateHistory(operation: suspend (SearchHistoryRepository) -> AppResult<Unit>) {
+        val history = searchHistoryRepository ?: return
+        if (_historyMutation.value.isMutationInFlight) return
+        _historyMutation.update { it.copy(isMutationInFlight = true, error = null) }
+        viewModelScope.launch {
+            var error: AppError? = null
+            try {
+                error = (operation(history) as? AppResult.Failure)?.error
+            } catch (cancelled: kotlinx.coroutines.CancellationException) {
+                throw cancelled
+            } catch (_: Throwable) {
+                error = AppError.Unknown
+            } finally {
+                _historyMutation.update {
+                    it.copy(isMutationInFlight = false, error = error)
+                }
+            }
+        }
     }
 
     companion object {
         fun provideFactory(
             repository: CatalogRepository,
-            videoService: VideoService
+            videoService: VideoService,
+            searchHistoryRepository: SearchHistoryRepository,
+            playbackPreferences: PlaybackPreferences
         ): ViewModelProvider.Factory = object : ViewModelProvider.Factory {
             @Suppress("UNCHECKED_CAST")
             override fun <T : ViewModel> create(modelClass: Class<T>): T {
-                return SearchViewModel(repository, videoService) as T
+                return SearchViewModel(
+                    repository,
+                    videoService,
+                    searchHistoryRepository,
+                    playbackPreferences
+                ) as T
             }
         }
     }

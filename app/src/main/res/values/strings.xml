@@ -26,6 +26,11 @@
     <string name="search_hint">Tìm kiếm trên HPre…</string>
     <string name="search_clear">Xóa nội dung tìm kiếm</string>
     <string name="search_remove_recent">Xóa khỏi lịch sử tìm kiếm</string>
+    <string name="search_history_recent">Tìm kiếm gần đây</string>
+    <string name="search_history_clear_all">Xóa tất cả</string>
+    <string name="search_history_clear_title">Xóa lịch sử tìm kiếm?</string>
+    <string name="search_history_clear_message">Thao tác này sẽ xóa toàn bộ lịch sử tìm kiếm trên thiết bị.</string>
+    <string name="search_history_update_failed">Không thể cập nhật lịch sử tìm kiếm.</string>
     <string name="search_idle">Nhập để tìm video, kênh và danh sách phát</string>
     <string name="search_empty">Không tìm thấy kết quả cho “%1$s”</string>
     <string name="search_filter_all">Tất cả</string>
@@ -78,6 +83,8 @@
     <string name="action_forward_10">Tua tới 10 giây</string>
     <string name="action_enter_fullscreen">Mở toàn màn hình</string>
     <string name="action_exit_fullscreen">Thoát toàn màn hình</string>
+    <string name="playback_audio_only">Chỉ phát âm thanh</string>
+    <string name="seek_step_seconds">%1$d giây</string>
     <string name="playback_speed">Tốc độ phát (%1$sx)</string>
     <string name="playback_quality">Chất lượng (%1$s)</string>
     <string name="quality_auto">Tự động</string>
@@ -120,8 +127,8 @@
     <string name="settings_choose_wifi_quality">Chọn chất lượng Wi-Fi</string>
     <string name="settings_choose_mobile_quality">Chọn chất lượng dữ liệu di động</string>
     <string name="settings_history_privacy">Lịch sử và quyền riêng tư</string>
-    <string name="settings_record_history">Lưu lịch sử xem</string>
-    <string name="settings_record_history_summary">Lưu video đã xem trên thiết bị này</string>
+    <string name="settings_record_history">Lưu lịch sử</string>
+    <string name="settings_record_history_summary">Lưu video đã xem và tìm kiếm trên thiết bị này</string>
     <string name="settings_choose_speed">Chọn tốc độ phát mặc định</string>
     <string name="quality_high">1080p (Cao)</string>
     <string name="quality_medium">720p (Trung bình)</string>

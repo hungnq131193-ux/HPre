@@ -21,6 +21,8 @@
             android:name=".MainActivity"
             android:exported="true"
             android:supportsPictureInPicture="true"
+            android:configChanges="orientation|screenSize|screenLayout|smallestScreenSize|keyboardHidden|keyboard|navigation|uiMode|density|fontScale"
+            android:resizeableActivity="true"
             android:theme="@style/Theme.HPre">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />

@@ -12,6 +12,7 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flowOf
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.runTest
@@ -37,6 +38,9 @@ class HistoryRepositoryTest {
         var upsertGate: CompletableDeferred<Unit>? = null
 
         override fun observeAll(): Flow<List<HistoryEntity>> = flow
+
+        override fun observeRecent(limit: Int): Flow<List<HistoryEntity>> =
+            flow.map { it.take(limit) }
 
         override suspend fun getByKey(serviceId: Int, videoId: String): HistoryEntity? {
             if (shouldThrowIoException) throw java.io.IOException("Disk read error")
@@ -91,6 +95,36 @@ class HistoryRepositoryTest {
         viewCount = 1000L,
         publishedTimestamp = 5000L
     )
+
+    @Test
+    fun observeRecentHistory_limits_items_at_dao_boundary() = runTest {
+        val dao = FakeHistoryDao()
+        val repo = DefaultHistoryRepository(
+            dao,
+            FakePlaybackPreferences(),
+            StandardTestDispatcher(testScheduler)
+        )
+        repeat(3) { index ->
+            dao.upsert(
+                HistoryEntity(
+                    serviceId = 1,
+                    videoId = "v$index",
+                    canonicalUrl = "https://example.test/v$index",
+                    title = "Video $index",
+                    channelId = null,
+                    channelName = null,
+                    thumbnailUrl = null,
+                    durationSeconds = null,
+                    playbackPositionMs = 0,
+                    watchedTimestamp = index.toLong()
+                )
+            )
+        }
+
+        val result = repo.observeRecentHistory(2).first()
+
+        assertEquals(listOf("v2", "v1"), result.map { it.key.nativeId })
+    }
 
     @Test
     fun recordHistory_stores_entity_when_history_is_enabled() = runTest {

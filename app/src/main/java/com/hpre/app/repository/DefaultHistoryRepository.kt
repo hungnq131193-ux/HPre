@@ -27,6 +27,12 @@ class DefaultHistoryRepository(
         }
     }
 
+    override fun observeRecentHistory(limit: Int): Flow<List<WatchHistoryItem>> {
+        return historyDao.observeRecent(limit.coerceAtLeast(1)).map { entities ->
+            entities.map { it.toDomain() }
+        }
+    }
+
     override suspend fun getHistoryItem(key: ContentKey): AppResult<WatchHistoryItem?> = withContext(ioDispatcher) {
         try {
             val entity = historyDao.getByKey(key.serviceId, key.nativeId)

@@ -46,7 +46,13 @@ interface AppContainer {
     val videoService: VideoService
     val catalogRepository: CatalogRepository
     val recommendationRepository: RecommendationRepository
-        get() = RecommendationRepository(catalogRepository, searchHistoryRepository, historyRepository)
+        get() = RecommendationRepository(
+            catalogRepository,
+            searchHistoryRepository,
+            historyRepository,
+            videoService,
+            playbackPreferences
+        )
     val topicFeedSource: TopicFeedSource
         get() = CatalogTopicFeedSource(catalogRepository)
     val fullscreenHostHandlerFactory: FullscreenHostHandlerFactory
@@ -127,7 +133,9 @@ class DefaultAppContainer(
         RecommendationRepository(
             catalogRepository = catalogRepository,
             searchHistoryRepository = searchHistoryRepository,
-            historyRepository = historyRepository
+            historyRepository = historyRepository,
+            videoService = videoService,
+            playbackPreferences = playbackPreferences
         )
     }
 

@@ -9,9 +9,16 @@ import com.hpre.app.model.SearchPage
 import com.hpre.app.model.SearchResultItem
 import com.hpre.app.model.VideoSummary
 import com.hpre.app.repository.CatalogRepository
+import com.hpre.app.repository.LocalSearchHistoryItem
+import com.hpre.app.repository.SearchHistoryRepository
+import com.hpre.app.settings.PlaybackPreferences
 import com.hpre.app.testing.FakeVideoService
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.flowOf
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.advanceTimeBy
 import kotlinx.coroutines.test.advanceUntilIdle
@@ -29,6 +36,44 @@ import org.junit.Test
 class SearchViewModelTest {
 
     private val testDispatcher = StandardTestDispatcher()
+
+    private class FakeSearchHistoryRepository(
+        initial: List<LocalSearchHistoryItem> = emptyList()
+    ) : SearchHistoryRepository {
+        val items = MutableStateFlow(initial)
+        val recorded = mutableListOf<String>()
+
+        override fun observeRecentQueries(limit: Int): Flow<List<LocalSearchHistoryItem>> =
+            items.map { it.take(limit) }
+
+        override suspend fun recordQuery(rawQuery: String, timestamp: Long): AppResult<Unit> {
+            recorded += rawQuery
+            items.value = listOf(LocalSearchHistoryItem(rawQuery, timestamp)) +
+                items.value.filterNot { it.query == rawQuery }
+            return AppResult.Success(Unit)
+        }
+
+        override suspend fun deleteQuery(rawQuery: String): AppResult<Unit> {
+            items.value = items.value.filterNot { it.query == rawQuery }
+            return AppResult.Success(Unit)
+        }
+
+        override suspend fun clearHistory(): AppResult<Unit> {
+            items.value = emptyList()
+            return AppResult.Success(Unit)
+        }
+    }
+
+    private class FakePlaybackPreferences(enabled: Boolean) : PlaybackPreferences {
+        override val isBackgroundPlaybackEnabled = flowOf(false)
+        override val isPipEnabled = flowOf(false)
+        override val isHistoryEnabled = MutableStateFlow(enabled)
+        override suspend fun setBackgroundPlaybackEnabled(enabled: Boolean) = Unit
+        override suspend fun setPipEnabled(enabled: Boolean) = Unit
+        override suspend fun setHistoryEnabled(enabled: Boolean) {
+            isHistoryEnabled.value = enabled
+        }
+    }
 
     @Before
     fun setUp() {
@@ -278,23 +323,64 @@ class SearchViewModelTest {
     }
 
     @Test
-    fun recent_queries_are_recorded_locally_in_memory_and_can_be_selected_or_cleared() = runTest(testDispatcher) {
+    fun persisted_queries_are_observed_and_explicit_submit_records_once() = runTest(testDispatcher) {
         val fakeService = FakeVideoService()
         val repository = CatalogRepository(videoService = fakeService, repositoryScope = this)
-        val viewModel = SearchViewModel(repository = repository, videoService = fakeService)
+        val history = FakeSearchHistoryRepository(listOf(LocalSearchHistoryItem("saved query", 1L)))
+        val viewModel = SearchViewModel(
+            repository,
+            fakeService,
+            history,
+            FakePlaybackPreferences(true)
+        )
 
-        viewModel.onQuerySubmitted("first query")
-        viewModel.onQuerySubmitted("second query")
         advanceUntilIdle()
+        assertEquals(listOf("saved query"), viewModel.historyState.value.items.map { it.query })
 
-        val recent = viewModel.recentQueries.value
-        assertEquals(listOf("second query", "first query"), recent)
+        viewModel.onQuerySubmitted("compose")
+        advanceUntilIdle()
+        assertEquals(listOf("compose"), history.recorded)
+        assertEquals("compose", viewModel.historyState.value.items.first().query)
+    }
+
+    @Test
+    fun debounced_typing_does_not_record_and_disabled_history_blocks_submit_recording() = runTest(testDispatcher) {
+        val fakeService = FakeVideoService()
+        val repository = CatalogRepository(videoService = fakeService, repositoryScope = this)
+        val history = FakeSearchHistoryRepository()
+        val preferences = FakePlaybackPreferences(true)
+        val viewModel = SearchViewModel(repository, fakeService, history, preferences)
+
+        viewModel.onQueryChanged("typed query")
+        advanceTimeBy(500)
+        advanceUntilIdle()
+        assertTrue(history.recorded.isEmpty())
+
+        preferences.setHistoryEnabled(false)
+        viewModel.onQuerySubmitted("private query")
+        advanceUntilIdle()
+        assertTrue(history.recorded.isEmpty())
+    }
+
+    @Test
+    fun delete_and_clear_use_persisted_repository() = runTest(testDispatcher) {
+        val fakeService = FakeVideoService()
+        val repository = CatalogRepository(videoService = fakeService, repositoryScope = this)
+        val history = FakeSearchHistoryRepository(
+            listOf(
+                LocalSearchHistoryItem("first query", 2L),
+                LocalSearchHistoryItem("second query", 1L)
+            )
+        )
+        val viewModel = SearchViewModel(repository, fakeService, history, FakePlaybackPreferences(true))
 
         viewModel.removeRecentQuery("first query")
-        assertEquals(listOf("second query"), viewModel.recentQueries.value)
+        advanceUntilIdle()
+        assertEquals(listOf("second query"), viewModel.historyState.value.items.map { it.query })
 
         viewModel.clearRecentQueries()
-        assertTrue(viewModel.recentQueries.value.isEmpty())
+        advanceUntilIdle()
+        assertTrue(viewModel.historyState.value.items.isEmpty())
     }
 
     @Test

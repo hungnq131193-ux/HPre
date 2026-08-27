@@ -4,6 +4,7 @@ import com.hpre.app.core.error.AppResult
 import com.hpre.app.model.ContentKey
 import com.hpre.app.model.VideoSummary
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.map
 
 data class WatchHistoryItem(
     val key: ContentKey,
@@ -19,6 +20,8 @@ data class WatchHistoryItem(
 
 interface HistoryRepository {
     fun observeHistory(): Flow<List<WatchHistoryItem>>
+    fun observeRecentHistory(limit: Int): Flow<List<WatchHistoryItem>> =
+        observeHistory().map { it.take(limit.coerceAtLeast(1)) }
     suspend fun getHistoryItem(key: ContentKey): AppResult<WatchHistoryItem?>
     suspend fun recordHistory(
         summary: VideoSummary,

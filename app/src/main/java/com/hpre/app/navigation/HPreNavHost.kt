@@ -69,7 +69,9 @@ fun HPreNavHost(
             val searchViewModel: SearchViewModel = viewModel(
                 factory = SearchViewModel.provideFactory(
                     repository = container.catalogRepository,
-                    videoService = container.videoService
+                    videoService = container.videoService,
+                    searchHistoryRepository = container.searchHistoryRepository,
+                    playbackPreferences = container.playbackPreferences
                 )
             )
             SearchScreen(
@@ -275,7 +277,8 @@ fun HPreNavHost(
                         catalogRepository = container.catalogRepository,
                         historyRepository = container.historyRepository,
                         subscriptionRepository = container.subscriptionRepository,
-                        playlistRepository = container.playlistRepository
+                        playlistRepository = container.playlistRepository,
+                        watchRecommendationSource = container.recommendationRepository
                     )
                 )
                 com.hpre.app.ui.watch.WatchScreen(

@@ -12,6 +12,7 @@ import com.hpre.app.player.PlaybackState
 import com.hpre.app.player.PlayerController
 import com.hpre.app.player.QualityOption
 import com.hpre.app.repository.VideoService
+import com.hpre.app.repository.WatchRecommendationSource
 import com.hpre.app.testing.FakeVideoService
 import com.hpre.app.ui.common.AsyncState
 import kotlinx.coroutines.CompletableDeferred
@@ -320,6 +321,39 @@ class WatchViewModelTest {
 
         assertEquals(listOf(relatedVideo), (model.relatedState.value as AsyncState.Content<List<VideoSummary>>).value)
         assertEquals(listOf(comment), (model.commentsState.value as AsyncState.Content<CommentPage>).value.comments)
+    }
+
+    @Test
+    fun injected_recommendation_source_expands_related_after_details_load() = runTest(testDispatcher) {
+        val expanded = VideoSummary(
+            key = ContentKey(0, "expanded"), title = "Expanded",
+            canonicalUrl = "https://example.test/expanded", channelKey = null,
+            channelName = "New Channel", channelAvatarUrl = null, thumbnailUrl = null,
+            durationSeconds = null, viewCount = null, publishedTimestamp = null
+        )
+        var receivedDetails: VideoDetails? = null
+        val recommendations = WatchRecommendationSource { _, details, _ ->
+            receivedDetails = details
+            AppResult.Success(listOf(expanded))
+        }
+        val service = FakeVideoService(
+            videoHandler = { AppResult.Success(testDetails(it)) },
+            streamInfoHandler = { AppResult.Success(testStreamInfo(it)) },
+            relatedHandler = { AppResult.Success(emptyList()) }
+        )
+        val model = WatchViewModel(
+            videoService = service,
+            playerController = FakePlayerController(),
+            savedStateHandle = androidx.lifecycle.SavedStateHandle(),
+            watchRecommendationSource = recommendations,
+            ioDispatcher = testDispatcher
+        )
+
+        model.load(testKey)
+        advanceUntilIdle()
+
+        assertEquals(testDetails(testKey), receivedDetails)
+        assertEquals(listOf(expanded), (model.relatedState.value as AsyncState.Content).value)
     }
 
     @Test

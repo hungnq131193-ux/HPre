@@ -30,14 +30,14 @@ class RecommendationRankerTest {
         assertEquals("a", result.first().key.nativeId)
     }
 
-    @Test fun deduplicates_and_excludes_watched_when_alternatives_exist() {
+    @Test fun deduplicates_and_places_watched_after_fresh_when_feed_is_sparse() {
         val watched = video("seen", "Compose")
         val fresh = video("fresh", "Compose")
         val result = RecommendationRanker.rank(
             listOf(watched, watched.copy(title = "Duplicate"), fresh),
             LocalInterestSignals(listOf("compose"), emptyMap(), setOf(watched.key))
         )
-        assertEquals(listOf("fresh"), result.map { it.key.nativeId })
+        assertEquals(listOf("fresh", "seen"), result.map { it.key.nativeId })
     }
 
     @Test fun permits_watched_candidates_when_exclusion_would_empty_feed() {
@@ -90,5 +90,69 @@ class RecommendationRankerTest {
             LocalInterestSignals(listOf("kotlin compose"), emptyMap(), emptySet())
         )
         assertEquals(listOf("phrase", "reordered"), result.map { it.key.nativeId })
+    }
+
+    @Test fun watch_context_excludes_current_and_prioritizes_provider_related() {
+        val current = video("current", "Kotlin")
+        val related = video("related", "Other")
+        val supplemental = video("supplemental", "Other")
+
+        val result = RecommendationRanker.rank(
+            listOf(current, supplemental, related),
+            LocalInterestSignals(emptyList(), emptyMap(), emptySet()),
+            RecommendationContext(
+                currentKey = current.key,
+                providerRelatedKeys = setOf(related.key)
+            )
+        )
+
+        assertEquals(listOf("related", "supplemental"), result.map { it.key.nativeId })
+    }
+
+    @Test fun diversification_avoids_three_same_channel_in_a_row_when_alternative_exists() {
+        val candidates = listOf(
+            video("a1", "Topic", "A"),
+            video("a2", "Topic", "A"),
+            video("a3", "Topic", "A"),
+            video("b1", "Topic", "B")
+        )
+
+        val result = RecommendationRanker.rank(
+            candidates,
+            LocalInterestSignals(listOf("topic"), emptyMap(), emptySet())
+        )
+
+        assertEquals(listOf("a1", "a2", "b1", "a3"), result.map { it.key.nativeId })
+    }
+
+    @Test fun watched_candidates_fill_a_sparse_feed_after_fresh_candidates() {
+        val fresh = video("fresh", "Topic")
+        val watched = (1..3).map { video("seen$it", "Topic") }
+
+        val result = RecommendationRanker.rank(
+            listOf(watched[0], fresh, watched[1], watched[2]),
+            LocalInterestSignals(
+                listOf("topic"),
+                emptyMap(),
+                watched.map { it.key }.toSet()
+            ),
+            limit = 4
+        )
+
+        assertEquals("fresh", result.first().key.nativeId)
+        assertEquals(4, result.size)
+    }
+
+    @Test fun newer_video_breaks_an_otherwise_equal_score() {
+        val older = video("older", "Topic").copy(publishedTimestamp = 1_000L)
+        val newer = video("newer", "Topic").copy(publishedTimestamp = 9_900_000L)
+
+        val result = RecommendationRanker.rank(
+            listOf(older, newer),
+            LocalInterestSignals(listOf("topic"), emptyMap(), emptySet()),
+            RecommendationContext(nowEpochSeconds = 10_000_000L)
+        )
+
+        assertEquals(listOf("newer", "older"), result.map { it.key.nativeId })
     }
 }

@@ -1,0 +1,77 @@
+package com.hpre.app.ui.watch
+
+import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertTrue
+import org.junit.Test
+
+class PlayerControlsPolicyTest {
+
+    @Test
+    fun controls_auto_hide_while_playing_and_user_is_idle() {
+        assertTrue(
+            PlayerControlsPolicy.shouldAutoHide(
+                controlsVisible = true,
+                isPlaying = true,
+                isMenuOpen = false,
+                isScrubbing = false
+            )
+        )
+    }
+
+    @Test
+    fun controls_stay_visible_while_playback_is_paused() {
+        assertFalse(
+            "Paused playback must keep the controls on screen",
+            PlayerControlsPolicy.shouldAutoHide(
+                controlsVisible = true,
+                isPlaying = false,
+                isMenuOpen = false,
+                isScrubbing = false
+            )
+        )
+    }
+
+    @Test
+    fun controls_stay_visible_while_a_menu_is_open() {
+        assertFalse(
+            "An open speed/quality menu must not be yanked away mid-selection",
+            PlayerControlsPolicy.shouldAutoHide(
+                controlsVisible = true,
+                isPlaying = true,
+                isMenuOpen = true,
+                isScrubbing = false
+            )
+        )
+    }
+
+    @Test
+    fun controls_stay_visible_while_user_is_scrubbing() {
+        assertFalse(
+            "Controls must not disappear while the user drags the seek bar",
+            PlayerControlsPolicy.shouldAutoHide(
+                controlsVisible = true,
+                isPlaying = true,
+                isMenuOpen = false,
+                isScrubbing = true
+            )
+        )
+    }
+
+    @Test
+    fun already_hidden_controls_do_not_schedule_another_hide() {
+        assertFalse(
+            PlayerControlsPolicy.shouldAutoHide(
+                controlsVisible = false,
+                isPlaying = true,
+                isMenuOpen = false,
+                isScrubbing = false
+            )
+        )
+    }
+
+    @Test
+    fun auto_hide_delay_stays_within_a_comfortable_reading_window() {
+        assertEquals(3500L, PlayerControlsPolicy.AUTO_HIDE_DELAY_MS)
+    }
+}
