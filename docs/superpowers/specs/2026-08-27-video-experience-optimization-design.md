@@ -1,11 +1,11 @@
-# FlowTube Video Experience Optimization Design
+# HPre Video Experience Optimization Design
 
 **Date:** 2026-08-27
 **Status:** Approved by user
 
 ## 1. Goals
 
-Improve FlowTube's perceived smoothness and playback reliability while preserving its current Android/Kotlin/Compose and Media3 architecture.
+Improve HPre's perceived smoothness and playback reliability while preserving its current Android/Kotlin/Compose and Media3 architecture.
 
 The change must:
 
@@ -30,7 +30,7 @@ The change must:
 
 ## 3. Existing System
 
-FlowTube is a single-module Android app using Kotlin, Jetpack Compose, Media3/ExoPlayer, a `MediaSessionService`, and NewPipeExtractor. `SessionPlayerController` and the playback session are app-scoped. `RootScaffold` already displays a mini-player outside the Watch route, and `MainActivity` already supports system PiP.
+HPre is a single-module Android app using Kotlin, Jetpack Compose, Media3/ExoPlayer, a `MediaSessionService`, and NewPipeExtractor. `SessionPlayerController` and the playback session are app-scoped. `RootScaffold` already displays a mini-player outside the Watch route, and `MainActivity` already supports system PiP.
 
 The relevant constraints are:
 
