@@ -231,6 +231,13 @@ threaded through `AppContainer` and `HPreNavHost` for information Room already h
 accurate is the job of the periodic-write fix in §5.4, and the snapshot fix protects the
 process-death path on its own. No new ViewModel constructor parameter is introduced.
 
+**The lookup must not gate playback.** Moving the history read ahead of `prepare` introduces a risk
+the old post-prepare seek did not have: a slow or hanging Room read would delay playback. The lookup
+is therefore bounded by a short timeout, and any timeout, failure, or missing row yields `0L` and
+prepares immediately. Correct-but-late resume is worse than starting at zero, so the timeout favours
+starting playback. The existing behaviour of preparing before video details resolve
+(`WatchViewModel.kt:257-262`) is preserved: details are still awaited only after prepare.
+
 Note that `shouldOfferResume` interacts with a Phase 4 concern: `DefaultHistoryRepository.kt:58-62`
 stores `playbackPositionMs = 0` once completion exceeds 95 %. For resume that behaviour is correct
 and stays unchanged here. Phase 4 will add a separate completion signal rather than reinterpreting
@@ -321,6 +328,19 @@ expansions.
 Existing suites must stay green, in particular the surface-lease, PiP, fullscreen, minimize-gesture,
 slider-drag, and navigation tests. `WatchScreenTest.kt:1443` is kept as a lower-fidelity case
 alongside the new one rather than deleted.
+
+One existing test asserts the behaviour this spec removes and must be rewritten, not deleted:
+`WatchViewModelTest.kt:246-284`, `load_prepares_before_slow_history_then_applies_resume_seek`, checks
+`startPositionMs == 0L` at `:272` and then a post-hoc seek to `50_000` at `:283`. Its underlying
+intent is still valid and worth keeping: a slow history lookup must not delay prepare. The rewrite
+preserves that intent while asserting the new mechanism, namely that the resume position arrives
+through `prepare` rather than through a later `seekTo`. Because history is now consulted before
+prepare, the rewritten test must also confirm that a history repository which never returns cannot
+block playback indefinitely.
+
+That last point is a real design constraint, not just a test detail: awaiting history before prepare
+would make playback hostage to a Room read. The resume lookup is therefore bounded, and a slow or
+failing lookup falls back to `0L` and prepares immediately rather than waiting.
 
 `gradlew testDebugUnitTest` covers the unit layer. The instrumented layer needs an emulator or
 device; if none is available, that gap is reported rather than papered over.
