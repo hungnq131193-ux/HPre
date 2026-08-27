@@ -19,7 +19,8 @@ The change must:
   session (cold start, history, deep link);
 - stop `prepare` from overwriting a good persisted position with zero;
 - record watch history while playback advances, so resume survives process death;
-- keep the Watch back stack bounded when the mini player is expanded repeatedly;
+- verify whether the Watch back stack grows when the mini player is expanded repeatedly, and fix it
+  only if a test proves it does;
 - prove each fix with a test that fails before the fix.
 
 ## 2. Non-goals
@@ -250,11 +251,19 @@ position to zero. It writes the snapshot only when `startPositionMs > 0`, leavin
 persisted position untouched otherwise. The `snapshotVersion` token is still taken so ordering
 guarantees are unaffected.
 
-**Bounded back stack.** `RootScaffold.kt:199-201` gains `launchSingleTop = true` and
-`restoreState = true`, and pops any existing Watch entry for the same key so repeated expansion
-cannot grow the stack without limit. Reaching Watch from Home, Search, Channel, Library,
-Subscriptions, and a related video must all still land on a single Watch entry with correct back
-behaviour.
+**Back stack: verify before changing.** `RootScaffold.kt:199-201` expands the mini player with a bare
+`navigate()`, which suggests repeated expansion could pile up Watch entries. Tracing the exit paths
+casts doubt on that: system back pops the Watch entry, and minimize calls
+`navigateToHomeFromWatch()`, which pops up to Home with `saveState = true`
+(`HPreNavHost.kt:318-326`). Both remove the Watch entry, so an expand-then-leave cycle should net
+zero growth.
+
+This is therefore a verification task, not a fix task. A test asserts the entry count after three
+expand/leave cycles. If the stack is already bounded, no production change is made and the finding is
+recorded; adding navigation options for a problem that does not exist would be unjustified. If the
+test shows real growth, `launchSingleTop` plus a `popUpTo` of the stale Watch entry is the fix, and
+reaching Watch from Home, Search, Channel, Library, Subscriptions, and a related video must all still
+behave correctly afterwards.
 
 **Periodic history writes.** History is recorded while playback advances, not only on clear. The
 service already persists snapshots on state transitions at `HPrePlaybackService.kt:402-410`, so
@@ -273,7 +282,8 @@ Production:
 - `ui/watch/WatchViewModel.kt` — reuse-active-player branch, resume position, remove post-prepare seek
 - `player/SessionPlayerController.kt` — conditional snapshot write in `prepareWithSpeed`
 - `player/HPrePlaybackService.kt` — periodic history recording
-- `navigation/RootScaffold.kt` — mini-player expansion navigation options
+- `navigation/RootScaffold.kt` — mini-player expansion navigation options, only if the back-stack
+  test proves growth
 
 Tests:
 
@@ -319,9 +329,9 @@ Cases:
 Snapshot test: `prepare` with `startPositionMs = 0` leaves an existing persisted position intact;
 `prepare` with a positive position writes it.
 
-Instrumented: Watch → back to Home → expand mini player → Watch, asserting one prepare for the
-whole journey, monotonically advancing position, and a single Watch back-stack entry after three
-expansions.
+Instrumented: Watch → back to Home → expand mini player → Watch, asserting one prepare for the whole
+journey and monotonically advancing position. A separate test measures Watch back-stack entries after
+three expand/leave cycles, per §5.4.
 
 ### 7.3 Regression surface
 
@@ -357,8 +367,9 @@ device; if none is available, that gap is reported rather than papered over.
 5. A finished video starts from the beginning.
 6. `prepare` never lowers a persisted position to zero.
 7. History is written while playback advances, so resume survives process death.
-8. Expanding the mini player repeatedly leaves one Watch back-stack entry, and back behaviour is
-   unchanged from every entry point.
+8. Repeated expand/leave cycles do not accumulate Watch back-stack entries, and back behaviour is
+   unchanged from every entry point. If the current code already satisfies this, no production change
+   is made and the test stands as a regression guard.
 9. Surface handoff, PiP, fullscreen, minimize gesture, and slider drag all still behave as before.
 10. New tests fail before their fix and pass after; existing suites stay green.
 
@@ -368,7 +379,7 @@ device; if none is available, that gap is reported rather than papered over.
 2. Reuse-active-player branch plus resume position in `WatchViewModel`, removing the post-prepare
    seek.
 3. Conditional snapshot write in `SessionPlayerController`.
-4. Navigation options in `RootScaffold`.
+4. Back-stack measurement test; navigation options in `RootScaffold` only if it proves growth.
 5. Periodic history recording in the service.
 6. Full verification and a report of what could not be verified.
 
