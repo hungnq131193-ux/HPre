@@ -189,6 +189,10 @@ class HomeToWatchNavigationTest {
                 _state.value = _state.value.copy(selectedQuality = quality)
             }
             override fun release() {}
+
+            fun advancePositionForTest(positionMs: Long) {
+                _state.value = _state.value.copy(currentPositionMs = positionMs)
+            }
         }
 
         val countingPlayer = CountingPlayerController()
@@ -197,10 +201,14 @@ class HomeToWatchNavigationTest {
 
     @Test
     fun clicking_home_video_card_navigates_to_watch_screen_with_content_key() {
+        var streamInfoCallCount = 0
         val fakeService = FakeVideoService(
             trendingResponse = com.hpre.app.core.error.AppResult.Success(listOf(summary("item999"))),
             videoHandler = { com.hpre.app.core.error.AppResult.Success(details(it.nativeId)) },
-            streamInfoHandler = { com.hpre.app.core.error.AppResult.Success(StreamInfo(it, "Title")) }
+            streamInfoHandler = {
+                streamInfoCallCount++
+                com.hpre.app.core.error.AppResult.Success(StreamInfo(it, "Title"))
+            }
         )
         val container = TestContainer(fakeService)
 
@@ -236,12 +244,36 @@ class HomeToWatchNavigationTest {
         composeTestRule.onNodeWithTag("watch_video_title").assertIsDisplayed()
         composeTestRule.onNodeWithText("Video Details item999").assertIsDisplayed()
 
-        // Press system back via NavController popBackStack
-        composeTestRule.runOnUiThread {
-            hostNavController?.popBackStack()
+        val initialPrepareCount = container.countingPlayer.prepareCount
+        val initialStreamInfoCount = streamInfoCallCount
+        container.countingPlayer.advancePositionForTest(42_000L)
+
+        repeat(3) {
+            composeTestRule.runOnUiThread {
+                hostNavController?.popBackStack()
+            }
+            composeTestRule.waitUntil(5_000) {
+                composeTestRule.onAllNodes(androidx.compose.ui.test.hasTestTag("home_screen"))
+                    .fetchSemanticsNodes().isNotEmpty()
+            }
+            composeTestRule.onNodeWithTag("mini-player", useUnmergedTree = true).assertIsDisplayed()
+            val watchCountAfterBack = hostNavController?.currentBackStack?.value.orEmpty()
+                .count { it.destination.route == Screen.Watch.route }
+            org.junit.Assert.assertEquals(0, watchCountAfterBack)
+
+            composeTestRule.onNodeWithTag("mini-player", useUnmergedTree = true).performClick()
+            composeTestRule.waitUntil(5_000) {
+                composeTestRule.onAllNodes(androidx.compose.ui.test.hasTestTag("watch_screen"))
+                    .fetchSemanticsNodes().isNotEmpty()
+            }
+
+            org.junit.Assert.assertEquals(initialPrepareCount, container.countingPlayer.prepareCount)
+            org.junit.Assert.assertEquals(initialStreamInfoCount, streamInfoCallCount)
+            org.junit.Assert.assertEquals(42_000L, container.countingPlayer.state.value.currentPositionMs)
+            val watchCountAfterExpand = hostNavController?.currentBackStack?.value.orEmpty()
+                .count { it.destination.route == Screen.Watch.route }
+            org.junit.Assert.assertEquals(1, watchCountAfterExpand)
         }
-        composeTestRule.waitForIdle()
-        composeTestRule.onNodeWithTag("home_screen").assertIsDisplayed()
     }
 
     @Test
