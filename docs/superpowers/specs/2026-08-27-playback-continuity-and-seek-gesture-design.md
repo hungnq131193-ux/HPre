@@ -219,10 +219,17 @@ Consequences:
   `startPositionMs` argument, which eliminates the rebuffer-then-jump artifact.
 
 `persistedResumePosition` runs only in the `else` branch, where the player does not hold the key, so
-the live player position is irrelevant to it. It consults the persisted snapshot first, then Room
-history, and applies the existing `HistoryRepository.shouldOfferResume` rule so a finished video
-starts over rather than resuming at its final second. When neither source yields a valid resume
-point it returns `0L`.
+the live player position is irrelevant to it. It reads **Room history only**, through the
+`historyRepository` the ViewModel already has at `WatchViewModel.kt:114`, and applies the existing
+`HistoryRepository.shouldOfferResume` rule so a finished video starts over rather than resuming at
+its final second. When there is no valid resume point it returns `0L`.
+
+Room history is deliberately the only source here. `PlaybackSnapshotStore` exists to restore a
+session when the service is recreated after process death, which already works at
+`HPrePlaybackService.kt:213`; injecting it into the ViewModel would add a dependency that has to be
+threaded through `AppContainer` and `HPreNavHost` for information Room already holds. Making history
+accurate is the job of the periodic-write fix in §5.4, and the snapshot fix protects the
+process-death path on its own. No new ViewModel constructor parameter is introduced.
 
 Note that `shouldOfferResume` interacts with a Phase 4 concern: `DefaultHistoryRepository.kt:58-62`
 stores `playbackPositionMs = 0` once completion exceeds 95 %. For resume that behaviour is correct
