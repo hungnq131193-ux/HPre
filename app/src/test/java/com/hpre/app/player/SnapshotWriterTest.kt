@@ -1,6 +1,10 @@
 package com.hpre.app.player
 
+import androidx.datastore.preferences.core.PreferenceDataStoreFactory
 import com.hpre.app.model.ContentKey
+import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.test.runCurrent
+import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
@@ -67,6 +71,43 @@ class SnapshotWriterTest {
         val token2 = writer.enqueueSave()
         writer.executeSave(snap2, token2)
         assertEquals("vid_2", store.load()?.key?.nativeId)
+    }
+
+    @Test
+    @OptIn(ExperimentalCoroutinesApi::class)
+    fun prepare_save_preserves_newer_same_key_position_from_shared_datastore() = runTest {
+        val dataStoreFile = File(tempDir, "shared.preferences_pb")
+        val dataStore = PreferenceDataStoreFactory.create(
+            scope = backgroundScope,
+            produceFile = { dataStoreFile }
+        )
+        val serviceStore = PlaybackSnapshotStore(
+            storageDir = null,
+            dataStore = dataStore,
+            ioScope = backgroundScope
+        )
+        val controllerStore = PlaybackSnapshotStore(
+            storageDir = null,
+            dataStore = dataStore,
+            ioScope = backgroundScope
+        )
+        val key = ContentKey(0, "shared_video")
+
+        serviceStore.save(PlaybackSnapshot(key, 42_000L, true))
+        runCurrent()
+        val serviceSnapshot = serviceStore.loadAsync()
+        assertEquals(42_000L, serviceSnapshot?.positionMs)
+
+        val token = controllerStore.enqueueSave()
+        controllerStore.executeSave(
+            snapshot = PlaybackSnapshot(key, 0L, true),
+            token = token,
+            preserveSameKeyPosition = true
+        )
+        runCurrent()
+
+        assertEquals(42_000L, controllerStore.loadAsync()?.positionMs)
+        assertTrue(controllerStore.writer.currentGeneration >= serviceStore.writer.currentGeneration)
     }
 
     @Test

@@ -541,21 +541,16 @@ class SessionPlayerController(
         }
 
         val pending = PendingPrepare(key, startPositionMs, playWhenReady, initialQuality, clampedSpeed)
-        val snapshotPosition = PlaybackPolicy.prepareSnapshotPosition(
-            existing = snapshotStore.load(),
-            key = key,
-            requestedPositionMs = startPositionMs
-        )
         val snap = PlaybackSnapshot(
             key = key,
-            positionMs = snapshotPosition,
+            positionMs = startPositionMs.coerceAtLeast(0L),
             playWhenReady = playWhenReady,
             selectedQuality = initialQuality?.takeIf { option -> available.contains(option) },
             playbackSpeed = clampedSpeed,
             qualityPolicy = initialQuality?.let(UserQualityPolicy::Fixed) ?: existingPolicy
         )
         val token = snapshotStore.enqueueSave()
-        snapshotStore.executeSave(snap, token)
+        snapshotStore.executeSave(snap, token, preserveSameKeyPosition = true)
         scope.launch(mainDispatcher) {
             if (mediaController == null) {
                 pendingCommands.setPrepare(pending)

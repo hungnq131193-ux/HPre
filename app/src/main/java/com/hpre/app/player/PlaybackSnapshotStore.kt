@@ -53,8 +53,12 @@ class PlaybackSnapshotStore(
 
     fun enqueueSave(): Long = writer.enqueueSave()
 
-    fun executeSave(snapshot: PlaybackSnapshot, token: Long) {
-        writer.executeSave(snapshot, token)
+    fun executeSave(
+        snapshot: PlaybackSnapshot,
+        token: Long,
+        preserveSameKeyPosition: Boolean = false
+    ) {
+        writer.executeSave(snapshot, token, preserveSameKeyPosition)
     }
 
     fun save(snapshot: PlaybackSnapshot) {
@@ -250,8 +254,12 @@ class SnapshotWriter(
         return lock.withLock { ++snapshotVersion }
     }
 
-    fun executeSave(snapshot: PlaybackSnapshot, token: Long) {
-        saveWithGeneration(snapshot, token)
+    fun executeSave(
+        snapshot: PlaybackSnapshot,
+        token: Long,
+        preserveSameKeyPosition: Boolean = false
+    ) {
+        saveWithGeneration(snapshot, token, preserveSameKeyPosition)
     }
 
     fun save(snapshot: PlaybackSnapshot) {
@@ -307,22 +315,37 @@ class SnapshotWriter(
         }
     }
 
-    fun saveWithGeneration(snapshot: PlaybackSnapshot, generation: Long) {
+    fun saveWithGeneration(
+        snapshot: PlaybackSnapshot,
+        generation: Long,
+        preserveSameKeyPosition: Boolean = false
+    ) {
         lock.withLock {
             if (generation != snapshotVersion) return
-            inMemorySnapshot = snapshot
+            val snapshotToWrite = if (preserveSameKeyPosition) {
+                snapshot.copy(
+                    positionMs = PlaybackPolicy.prepareSnapshotPosition(
+                        existing = inMemorySnapshot,
+                        key = snapshot.key,
+                        requestedPositionMs = snapshot.positionMs
+                    )
+                )
+            } else {
+                snapshot
+            }
+            inMemorySnapshot = snapshotToWrite
             // If storageDir exists, write atomic fallback/datastore-compatible file representation
             try {
                 storageDir?.mkdirs()
                 val file = legacySnapshotFile
                 if (file != null) {
-                    val qualityPart = if (snapshot.selectedQuality != null) {
-                        val q = snapshot.selectedQuality
+                    val qualityPart = if (snapshotToWrite.selectedQuality != null) {
+                        val q = snapshotToWrite.selectedQuality
                         """, "selectedQuality": {"height": ${q.height}, "label": "${escapeJson(q.label)}", "isProgressive": ${q.isProgressive}, "format": "${escapeJson(q.format)}", "mimeType": "${escapeJson(q.mimeType ?: "")}", "codec": "${escapeJson(q.codec ?: "")}", "streamType": "${q.streamType.name}"}"""
                     } else {
                         ""
                     }
-                    val jsonString = """{"serviceId": ${snapshot.key.serviceId}, "nativeId": "${escapeJson(snapshot.key.nativeId)}", "positionMs": ${snapshot.positionMs}, "playWhenReady": ${snapshot.playWhenReady}, "playbackSpeed": ${snapshot.playbackSpeed}$qualityPart}"""
+                    val jsonString = """{"serviceId": ${snapshotToWrite.key.serviceId}, "nativeId": "${escapeJson(snapshotToWrite.key.nativeId)}", "positionMs": ${snapshotToWrite.positionMs}, "playWhenReady": ${snapshotToWrite.playWhenReady}, "playbackSpeed": ${snapshotToWrite.playbackSpeed}$qualityPart}"""
                     val temporary = File(file.parentFile, "${file.name}.${System.nanoTime()}.tmp")
                     temporary.writeText(jsonString, Charsets.UTF_8)
                     if (generation == snapshotVersion) {
@@ -344,7 +367,24 @@ class SnapshotWriter(
                     dataStore.edit { prefs ->
                         lock.withLock {
                             if (generation == snapshotVersion) {
-                                writeToPreferences(prefs, snapshot, generation)
+                                val transactionSnapshot = if (preserveSameKeyPosition) {
+                                    snapshot.copy(
+                                        positionMs = PlaybackPolicy.prepareSnapshotPosition(
+                                            existing = parseFromPreferences(prefs),
+                                            key = snapshot.key,
+                                            requestedPositionMs = snapshot.positionMs
+                                        )
+                                    )
+                                } else {
+                                    snapshot
+                                }
+                                val persistedGeneration = maxOf(
+                                    generation,
+                                    prefs[KEY_SNAPSHOT_VERSION] ?: 0L
+                                )
+                                inMemorySnapshot = transactionSnapshot
+                                snapshotVersion = persistedGeneration
+                                writeToPreferences(prefs, transactionSnapshot, persistedGeneration)
                             }
                         }
                     }
