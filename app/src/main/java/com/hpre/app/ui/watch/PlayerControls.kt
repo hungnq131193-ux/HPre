@@ -37,32 +37,34 @@ import androidx.compose.material3.SliderDefaults
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.ui.layout.LayoutCoordinates
-import androidx.compose.ui.layout.boundsInWindow
-import androidx.compose.ui.layout.findRootCoordinates
-import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
-import androidx.compose.ui.input.pointer.util.VelocityTracker
-import androidx.compose.ui.input.pointer.positionChange
-import androidx.compose.ui.layout.onGloballyPositioned
-import androidx.compose.ui.layout.boundsInParent
-import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Rect
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.gestures.waitForUpOrCancellation
-import androidx.compose.runtime.rememberUpdatedState
-import androidx.compose.ui.Alignment
-import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.input.pointer.positionChange
+import androidx.compose.ui.input.pointer.util.VelocityTracker
+import androidx.compose.ui.layout.LayoutCoordinates
+import androidx.compose.ui.layout.boundsInParent
+import androidx.compose.ui.layout.boundsInWindow
+import androidx.compose.ui.layout.findRootCoordinates
+import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.semantics
@@ -193,7 +195,6 @@ fun PlayerControlsOverlay(
     val currentOnPlayPause = rememberUpdatedState(onPlayPause)
     val currentOnSeekBy = rememberUpdatedState(onSeekBy)
     val currentOnMinimizeToHome = rememberUpdatedState(onMinimizeToHome)
-    val currentDurationMs = playbackState.durationMs
 
     val isMinimizeAllowed = PlayerGesturePolicy.isMinimizeGestureAllowed(
         isFullscreen = isFullscreen,
@@ -201,13 +202,18 @@ fun PlayerControlsOverlay(
         minimizeEnabled = minimizeEnabled
     )
 
+    var lastUpUptime by remember { mutableLongStateOf(0L) }
+    var lastUpPosition by remember { mutableStateOf(Offset.Zero) }
+    val currentControlsVisible = rememberUpdatedState(controlsVisible)
+    val currentDurationMs = rememberUpdatedState(playbackState.durationMs)
+
     Box(
         modifier = modifier
             .fillMaxSize()
             .onGloballyPositioned { coordinates ->
                 overlayLayoutCoordinates = coordinates
             }
-            .pointerInput(isMinimizeAllowed, currentDurationMs, controlsVisible) {
+            .pointerInput(isMinimizeAllowed) {
                 val touchSlopPx = viewConfiguration.touchSlop
                 val doubleTapTimeoutMs = viewConfiguration.doubleTapTimeoutMillis
                 val doubleTapMinTimeMs = viewConfiguration.doubleTapMinTimeMillis
@@ -217,16 +223,13 @@ fun PlayerControlsOverlay(
                     minimizeVelocityPxPerSecond = with(density) { PlayerGesturePolicy.DEFAULT_MINIMIZE_VELOCITY_DP_PER_SECOND.toPx() }
                 )
 
-                var lastUpUptime = 0L
-                var lastUpPosition = androidx.compose.ui.geometry.Offset.Zero
-
                 awaitEachGesture {
                     val down = awaitFirstDown(requireUnconsumed = false)
                     val downPosition = down.position
                     val downUptime = down.uptimeMillis
 
                     // If down pointer is already consumed or inside protected controls when visible, ignore
-                    val startedInProtected = down.isConsumed || (controlsVisible && PlayerGesturePolicy.isPointInProtectedRegion(
+                    val startedInProtected = down.isConsumed || (currentControlsVisible.value && PlayerGesturePolicy.isPointInProtectedRegion(
                         downPosition.x,
                         downPosition.y,
                         protectedControlBounds.values
@@ -235,7 +238,7 @@ fun PlayerControlsOverlay(
                     if (startedInProtected) {
                         // Reset double-tap chain and wait for pointer release without acting
                         lastUpUptime = 0L
-                        lastUpPosition = androidx.compose.ui.geometry.Offset.Zero
+                        lastUpPosition = Offset.Zero
                         waitForUpOrCancellation()
                         return@awaitEachGesture
                     }
@@ -268,7 +271,7 @@ fun PlayerControlsOverlay(
                         if (event.changes.count { it.pressed } > 1) {
                             isCancelled = true
                             lastUpUptime = 0L
-                            lastUpPosition = androidx.compose.ui.geometry.Offset.Zero
+                            lastUpPosition = Offset.Zero
                             break
                         }
 
@@ -277,7 +280,7 @@ fun PlayerControlsOverlay(
                             // Pointer disappeared / untracked
                             isCancelled = true
                             lastUpUptime = 0L
-                            lastUpPosition = androidx.compose.ui.geometry.Offset.Zero
+                            lastUpPosition = Offset.Zero
                             break
                         }
 
@@ -285,7 +288,7 @@ fun PlayerControlsOverlay(
                             // Child consumed the event before drag classification -> abort coordinator action
                             isCancelled = true
                             lastUpUptime = 0L
-                            lastUpPosition = androidx.compose.ui.geometry.Offset.Zero
+                            lastUpPosition = Offset.Zero
                             break
                         }
 
@@ -331,13 +334,13 @@ fun PlayerControlsOverlay(
                         }
                         // Drag completed, clear double-tap state
                         lastUpUptime = 0L
-                        lastUpPosition = androidx.compose.ui.geometry.Offset.Zero
+                        lastUpPosition = Offset.Zero
                     } else if (decision == PlayerDragDecision.UNDECIDED) {
                         // Movement was within touch slop -> classified as tap or double-tap
                         if (isDoubleTap) {
                             lastUpUptime = 0L
-                            lastUpPosition = androidx.compose.ui.geometry.Offset.Zero
-                            if (PlayerGesturePolicy.isSeekAllowed(currentDurationMs)) {
+                            lastUpPosition = Offset.Zero
+                            if (PlayerGesturePolicy.isSeekAllowed(currentDurationMs.value)) {
                                 when (PlayerGesturePolicy.gestureForTap(downPosition.x, size.width.toFloat())) {
                                     SeekGesture.REWIND -> {
                                         seekFeedback = SeekGesture.REWIND
@@ -356,7 +359,7 @@ fun PlayerControlsOverlay(
                             // Record confirmed UP position and uptime
                             lastUpUptime = confirmedUpChange.uptimeMillis
                             lastUpPosition = confirmedUpChange.position
-                            if (controlsVisible) {
+                            if (currentControlsVisible.value) {
                                 controlsVisible = false
                             } else {
                                 keepControlsAlive()
@@ -365,7 +368,7 @@ fun PlayerControlsOverlay(
                     } else {
                         // Horizontal or rejected drag
                         lastUpUptime = 0L
-                        lastUpPosition = androidx.compose.ui.geometry.Offset.Zero
+                        lastUpPosition = Offset.Zero
                     }
                 }
             }

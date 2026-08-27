@@ -25,6 +25,7 @@ import androidx.compose.ui.test.performScrollToNode
 import androidx.compose.ui.test.swipeDown
 import androidx.compose.ui.test.swipeRight
 import androidx.compose.ui.test.doubleClick
+import androidx.compose.ui.test.click
 import androidx.compose.ui.unit.dp
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.setValue
@@ -1441,6 +1442,51 @@ class WatchScreenTest {
         // Double tap right edge to fast forward 10s
         composeTestRule.onNodeWithTag("player_controls_overlay").performTouchInput {
             doubleClick(position = androidx.compose.ui.geometry.Offset(width * 0.85f, height * 0.5f))
+        }
+        composeTestRule.waitForIdle()
+
+        assertEquals(10_000L, fakePlayer.seekDeltaCalled)
+    }
+
+    @Test
+    fun double_tap_seek_survives_recomposition_between_physical_taps() {
+        val fakeService = FakeVideoService(
+            videoHandler = { AppResult.Success(testDetails(it)) },
+            streamInfoHandler = {
+                AppResult.Success(StreamInfo(it, "Title", hlsManifestUrl = "https://manifest.m3u8"))
+            }
+        )
+        val fakePlayer = FakePlayerController().apply {
+            _state.value = PlaybackState(
+                key = testKey,
+                durationMs = 120_000L,
+                isReady = true,
+                isPlaying = true
+            )
+        }
+        val viewModel = WatchViewModel(
+            videoService = fakeService,
+            playerController = fakePlayer,
+            savedStateHandle = androidx.lifecycle.SavedStateHandle()
+        )
+
+        composeTestRule.setContent {
+            HPreTheme {
+                WatchScreen(contentKey = testKey, viewModel = viewModel, onNavigateBack = {})
+            }
+        }
+        composeTestRule.waitUntil(5_000) {
+            composeTestRule.onAllNodes(hasTestTag("player_controls_overlay"))
+                .fetchSemanticsNodes().isNotEmpty()
+        }
+
+        composeTestRule.onNodeWithTag("player_controls_overlay").performTouchInput {
+            click(androidx.compose.ui.geometry.Offset(width * 0.85f, height * 0.5f))
+        }
+        composeTestRule.waitForIdle() // forces controlsVisible recomposition
+        composeTestRule.mainClock.advanceTimeBy(100)
+        composeTestRule.onNodeWithTag("player_controls_overlay").performTouchInput {
+            click(androidx.compose.ui.geometry.Offset(width * 0.85f, height * 0.5f))
         }
         composeTestRule.waitForIdle()
 
