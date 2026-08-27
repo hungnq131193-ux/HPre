@@ -94,6 +94,13 @@ class HPrePlaybackService : MediaSessionService() {
     private var trackSelector: DefaultTrackSelector? = null
     private var mediaSession: MediaSession? = null
     private val serviceScope = CoroutineScope(Dispatchers.Main + Job())
+    private val historyScheduler by lazy {
+        PlaybackHistoryScheduler(serviceScope) {
+            if (exoPlayer?.isPlaying == true) {
+                recordCurrentHistory()
+            }
+        }
+    }
 
     private var mediaSourceFactory: MediaSourceCreator? = null
     private var recoveryCoordinator: StreamRecoveryCoordinator? = null
@@ -408,6 +415,7 @@ class HPrePlaybackService : MediaSessionService() {
 
         override fun onIsPlayingChanged(isPlaying: Boolean) {
             persistCurrentSnapshot()
+            historyScheduler.update(isPlaying)
         }
 
         override fun onTracksChanged(tracks: androidx.media3.common.Tracks) {
@@ -726,7 +734,7 @@ class HPrePlaybackService : MediaSessionService() {
         }
     }
 
-    private fun clearMediaInternal() {
+    private fun recordCurrentHistory() {
         val key = currentKey
         val streamInfo = currentStreamInfo
         val player = exoPlayer
@@ -752,6 +760,11 @@ class HPrePlaybackService : MediaSessionService() {
                 }
             }
         }
+    }
+
+    private fun clearMediaInternal() {
+        historyScheduler.stop()
+        recordCurrentHistory()
 
         currentKey = null
         currentStreamInfo = null
@@ -1044,6 +1057,7 @@ class HPrePlaybackService : MediaSessionService() {
 
     override fun onDestroy() {
         isReleased = true
+        historyScheduler.stop()
         cancelActiveQuality()
         mediaOpJob?.cancel()
         recoveryJob?.cancel()
