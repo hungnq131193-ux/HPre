@@ -39,6 +39,30 @@ class StartupStreamSelectorTest {
     )
 
     @Test
+    fun startup_prefers_hls_then_dash_before_progressive() {
+        val hls = StartupStreamSelector.select(
+            StreamInfo(
+                key,
+                "Test",
+                videoStreams = listOf(progressive(720)),
+                hlsManifestUrl = "https://example.test/master.m3u8",
+                dashManifestUrl = "https://example.test/manifest.mpd"
+            )
+        ) as AppResult.Success<SelectedStreams>
+        assertEquals(PlaybackStreamType.HLS, hls.value.streamType)
+
+        val dash = StartupStreamSelector.select(
+            StreamInfo(
+                key,
+                "Test",
+                videoStreams = listOf(progressive(720)),
+                dashManifestUrl = "https://example.test/manifest.mpd"
+            )
+        ) as AppResult.Success<SelectedStreams>
+        assertEquals(PlaybackStreamType.DASH, dash.value.streamType)
+    }
+
+    @Test
     fun startup_prefers_progressive_at_or_below_720() {
         val result = StartupStreamSelector.select(
             StreamInfo(key, "Test", videoStreams = listOf(progressive(1080), progressive(720)))

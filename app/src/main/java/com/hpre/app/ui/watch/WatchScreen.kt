@@ -29,7 +29,6 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.BookmarkBorder
@@ -50,10 +49,18 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyListState
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.SideEffect
+import androidx.compose.runtime.derivedStateOf
+import androidx.compose.runtime.rememberUpdatedState
+import androidx.compose.runtime.snapshotFlow
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.filter
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -66,6 +73,8 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
+import android.content.res.Configuration
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
@@ -251,7 +260,10 @@ fun WatchScreen(
     onNavigateBack: () -> Unit,
     modifier: Modifier = Modifier,
     fullscreenHostHandlerFactory: FullscreenHostHandlerFactory? = null,
-    onRelatedVideoClick: (ContentKey) -> Unit = {}
+    onRelatedVideoClick: (ContentKey) -> Unit = {},
+    onMinimizeToHome: () -> Unit = {},
+    isInPip: Boolean = false,
+    playbackUiCoordinator: com.hpre.app.player.PlaybackUiCoordinator? = null
 ) {
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
     val playbackState by viewModel.playbackState.collectAsStateWithLifecycle()
@@ -318,6 +330,9 @@ fun WatchScreen(
         onDispose { }
     }
 
+    val configuration = LocalConfiguration.current
+    val isPortrait = configuration.orientation == Configuration.ORIENTATION_PORTRAIT
+
     if (uiState.isFullscreen) {
         // Fullscreen player view
         Box(
@@ -328,6 +343,8 @@ fun WatchScreen(
         ) {
             PlayerSurface(
                 playerController = viewModel.playerController,
+                coordinator = playbackUiCoordinator,
+                owner = com.hpre.app.player.SurfaceOwner.WATCH,
                 modifier = Modifier.fillMaxSize()
             )
 
@@ -339,7 +356,10 @@ fun WatchScreen(
                 onSeekTo = { pos -> viewModel.seekTo(pos) },
                 onSpeedSelected = { speed -> viewModel.setPlaybackSpeed(speed) },
                 onQualitySelected = { quality -> viewModel.selectQuality(quality) },
-                onToggleFullscreen = { viewModel.setFullscreen(false) }
+                onToggleFullscreen = { viewModel.setFullscreen(false) },
+                onMinimizeToHome = onMinimizeToHome,
+                minimizeEnabled = false,
+                isInPip = isInPip
             )
         }
     } else {
@@ -362,6 +382,8 @@ fun WatchScreen(
                 ) {
                     PlayerSurface(
                         playerController = viewModel.playerController,
+                        coordinator = playbackUiCoordinator,
+                        owner = com.hpre.app.player.SurfaceOwner.WATCH,
                         modifier = Modifier.fillMaxSize()
                     )
 
@@ -373,29 +395,11 @@ fun WatchScreen(
                         onSeekTo = { pos -> viewModel.seekTo(pos) },
                         onSpeedSelected = { speed -> viewModel.setPlaybackSpeed(speed) },
                         onQualitySelected = { quality -> viewModel.selectQuality(quality) },
-                        onToggleFullscreen = { viewModel.setFullscreen(true) }
+                        onToggleFullscreen = { viewModel.setFullscreen(true) },
+                        onMinimizeToHome = onMinimizeToHome,
+                        minimizeEnabled = isPortrait,
+                        isInPip = isInPip
                     )
-
-                    // No statusBarsPadding here: the screen Column already consumes that inset, so
-                    // the player box starts below the status bar.
-                    Surface(
-                        color = Color.Black.copy(alpha = 0.55f),
-                        shape = CircleShape,
-                        modifier = Modifier
-                            .align(Alignment.TopStart)
-                            .padding(8.dp)
-                    ) {
-                        IconButton(
-                            onClick = onNavigateBack,
-                            modifier = Modifier.testTag("watch_back_button")
-                        ) {
-                            Icon(
-                                imageVector = Icons.AutoMirrored.Filled.ArrowBack,
-                                contentDescription = stringResource(R.string.action_back),
-                                tint = Color.White
-                            )
-                        }
-                    }
                 }
 
                 // Metadata, loading, or error content below player
@@ -431,6 +435,7 @@ fun WatchScreen(
                         commentsState = commentsState,
                         onRelatedVideoClick = onRelatedVideoClick,
                         onRetryRelated = viewModel::retryRelated,
+                        onRefreshRelated = viewModel::refreshRelated,
                         onRetryComments = viewModel::retryComments,
                         onLoadMoreComments = viewModel::loadMoreComments,
                         modifier = Modifier
@@ -442,6 +447,12 @@ fun WatchScreen(
     }
 }
 
+const val WATCH_KEY_TITLE = "section:watch_title"
+const val WATCH_KEY_VIEWS_DATE = "section:watch_views_date"
+const val WATCH_KEY_ACTIONS = "section:watch_actions"
+const val WATCH_KEY_CHANNEL_CARD = "section:watch_channel_card"
+const val WATCH_KEY_DIVIDER = "section:watch_divider"
+
 @Composable
 fun WatchMetadataContent(
     details: VideoDetails,
@@ -451,176 +462,228 @@ fun WatchMetadataContent(
     onAddToPlaylist: (Long) -> Unit = {},
     onCreatePlaylistAndAdd: (String) -> Unit = {},
     shareLauncher: ShareLauncher = DefaultShareLauncher(LocalContext.current),
-    relatedState: com.hpre.app.ui.common.AsyncState<List<com.hpre.app.model.VideoSummary>> = com.hpre.app.ui.common.AsyncState.Empty,
+    relatedState: RefreshableAsyncState<List<com.hpre.app.model.VideoSummary>> = RefreshableAsyncState.initial(),
     commentsState: com.hpre.app.ui.common.AsyncState<com.hpre.app.model.CommentPage> = com.hpre.app.ui.common.AsyncState.Empty,
     onRelatedVideoClick: (ContentKey) -> Unit = {},
     onRetryRelated: () -> Unit = {},
+    onRefreshRelated: () -> Unit = {},
     onRetryComments: () -> Unit = {},
     onLoadMoreComments: () -> Unit = {},
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    lazyListState: LazyListState? = null
 ) {
-    var isDescriptionExpanded by remember { mutableStateOf(false) }
+    val effectiveLazyListState = lazyListState ?: rememberLazyListState()
+    var isDescriptionExpanded by rememberSaveable(details.key.serviceId, details.key.nativeId) {
+        mutableStateOf(false)
+    }
     var showPlaylistSheet by remember { mutableStateOf(false) }
 
-    Column(
+    val currentOnLoadMoreComments = rememberUpdatedState(onLoadMoreComments)
+    val nextPageToken = (commentsState as? com.hpre.app.ui.common.AsyncState.Content)?.value?.nextPageToken
+
+    var lastTriggeredToken by remember(details.key.serviceId, details.key.nativeId) {
+        mutableStateOf<com.hpre.app.model.PageToken?>(null)
+    }
+
+    LaunchedEffect(effectiveLazyListState, nextPageToken, details.key.serviceId, details.key.nativeId) {
+        if (nextPageToken == null) return@LaunchedEffect
+        snapshotFlow {
+            val visibleKeys = effectiveLazyListState.layoutInfo.visibleItemsInfo.map { it.key }
+            visibleKeys.contains(WATCH_KEY_COMMENTS_LOAD_MORE)
+        }
+            .distinctUntilChanged()
+            .collect { sentinelVisible ->
+                if (sentinelVisible && nextPageToken != lastTriggeredToken) {
+                    lastTriggeredToken = nextPageToken
+                    currentOnLoadMoreComments.value()
+                }
+            }
+    }
+
+    LazyColumn(
+        state = effectiveLazyListState,
         modifier = modifier
-            .verticalScroll(rememberScrollState())
-            .padding(16.dp)
+            .padding(horizontal = 16.dp)
+            .testTag("watch_lazy_column")
             .testTag("watch_metadata_content")
     ) {
         // Video Title
-        Text(
-            text = details.title,
-            style = MaterialTheme.typography.titleMedium,
-            fontWeight = FontWeight.Bold,
-            color = MaterialTheme.colorScheme.onSurface,
-            modifier = Modifier.testTag("watch_video_title")
-        )
-
-        Spacer(modifier = Modifier.height(6.dp))
+        item(key = WATCH_KEY_TITLE) {
+            Spacer(modifier = Modifier.height(16.dp))
+            Text(
+                text = details.title,
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.Bold,
+                color = MaterialTheme.colorScheme.onSurface,
+                modifier = Modifier.testTag("watch_video_title")
+            )
+        }
 
         // View count & date metadata
-        val viewsText = details.viewCount?.let {
-            pluralStringResource(R.plurals.watch_view_count, it.toInt(), it)
-        } ?: ""
-        Text(
-            text = viewsText,
-            style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant
+        item(key = WATCH_KEY_VIEWS_DATE) {
+            Spacer(modifier = Modifier.height(6.dp))
+            val viewsText = details.viewCount?.let {
+                pluralStringResource(R.plurals.watch_view_count, it.toInt(), it)
+            } ?: ""
+            Text(
+                text = viewsText,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+            Spacer(modifier = Modifier.height(12.dp))
+        }
+
+        // Actions row
+        item(key = WATCH_KEY_ACTIONS) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .horizontalScroll(rememberScrollState())
+                    .testTag("watch_action_row"),
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                if (details.channelKey != null) {
+                    AssistChip(
+                        onClick = onToggleSubscription,
+                        label = {
+                            Text(
+                                stringResource(
+                                    if (isSubscribed) R.string.watch_following else R.string.watch_follow
+                                )
+                            )
+                        },
+                        modifier = Modifier.testTag("watch_follow_button")
+                    )
+                }
+                AssistChip(
+                    onClick = { showPlaylistSheet = true },
+                    label = { Text(stringResource(R.string.watch_save)) },
+                    leadingIcon = { Icon(Icons.Default.BookmarkBorder, contentDescription = null) },
+                    modifier = Modifier.testTag("watch_add_playlist_button")
+                )
+                if (ShareUrlValidator.isValid(details.canonicalUrl)) {
+                    AssistChip(
+                        onClick = { shareLauncher.launchShare(details.title, details.canonicalUrl) },
+                        label = { Text(stringResource(R.string.watch_share)) },
+                        leadingIcon = { Icon(Icons.Default.Share, contentDescription = null) },
+                        modifier = Modifier.testTag("watch_share_button")
+                    )
+                }
+            }
+            Spacer(modifier = Modifier.height(12.dp))
+        }
+
+        // Channel card and description
+        item(key = WATCH_KEY_CHANNEL_CARD) {
+            Surface(
+                color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
+                shape = RoundedCornerShape(12.dp),
+                modifier = Modifier.fillMaxWidth().testTag("watch_channel_card")
+            ) {
+                Column(modifier = Modifier.padding(12.dp)) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            modifier = Modifier.weight(1f)
+                        ) {
+                            if (!details.channelAvatarUrl.isNullOrBlank()) {
+                                AsyncImage(
+                                    model = details.channelAvatarUrl,
+                                    contentDescription = stringResource(R.string.watch_channel_avatar),
+                                    contentScale = ContentScale.Crop,
+                                    modifier = Modifier
+                                        .size(36.dp)
+                                        .clip(CircleShape)
+                                )
+                                Spacer(modifier = Modifier.width(10.dp))
+                            }
+
+                            Column {
+                                Text(
+                                    text = details.channelName ?: stringResource(R.string.watch_unknown_channel),
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    fontWeight = FontWeight.SemiBold,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis,
+                                    modifier = Modifier.testTag("watch_channel_name")
+                                )
+                                if (!details.subscriberCountText.isNullOrBlank()) {
+                                    Text(
+                                        text = details.subscriberCountText ?: "",
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                }
+                            }
+                        }
+                    }
+                    if (!details.description.isNullOrBlank()) {
+                        Column(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(top = 10.dp)
+                                .clickable { isDescriptionExpanded = !isDescriptionExpanded }
+                                .testTag("watch_description_container")
+                        ) {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Text(
+                                    text = stringResource(R.string.watch_description),
+                                    style = MaterialTheme.typography.labelLarge,
+                                    fontWeight = FontWeight.SemiBold
+                                )
+                                Icon(
+                                    imageVector = if (isDescriptionExpanded) Icons.Default.KeyboardArrowUp else Icons.Default.KeyboardArrowDown,
+                                    contentDescription = stringResource(
+                                        if (isDescriptionExpanded) R.string.watch_collapse else R.string.watch_expand
+                                    )
+                                )
+                            }
+
+                            Text(
+                                text = details.description ?: "",
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                maxLines = if (isDescriptionExpanded) Int.MAX_VALUE else 2,
+                                overflow = TextOverflow.Ellipsis,
+                                modifier = Modifier
+                                    .padding(top = 8.dp)
+                                    .testTag("watch_description_text")
+                            )
+                        }
+                    }
+                }
+            }
+            Spacer(modifier = Modifier.height(16.dp))
+        }
+
+        item(key = WATCH_KEY_DIVIDER) {
+            HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+            Spacer(modifier = Modifier.height(16.dp))
+        }
+
+        commentsItems(
+            state = commentsState,
+            onRetry = onRetryComments
         )
 
-        Spacer(modifier = Modifier.height(12.dp))
-
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .horizontalScroll(rememberScrollState())
-                .testTag("watch_action_row"),
-            horizontalArrangement = Arrangement.spacedBy(8.dp)
-        ) {
-            if (details.channelKey != null) {
-                AssistChip(
-                    onClick = onToggleSubscription,
-                    label = {
-                        Text(
-                            stringResource(
-                                if (isSubscribed) R.string.watch_following else R.string.watch_follow
-                            )
-                        )
-                    },
-                    modifier = Modifier.testTag("watch_follow_button")
-                )
-            }
-            AssistChip(
-                onClick = { showPlaylistSheet = true },
-                label = { Text(stringResource(R.string.watch_save)) },
-                leadingIcon = { Icon(Icons.Default.BookmarkBorder, contentDescription = null) },
-                modifier = Modifier.testTag("watch_add_playlist_button")
-            )
-            if (ShareUrlValidator.isValid(details.canonicalUrl)) {
-                AssistChip(
-                    onClick = { shareLauncher.launchShare(details.title, details.canonicalUrl) },
-                    label = { Text(stringResource(R.string.watch_share)) },
-                    leadingIcon = { Icon(Icons.Default.Share, contentDescription = null) },
-                    modifier = Modifier.testTag("watch_share_button")
-                )
-            }
+        item(key = "section:comments_related_spacer") {
+            Spacer(modifier = Modifier.height(16.dp))
         }
 
-        Spacer(modifier = Modifier.height(12.dp))
+        relatedVideoItems(
+            state = relatedState,
+            onVideoClick = onRelatedVideoClick,
+            onRetry = onRetryRelated,
+            onRefresh = onRefreshRelated
+        )
 
-        Surface(
-            color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
-            shape = RoundedCornerShape(12.dp),
-            modifier = Modifier.fillMaxWidth().testTag("watch_channel_card")
-        ) {
-            Column(modifier = Modifier.padding(12.dp)) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                modifier = Modifier.weight(1f)
-            ) {
-                if (!details.channelAvatarUrl.isNullOrBlank()) {
-                    AsyncImage(
-                        model = details.channelAvatarUrl,
-                        contentDescription = stringResource(R.string.watch_channel_avatar),
-                        contentScale = ContentScale.Crop,
-                        modifier = Modifier
-                            .size(36.dp)
-                            .clip(CircleShape)
-                    )
-                    Spacer(modifier = Modifier.width(10.dp))
-                }
-
-                Column {
-                    Text(
-                        text = details.channelName ?: stringResource(R.string.watch_unknown_channel),
-                        style = MaterialTheme.typography.bodyMedium,
-                        fontWeight = FontWeight.SemiBold,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                        modifier = Modifier.testTag("watch_channel_name")
-                    )
-                    if (!details.subscriberCountText.isNullOrBlank()) {
-                        Text(
-                            text = details.subscriberCountText ?: "",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                    }
-                }
-            }
-                }
-                if (!details.description.isNullOrBlank()) {
-                    Column(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(top = 10.dp)
-                            .clickable { isDescriptionExpanded = !isDescriptionExpanded }
-                            .testTag("watch_description_container")
-                    ) {
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Text(
-                            text = stringResource(R.string.watch_description),
-                            style = MaterialTheme.typography.labelLarge,
-                            fontWeight = FontWeight.SemiBold
-                        )
-                        Icon(
-                            imageVector = if (isDescriptionExpanded) Icons.Default.KeyboardArrowUp else Icons.Default.KeyboardArrowDown,
-                            contentDescription = stringResource(
-                                if (isDescriptionExpanded) R.string.watch_collapse else R.string.watch_expand
-                            )
-                        )
-                    }
-
-                    Text(
-                        text = details.description ?: "",
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        maxLines = if (isDescriptionExpanded) Int.MAX_VALUE else 2,
-                        overflow = TextOverflow.Ellipsis,
-                        modifier = Modifier
-                            .padding(top = 8.dp)
-                            .testTag("watch_description_text")
-                    )
-                }
-            }
+        item(key = "section:watch_bottom_spacer") {
+            Spacer(modifier = Modifier.height(16.dp))
         }
-        }
-
-        Spacer(modifier = Modifier.height(16.dp))
-
-        HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
-
-        Spacer(modifier = Modifier.height(16.dp))
-
-        CommentsSection(commentsState, onRetryComments, onLoadMoreComments)
-        Spacer(modifier = Modifier.height(16.dp))
-        RelatedVideosSection(relatedState, onRelatedVideoClick, onRetryRelated)
     }
 
     if (showPlaylistSheet) {

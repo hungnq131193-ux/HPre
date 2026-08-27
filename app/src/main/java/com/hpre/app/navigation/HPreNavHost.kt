@@ -18,6 +18,8 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
@@ -43,8 +45,12 @@ import com.hpre.app.ui.search.SearchViewModel
 fun HPreNavHost(
     navController: NavHostController,
     container: AppContainer,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    coordinator: com.hpre.app.player.PlaybackUiCoordinator? = null
 ) {
+    val app = androidx.compose.ui.platform.LocalContext.current.applicationContext as? com.hpre.app.HPreApplication
+    val effectiveCoordinator = coordinator ?: app?.playbackUiCoordinator ?: androidx.compose.runtime.remember { com.hpre.app.player.PlaybackUiCoordinator() }
+
     NavHost(
         navController = navController,
         startDestination = Screen.Home.route,
@@ -281,14 +287,52 @@ fun HPreNavHost(
                         watchRecommendationSource = container.recommendationRepository
                     )
                 )
+                val playbackUiState by effectiveCoordinator.state.collectAsStateWithLifecycle()
+
                 com.hpre.app.ui.watch.WatchScreen(
                     contentKey = key,
                     viewModel = watchViewModel,
                     fullscreenHostHandlerFactory = container.fullscreenHostHandlerFactory,
                     onNavigateBack = { navController.popBackStack() },
-                    onRelatedVideoClick = { navController.navigate(Screen.Watch.createRoute(it)) }
+                    onRelatedVideoClick = { navController.navigate(Screen.Watch.createRoute(it)) },
+                    onMinimizeToHome = {
+                        effectiveCoordinator.requestMinimizeToHome()
+                        navController.navigateToHomeFromWatch()
+                    },
+                    isInPip = playbackUiState.isInPip,
+                    playbackUiCoordinator = effectiveCoordinator
                 )
             }
+        }
+    }
+}
+
+fun NavHostController.navigateToHomeFromWatch() {
+    val homeEntryExists = try {
+        getBackStackEntry(Screen.Home.route)
+        true
+    } catch (_: IllegalArgumentException) {
+        false
+    }
+
+    if (homeEntryExists) {
+        navigate(Screen.Home.route) {
+            popUpTo(Screen.Home.route) {
+                inclusive = false
+                saveState = true
+            }
+            launchSingleTop = true
+            restoreState = true
+        }
+    } else {
+        val currentDestinationId = currentBackStackEntry?.destination?.id
+        navigate(Screen.Home.route) {
+            if (currentDestinationId != null) {
+                popUpTo(currentDestinationId) {
+                    inclusive = true
+                }
+            }
+            launchSingleTop = true
         }
     }
 }

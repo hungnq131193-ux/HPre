@@ -58,7 +58,9 @@ class EndToEndNavigationTest {
         composeRule.onNodeWithText("Fixture video").performClick()
         composeRule.onNodeWithTag("watch_screen").assertIsDisplayed()
 
-        composeRule.onNodeWithTag("watch_back_button").performClick()
+        composeRule.activityRule.scenario.onActivity { activity ->
+            activity.onBackPressedDispatcher.onBackPressed()
+        }
 
         composeRule.onNodeWithTag("mini-player", useUnmergedTree = true).assertIsDisplayed()
     }

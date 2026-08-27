@@ -95,6 +95,7 @@ private val bottomNavItems = listOf(
 fun RootScaffold(
     container: AppContainer,
     navController: NavHostController = rememberNavController(),
+    coordinator: com.hpre.app.player.PlaybackUiCoordinator? = null,
     modifier: Modifier = Modifier
 ) {
     val navBackStackEntry by navController.currentBackStackEntryAsState()
@@ -108,11 +109,12 @@ fun RootScaffold(
 
     val isWatchScreen = currentRoute?.startsWith("watch/") == true
     val app = LocalContext.current.applicationContext as? com.hpre.app.HPreApplication
+    val effectiveCoordinator = coordinator ?: app?.playbackUiCoordinator ?: remember { com.hpre.app.player.PlaybackUiCoordinator() }
 
-    DisposableEffect(isWatchScreen, app) {
-        app?.playbackUiCoordinator?.setWatchVisible(isWatchScreen)
+    DisposableEffect(isWatchScreen, effectiveCoordinator) {
+        effectiveCoordinator.setWatchVisible(isWatchScreen)
         onDispose {
-            app?.playbackUiCoordinator?.setWatchVisible(false)
+            effectiveCoordinator.setWatchVisible(false)
         }
     }
 
@@ -120,7 +122,7 @@ fun RootScaffold(
     val playbackState by playerController.state.collectAsStateWithLifecycle()
     val hasActiveMedia = playbackState.key != null
 
-    val playbackUiState by (app?.playbackUiCoordinator?.state ?: kotlinx.coroutines.flow.MutableStateFlow(com.hpre.app.player.PlaybackUiState())).collectAsStateWithLifecycle()
+    val playbackUiState by effectiveCoordinator.state.collectAsStateWithLifecycle()
     androidx.compose.runtime.LaunchedEffect(playbackUiState.backgroundPlaybackEnabled, playbackUiState.isInPip, playerController) {
         if (playerController is SessionPlayerController) {
             playerController.updateLifecyclePolicy(
@@ -185,6 +187,7 @@ fun RootScaffold(
                 if (!isWatchScreen && hasActiveMedia) {
                     MiniPlayer(
                         playerController = playerController,
+                        coordinator = effectiveCoordinator,
                         // The navigation bar below already consumes the system inset. Without it
                         // (search, channel, history, ...) the mini player would sit underneath the
                         // system navigation bar, so pad it here instead.
@@ -246,6 +249,7 @@ fun RootScaffold(
         HPreNavHost(
             navController = navController,
             container = container,
+            coordinator = effectiveCoordinator,
             modifier = Modifier.padding(innerPadding)
         )
     }

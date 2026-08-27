@@ -32,7 +32,9 @@ data class PlaybackSnapshot(
     val positionMs: Long,
     val playWhenReady: Boolean,
     val selectedQuality: QualityOption? = null,
-    val playbackSpeed: Float = 1.0f
+    val playbackSpeed: Float = 1.0f,
+    val qualityPolicy: UserQualityPolicy = selectedQuality?.let(UserQualityPolicy::Fixed)
+        ?: UserQualityPolicy.Auto()
 )
 
 class PlaybackSnapshotStore(
@@ -95,6 +97,9 @@ class SnapshotWriter(
         val KEY_QUALITY_CODEC = stringPreferencesKey("snapshot_quality_codec")
         val KEY_QUALITY_STREAM_TYPE = stringPreferencesKey("snapshot_quality_stream_type")
         val KEY_QUALITY_PRESENT = booleanPreferencesKey("snapshot_quality_present")
+        val KEY_POLICY_TYPE = stringPreferencesKey("snapshot_quality_policy_type")
+        val KEY_POLICY_MAX_HEIGHT = intPreferencesKey("snapshot_quality_policy_max_height")
+        val KEY_POLICY_MAX_BITRATE = intPreferencesKey("snapshot_quality_policy_max_bitrate")
 
         val KEY_SNAPSHOT_VERSION = longPreferencesKey("snapshot_version")
     }
@@ -181,11 +186,20 @@ class SnapshotWriter(
             null
         }
 
+        val policy = when (prefs[KEY_POLICY_TYPE]) {
+            "auto" -> UserQualityPolicy.Auto(
+                maxHeight = prefs[KEY_POLICY_MAX_HEIGHT]?.takeIf { it > 0 },
+                maxBitrate = prefs[KEY_POLICY_MAX_BITRATE]?.takeIf { it > 0 }
+            )
+            "fixed" -> quality?.let(UserQualityPolicy::Fixed) ?: UserQualityPolicy.Auto()
+            else -> quality?.let(UserQualityPolicy::Fixed) ?: UserQualityPolicy.Auto()
+        }
         return PlaybackSnapshot(
             key = ContentKey(serviceId, nativeId),
             positionMs = positionMs,
             playWhenReady = playWhenReady,
             selectedQuality = quality,
+            qualityPolicy = policy,
             playbackSpeed = playbackSpeed
         )
     }
@@ -197,7 +211,20 @@ class SnapshotWriter(
         prefs[KEY_POSITION_MS] = snapshot.positionMs
         prefs[KEY_PLAY_WHEN_READY] = snapshot.playWhenReady
         prefs[KEY_PLAYBACK_SPEED] = snapshot.playbackSpeed
-        val q = snapshot.selectedQuality
+        val q = (snapshot.qualityPolicy as? UserQualityPolicy.Fixed)?.option
+            ?: snapshot.selectedQuality
+        when (val policy = snapshot.qualityPolicy) {
+            is UserQualityPolicy.Auto -> {
+                prefs[KEY_POLICY_TYPE] = "auto"
+                policy.maxHeight?.let { prefs[KEY_POLICY_MAX_HEIGHT] = it } ?: prefs.remove(KEY_POLICY_MAX_HEIGHT)
+                policy.maxBitrate?.let { prefs[KEY_POLICY_MAX_BITRATE] = it } ?: prefs.remove(KEY_POLICY_MAX_BITRATE)
+            }
+            is UserQualityPolicy.Fixed -> {
+                prefs[KEY_POLICY_TYPE] = "fixed"
+                prefs.remove(KEY_POLICY_MAX_HEIGHT)
+                prefs.remove(KEY_POLICY_MAX_BITRATE)
+            }
+        }
         if (q != null) {
             prefs[KEY_QUALITY_PRESENT] = true
             prefs[KEY_QUALITY_HEIGHT] = q.height

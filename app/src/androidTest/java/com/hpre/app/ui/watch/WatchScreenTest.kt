@@ -21,7 +21,13 @@ import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performSemanticsAction
 import androidx.compose.ui.test.performTouchInput
+import androidx.compose.ui.test.performScrollToNode
+import androidx.compose.ui.test.swipeDown
+import androidx.compose.ui.test.swipeRight
+import androidx.compose.ui.test.doubleClick
 import androidx.compose.ui.unit.dp
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.setValue
 import androidx.test.core.app.ApplicationProvider
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import com.hpre.app.core.designsystem.HPreTheme
@@ -30,6 +36,7 @@ import com.hpre.app.core.error.AppResult
 import com.hpre.app.model.ContentKey
 import com.hpre.app.model.StreamInfo
 import com.hpre.app.model.VideoDetails
+import com.hpre.app.model.VideoSummary
 import com.hpre.app.player.PlaybackState
 import com.hpre.app.player.PlayerController
 import com.hpre.app.player.QualityOption
@@ -173,7 +180,7 @@ class WatchScreenTest {
         }
 
         composeTestRule.onNodeWithTag("player_container").assertIsDisplayed()
-        composeTestRule.onNodeWithTag("watch_back_button").assertIsDisplayed()
+        composeTestRule.onNodeWithTag("watch_back_button").assertDoesNotExist()
         composeTestRule.runOnIdle {
             val playerView = fakePlayer.attachedSurfaces.lastOrNull()
             assertNotNull("PlayerSurface must attach a real PlayerView", playerView)
@@ -193,7 +200,7 @@ class WatchScreenTest {
     }
 
     @Test
-    fun phone_width_layout_keeps_primary_content_in_bounds_and_back_works() {
+    fun phone_width_layout_keeps_primary_content_in_bounds_and_portrait_back_removed() {
         val fakeService = FakeVideoService(
             videoHandler = { AppResult.Success(testDetails(it)) },
             streamInfoHandler = {
@@ -224,13 +231,11 @@ class WatchScreenTest {
                 .fetchSemanticsNodes().isNotEmpty()
         }
 
-        composeTestRule.onNodeWithTag("watch_back_button").performClick()
-        composeTestRule.runOnIdle { assertTrue(backClicked) }
+        composeTestRule.onNodeWithTag("watch_back_button").assertDoesNotExist()
 
         val screenBounds = composeTestRule.onNodeWithTag("watch_screen").fetchSemanticsNode().boundsInRoot
         listOf(
             "player_container",
-            "watch_back_button",
             "watch_action_row",
             "watch_channel_card",
             "comments_section",
@@ -991,5 +996,690 @@ class WatchScreenTest {
             0,
             invalidShareCount
         )
+    }
+
+    @Test
+    fun lazy_watch_content_emits_100_rows_lazily_and_scrolls_to_item_99() {
+        val test100Summaries = (0 until 100).map { i ->
+            VideoSummary(
+                key = ContentKey(0, "lazy_rel_$i"),
+                title = "Lazy Recommendation $i",
+                canonicalUrl = "https://hpre.test/watch?v=lazy_rel_$i",
+                channelKey = ContentKey(0, "channel_$i"),
+                channelName = "Channel $i",
+                channelAvatarUrl = null,
+                thumbnailUrl = null,
+                durationSeconds = 120,
+                viewCount = 1000L + i,
+                publishedTimestamp = 1600000000L
+            )
+        }
+        val fakeService = FakeVideoService(
+            videoHandler = { AppResult.Success(testDetails(it)) },
+            streamInfoHandler = { AppResult.Success(StreamInfo(it, "Title", hlsManifestUrl = "https://manifest.m3u8")) },
+            relatedHandler = { AppResult.Success(test100Summaries) }
+        )
+        val fakePlayer = FakePlayerController()
+        val viewModel = WatchViewModel(
+            videoService = fakeService,
+            playerController = fakePlayer,
+            savedStateHandle = androidx.lifecycle.SavedStateHandle()
+        )
+
+        composeTestRule.setContent {
+            HPreTheme {
+                WatchScreen(
+                    contentKey = testKey,
+                    viewModel = viewModel,
+                    onNavigateBack = {}
+                )
+            }
+        }
+
+        // Wait for metadata / initial list to be displayed
+        composeTestRule.waitUntil(5000) {
+            composeTestRule.onAllNodes(hasTestTag("watch_video_title"))
+                .fetchSemanticsNodes().isNotEmpty()
+        }
+
+        // Initially item 0 is composed/displayed, but off-screen item 99 does not exist in LazyColumn
+        composeTestRule.onNodeWithTag("video_card_lazy_rel_0").assertExists()
+        composeTestRule.onNodeWithTag("video_card_lazy_rel_99").assertDoesNotExist()
+
+        // Scroll to item 99
+        composeTestRule.onNodeWithTag("watch_lazy_column")
+            .performScrollToNode(hasTestTag("video_card_lazy_rel_99"))
+
+        composeTestRule.onNodeWithTag("video_card_lazy_rel_99").assertExists()
+        composeTestRule.onNodeWithText("Lazy Recommendation 99").assertIsDisplayed()
+    }
+
+    @Test
+    fun lazy_watch_content_maintains_key_identity_across_reorder() {
+        val batchA = listOf(
+            VideoSummary(
+                key = ContentKey(0, "item_a"),
+                title = "Title Alpha",
+                canonicalUrl = "https://hpre.test/a",
+                channelKey = null,
+                channelName = null,
+                channelAvatarUrl = null,
+                thumbnailUrl = null,
+                durationSeconds = null,
+                viewCount = null,
+                publishedTimestamp = null
+            ),
+            VideoSummary(
+                key = ContentKey(0, "item_b"),
+                title = "Title Beta",
+                canonicalUrl = "https://hpre.test/b",
+                channelKey = null,
+                channelName = null,
+                channelAvatarUrl = null,
+                thumbnailUrl = null,
+                durationSeconds = null,
+                viewCount = null,
+                publishedTimestamp = null
+            )
+        )
+        val batchBReordered = listOf(
+            batchA[1],
+            batchA[0]
+        )
+
+        var relatedState by androidx.compose.runtime.mutableStateOf(
+            RefreshableAsyncState.content(batchA)
+        )
+
+        composeTestRule.setContent {
+            HPreTheme {
+                WatchMetadataContent(
+                    details = testDetails(testKey),
+                    relatedState = relatedState
+                )
+            }
+        }
+
+        // Before reorder: item_a is displayed with Title Alpha, item_b with Title Beta
+        composeTestRule.onNodeWithTag("video_card_item_a").assertIsDisplayed()
+        composeTestRule.onNodeWithText("Title Alpha").assertIsDisplayed()
+        composeTestRule.onNodeWithTag("video_card_item_b").assertIsDisplayed()
+        composeTestRule.onNodeWithText("Title Beta").assertIsDisplayed()
+
+        // Mutate/reorder state
+        relatedState = RefreshableAsyncState.content(batchBReordered)
+        composeTestRule.waitForIdle()
+
+        // After reorder: item_a still has Title Alpha, item_b still has Title Beta
+        composeTestRule.onNodeWithTag("video_card_item_a").assertIsDisplayed()
+        composeTestRule.onNodeWithText("Title Alpha").assertIsDisplayed()
+        composeTestRule.onNodeWithTag("video_card_item_b").assertIsDisplayed()
+        composeTestRule.onNodeWithText("Title Beta").assertIsDisplayed()
+    }
+
+    @Test
+    fun comments_automatic_sentinel_pagination_triggers_next_pages_without_loop() {
+        val page1 = (1..5).map {
+            com.hpre.app.model.Comment("comm_$it", "Author $it", null, null, "Body $it", null, null)
+        }
+        val page2 = (6..10).map {
+            com.hpre.app.model.Comment("comm_$it", "Author $it", null, null, "Body $it", null, null)
+        }
+        val page3 = (11..15).map {
+            com.hpre.app.model.Comment("comm_$it", "Author $it", null, null, "Body $it", null, null)
+        }
+
+        var commentsState by androidx.compose.runtime.mutableStateOf<com.hpre.app.ui.common.AsyncState<com.hpre.app.model.CommentPage>>(
+            com.hpre.app.ui.common.AsyncState.Content(
+                com.hpre.app.model.CommentPage(page1, nextPageToken = com.hpre.app.model.PageToken.Id("tok_page_2"))
+            )
+        )
+        var loadMoreCallCount = 0
+
+        composeTestRule.setContent {
+            HPreTheme {
+                WatchMetadataContent(
+                    details = testDetails(testKey),
+                    commentsState = commentsState,
+                    onLoadMoreComments = { loadMoreCallCount++ }
+                )
+            }
+        }
+
+        // 1. Initial render -> sentinel is visible or reached via scroll
+        composeTestRule.onNodeWithTag("watch_lazy_column")
+            .performScrollToNode(hasTestTag("comments_load_more_sentinel"))
+        composeTestRule.waitForIdle()
+
+        // Exactly one load-more triggered for tok_page_2
+        assertEquals(1, loadMoreCallCount)
+
+        // Wait to verify no infinite loop occurs while token remains tok_page_2
+        composeTestRule.waitForIdle()
+        assertEquals(1, loadMoreCallCount)
+
+        // 2. ViewModel completes page 2 with new token tok_page_3 while sentinel remains visible
+        commentsState = com.hpre.app.ui.common.AsyncState.Content(
+            com.hpre.app.model.CommentPage(page1 + page2, nextPageToken = com.hpre.app.model.PageToken.Id("tok_page_3"))
+        )
+        composeTestRule.waitForIdle()
+
+        // Token change must trigger next page (page 3) exactly once
+        assertEquals(2, loadMoreCallCount)
+
+        // 3. ViewModel completes page 3 with no next token (end of pagination)
+        commentsState = com.hpre.app.ui.common.AsyncState.Content(
+            com.hpre.app.model.CommentPage(page1 + page2 + page3, nextPageToken = null)
+        )
+        composeTestRule.waitForIdle()
+
+        // Sentinel removed, no more loadMore calls
+        composeTestRule.onNodeWithTag("comments_load_more_sentinel").assertDoesNotExist()
+        assertEquals(2, loadMoreCallCount)
+    }
+
+    @Test
+    fun namespaced_keys_prevent_collisions_between_sections_and_colliding_ids() {
+        // Comment ID identical to section constant string
+        val collidingCommentId = "section:comments_header"
+        val comments = listOf(
+            com.hpre.app.model.Comment(
+                commentId = collidingCommentId,
+                authorName = "Colliding Author",
+                authorAvatarUrl = null,
+                channelKey = null,
+                commentText = "Colliding Body",
+                publishedTimestamp = null,
+                likeCount = null
+            )
+        )
+        // Video nativeId identical to section constant string
+        val collidingVideo = VideoSummary(
+            key = ContentKey(0, "section:comments_header"),
+            title = "Colliding Video Title",
+            canonicalUrl = "https://hpre.test/watch?v=colliding",
+            channelKey = null,
+            channelName = null,
+            channelAvatarUrl = null,
+            thumbnailUrl = null,
+            durationSeconds = null,
+            viewCount = null,
+            publishedTimestamp = null
+        )
+
+        composeTestRule.setContent {
+            HPreTheme {
+                WatchMetadataContent(
+                    details = testDetails(testKey),
+                    commentsState = com.hpre.app.ui.common.AsyncState.Content(
+                        com.hpre.app.model.CommentPage(comments)
+                    ),
+                    relatedState = RefreshableAsyncState.content(listOf(collidingVideo))
+                )
+            }
+        }
+
+        // Assert all three nodes with colliding IDs render without LazyColumn key collision crashes
+        composeTestRule.onNodeWithTag("comments_section").assertIsDisplayed()
+        composeTestRule.onNodeWithTag("comment_$collidingCommentId").assertIsDisplayed()
+        composeTestRule.onNodeWithText("Colliding Body").assertIsDisplayed()
+        composeTestRule.onNodeWithTag("video_card_section:comments_header").assertIsDisplayed()
+    }
+
+    @Test
+    fun comments_pagination_guard_resets_per_video_route() {
+        val sharedToken = com.hpre.app.model.PageToken.Id("shared_token_abc")
+        val commentsA = (1..5).map {
+            com.hpre.app.model.Comment("comm_a_$it", "Author A$it", null, null, "Body A$it", null, null)
+        }
+        val commentsB = (1..5).map {
+            com.hpre.app.model.Comment("comm_b_$it", "Author B$it", null, null, "Body B$it", null, null)
+        }
+
+        var loadMoreCallsA = 0
+        var loadMoreCallsB = 0
+
+        var currentDetails by androidx.compose.runtime.mutableStateOf(testDetails(ContentKey(0, "video_route_1")))
+        var currentComments by androidx.compose.runtime.mutableStateOf<com.hpre.app.ui.common.AsyncState<com.hpre.app.model.CommentPage>>(
+            com.hpre.app.ui.common.AsyncState.Content(
+                com.hpre.app.model.CommentPage(commentsA, nextPageToken = sharedToken)
+            )
+        )
+        var onLoadMore: () -> Unit by androidx.compose.runtime.mutableStateOf({ loadMoreCallsA++ })
+
+        composeTestRule.setContent {
+            HPreTheme {
+                WatchMetadataContent(
+                    details = currentDetails,
+                    commentsState = currentComments,
+                    onLoadMoreComments = onLoadMore
+                )
+            }
+        }
+
+        // 1. Video 1 renders with sharedToken -> scroll to sentinel -> triggers loadMore for Video 1 once
+        composeTestRule.onNodeWithTag("watch_lazy_column")
+            .performScrollToNode(hasTestTag("comments_load_more_sentinel"))
+        composeTestRule.waitForIdle()
+
+        assertEquals(1, loadMoreCallsA)
+        assertEquals(0, loadMoreCallsB)
+
+        // 2. Switch to Video 2 with the same token string (sharedToken)
+        currentDetails = testDetails(ContentKey(0, "video_route_2"))
+        currentComments = com.hpre.app.ui.common.AsyncState.Content(
+            com.hpre.app.model.CommentPage(commentsB, nextPageToken = sharedToken)
+        )
+        onLoadMore = { loadMoreCallsB++ }
+        composeTestRule.waitForIdle()
+
+        // 3. Sentinel triggers Video 2's load-more callback once (guard was reset for Video 2's key)
+        composeTestRule.onNodeWithTag("watch_lazy_column")
+            .performScrollToNode(hasTestTag("comments_load_more_sentinel"))
+        composeTestRule.waitForIdle()
+
+        assertEquals(1, loadMoreCallsA)
+        assertEquals(1, loadMoreCallsB)
+    }
+
+    @Test
+    fun swipe_down_on_portrait_player_triggers_minimize_to_home() {
+        val fakeService = FakeVideoService(
+            videoHandler = { AppResult.Success(testDetails(it)) },
+            streamInfoHandler = { AppResult.Success(StreamInfo(it, "Title", hlsManifestUrl = "https://manifest.m3u8")) }
+        )
+        val fakePlayer = FakePlayerController()
+        val viewModel = WatchViewModel(
+            videoService = fakeService,
+            playerController = fakePlayer,
+            savedStateHandle = androidx.lifecycle.SavedStateHandle()
+        )
+
+        var minimizeCalls = 0
+
+        composeTestRule.setContent {
+            HPreTheme {
+                WatchScreen(
+                    contentKey = testKey,
+                    viewModel = viewModel,
+                    onNavigateBack = {},
+                    onMinimizeToHome = { minimizeCalls++ }
+                )
+            }
+        }
+
+        composeTestRule.waitUntil(5000) {
+            composeTestRule.onAllNodes(hasTestTag("player_controls_overlay"))
+                .fetchSemanticsNodes().isNotEmpty()
+        }
+
+        // Downward swipe on player overlay
+        composeTestRule.onNodeWithTag("player_controls_overlay").performTouchInput {
+            swipeDown(startY = centerY, endY = centerY + 300f)
+        }
+        composeTestRule.waitForIdle()
+
+        assertEquals("Swipe down in portrait must dispatch onMinimizeToHome exactly once", 1, minimizeCalls)
+    }
+
+    @Test
+    fun swipe_down_in_fullscreen_does_not_trigger_minimize() {
+        val fakeService = FakeVideoService(
+            videoHandler = { AppResult.Success(testDetails(it)) },
+            streamInfoHandler = { AppResult.Success(StreamInfo(it, "Title", hlsManifestUrl = "https://manifest.m3u8")) }
+        )
+        val fakePlayer = FakePlayerController()
+        val viewModel = WatchViewModel(
+            videoService = fakeService,
+            playerController = fakePlayer,
+            savedStateHandle = androidx.lifecycle.SavedStateHandle()
+        )
+
+        var minimizeCalls = 0
+
+        composeTestRule.setContent {
+            HPreTheme {
+                WatchScreen(
+                    contentKey = testKey,
+                    viewModel = viewModel,
+                    onNavigateBack = {},
+                    onMinimizeToHome = { minimizeCalls++ }
+                )
+            }
+        }
+
+        composeTestRule.waitUntil(5000) {
+            composeTestRule.onAllNodes(hasTestTag("watch_video_title"))
+                .fetchSemanticsNodes().isNotEmpty()
+        }
+
+        // Enter fullscreen
+        composeTestRule.onNodeWithTag("control_fullscreen_toggle").performClick()
+        composeTestRule.waitUntil(5000) {
+            composeTestRule.onAllNodes(hasTestTag("watch_screen_fullscreen"))
+                .fetchSemanticsNodes().isNotEmpty()
+        }
+
+        // Downward swipe in fullscreen overlay
+        composeTestRule.onNodeWithTag("player_controls_overlay").performTouchInput {
+            swipeDown(startY = centerY, endY = centerY + 300f)
+        }
+        composeTestRule.waitForIdle()
+
+        assertEquals("Swipe down in fullscreen must not dispatch onMinimizeToHome", 0, minimizeCalls)
+    }
+
+    @Test
+    fun swipe_down_in_pip_does_not_trigger_minimize() {
+        val fakeService = FakeVideoService(
+            videoHandler = { AppResult.Success(testDetails(it)) },
+            streamInfoHandler = { AppResult.Success(StreamInfo(it, "Title", hlsManifestUrl = "https://manifest.m3u8")) }
+        )
+        val fakePlayer = FakePlayerController()
+        val viewModel = WatchViewModel(
+            videoService = fakeService,
+            playerController = fakePlayer,
+            savedStateHandle = androidx.lifecycle.SavedStateHandle()
+        )
+
+        var minimizeCalls = 0
+
+        composeTestRule.setContent {
+            HPreTheme {
+                WatchScreen(
+                    contentKey = testKey,
+                    viewModel = viewModel,
+                    onNavigateBack = {},
+                    onMinimizeToHome = { minimizeCalls++ },
+                    isInPip = true
+                )
+            }
+        }
+
+        composeTestRule.waitUntil(5000) {
+            composeTestRule.onAllNodes(hasTestTag("player_controls_overlay"))
+                .fetchSemanticsNodes().isNotEmpty()
+        }
+
+        // Downward swipe in PiP mode
+        composeTestRule.onNodeWithTag("player_controls_overlay").performTouchInput {
+            swipeDown(startY = centerY, endY = centerY + 300f)
+        }
+        composeTestRule.waitForIdle()
+
+        assertEquals("Swipe down while in PiP must not dispatch onMinimizeToHome", 0, minimizeCalls)
+    }
+
+    @Test
+    fun taps_and_double_taps_still_work_with_single_pointer_coordinator() {
+        val fakeService = FakeVideoService(
+            videoHandler = { AppResult.Success(testDetails(it)) },
+            streamInfoHandler = { AppResult.Success(StreamInfo(it, "Title", hlsManifestUrl = "https://manifest.m3u8")) }
+        )
+        val fakePlayer = FakePlayerController()
+        val viewModel = WatchViewModel(
+            videoService = fakeService,
+            playerController = fakePlayer,
+            savedStateHandle = androidx.lifecycle.SavedStateHandle()
+        )
+
+        composeTestRule.setContent {
+            HPreTheme {
+                WatchScreen(
+                    contentKey = testKey,
+                    viewModel = viewModel,
+                    onNavigateBack = {}
+                )
+            }
+        }
+
+        composeTestRule.waitUntil(5000) {
+            composeTestRule.onAllNodes(hasTestTag("player_controls_overlay"))
+                .fetchSemanticsNodes().isNotEmpty()
+        }
+
+        // Double tap right edge to fast forward 10s
+        composeTestRule.onNodeWithTag("player_controls_overlay").performTouchInput {
+            doubleClick(position = androidx.compose.ui.geometry.Offset(width * 0.85f, height * 0.5f))
+        }
+        composeTestRule.waitForIdle()
+
+        assertEquals(10_000L, fakePlayer.seekDeltaCalled)
+    }
+
+    @Test
+    fun landscape_non_fullscreen_disables_minimize_gesture() {
+        val fakeService = FakeVideoService(
+            videoHandler = { AppResult.Success(testDetails(it)) },
+            streamInfoHandler = { AppResult.Success(StreamInfo(it, "Title", hlsManifestUrl = "https://manifest.m3u8")) }
+        )
+        val fakePlayer = FakePlayerController()
+        val viewModel = WatchViewModel(
+            videoService = fakeService,
+            playerController = fakePlayer,
+            savedStateHandle = androidx.lifecycle.SavedStateHandle()
+        )
+
+        var minimizeCalls = 0
+
+        composeTestRule.setContent {
+            HPreTheme {
+                val landscapeConfig = android.content.res.Configuration().apply {
+                    orientation = android.content.res.Configuration.ORIENTATION_LANDSCAPE
+                }
+                androidx.compose.runtime.CompositionLocalProvider(
+                    androidx.compose.ui.platform.LocalConfiguration provides landscapeConfig
+                ) {
+                    WatchScreen(
+                        contentKey = testKey,
+                        viewModel = viewModel,
+                        onNavigateBack = {},
+                        onMinimizeToHome = { minimizeCalls++ }
+                    )
+                }
+            }
+        }
+
+        composeTestRule.waitUntil(5000) {
+            composeTestRule.onAllNodes(hasTestTag("player_controls_overlay"))
+                .fetchSemanticsNodes().isNotEmpty()
+        }
+
+        // Downward swipe in landscape non-fullscreen
+        composeTestRule.onNodeWithTag("player_controls_overlay").performTouchInput {
+            swipeDown(startY = centerY, endY = centerY + 300f)
+        }
+        composeTestRule.waitForIdle()
+
+        assertEquals("Landscape non-fullscreen must disable minimize gesture", 0, minimizeCalls)
+    }
+
+    @Test
+    fun tap_on_center_play_button_invokes_play_and_does_not_toggle_controls_overlay() {
+        val fakeService = FakeVideoService(
+            videoHandler = { AppResult.Success(testDetails(it)) },
+            streamInfoHandler = { AppResult.Success(StreamInfo(it, "Title", hlsManifestUrl = "https://manifest.m3u8")) }
+        )
+        val fakePlayer = FakePlayerController()
+        val viewModel = WatchViewModel(
+            videoService = fakeService,
+            playerController = fakePlayer,
+            savedStateHandle = androidx.lifecycle.SavedStateHandle()
+        )
+
+        var minimizeCalls = 0
+
+        composeTestRule.setContent {
+            HPreTheme {
+                WatchScreen(
+                    contentKey = testKey,
+                    viewModel = viewModel,
+                    onNavigateBack = {},
+                    onMinimizeToHome = { minimizeCalls++ }
+                )
+            }
+        }
+
+        composeTestRule.waitUntil(5000) {
+            composeTestRule.onAllNodes(hasTestTag("control_play_pause"))
+                .fetchSemanticsNodes().isNotEmpty()
+        }
+
+        // Tap play/pause button directly
+        composeTestRule.onNodeWithTag("control_play_pause").performClick()
+        composeTestRule.waitForIdle()
+
+        assertTrue("Play/pause must be called", fakePlayer.playPauseCalled)
+        assertEquals("Play click must not invoke seek delta", null, fakePlayer.seekDeltaCalled)
+        assertEquals("Play click must not invoke seekTo", null, fakePlayer.seekToPosition)
+        assertEquals("Play click must not invoke minimize", 0, minimizeCalls)
+        // Controls must remain visible
+        composeTestRule.onNodeWithTag("control_play_pause").assertIsDisplayed()
+    }
+
+    @Test
+    fun slider_horizontal_drag_seeks_and_slider_vertical_swipe_does_not_minimize() {
+        val fakeService = FakeVideoService(
+            videoHandler = { AppResult.Success(testDetails(it)) },
+            streamInfoHandler = { AppResult.Success(StreamInfo(it, "Title", hlsManifestUrl = "https://manifest.m3u8")) }
+        )
+        val fakePlayer = FakePlayerController()
+        val viewModel = WatchViewModel(
+            videoService = fakeService,
+            playerController = fakePlayer,
+            savedStateHandle = androidx.lifecycle.SavedStateHandle()
+        )
+
+        var minimizeCalls = 0
+
+        composeTestRule.setContent {
+            HPreTheme {
+                WatchScreen(
+                    contentKey = testKey,
+                    viewModel = viewModel,
+                    onNavigateBack = {},
+                    onMinimizeToHome = { minimizeCalls++ }
+                )
+            }
+        }
+
+        composeTestRule.waitUntil(5000) {
+            composeTestRule.onAllNodes(hasTestTag("player_progress_slider"))
+                .fetchSemanticsNodes().isNotEmpty()
+        }
+
+        // 1. Downward swipe starting on the slider
+        val initialSeekCallCount = fakePlayer.seekCallCount
+        composeTestRule.onNodeWithTag("player_progress_slider").performTouchInput {
+            swipeDown(startY = centerY, endY = centerY + 300f)
+        }
+        composeTestRule.waitForIdle()
+
+        assertEquals("Downward gesture starting on slider must never minimize", 0, minimizeCalls)
+        assertEquals("Vertical swipe on slider must not dispatch seekTo", initialSeekCallCount, fakePlayer.seekCallCount)
+
+        // 2. Horizontal slider drag seeks and does not minimize
+        composeTestRule.onNodeWithTag("player_progress_slider").performTouchInput {
+            swipeRight(startX = width * 0.2f, endX = width * 0.8f)
+        }
+        composeTestRule.waitForIdle()
+
+        assertEquals("Horizontal seek must not minimize", 0, minimizeCalls)
+        assertTrue("Horizontal slider drag must dispatch seekTo", fakePlayer.seekCallCount > initialSeekCallCount)
+    }
+
+    @Test
+    fun surface_horizontal_swipe_does_not_minimize() {
+        val fakeService = FakeVideoService(
+            videoHandler = { AppResult.Success(testDetails(it)) },
+            streamInfoHandler = { AppResult.Success(StreamInfo(it, "Title", hlsManifestUrl = "https://manifest.m3u8")) }
+        )
+        val fakePlayer = FakePlayerController()
+        val viewModel = WatchViewModel(
+            videoService = fakeService,
+            playerController = fakePlayer,
+            savedStateHandle = androidx.lifecycle.SavedStateHandle()
+        )
+
+        var minimizeCalls = 0
+
+        composeTestRule.setContent {
+            HPreTheme {
+                WatchScreen(
+                    contentKey = testKey,
+                    viewModel = viewModel,
+                    onNavigateBack = {},
+                    onMinimizeToHome = { minimizeCalls++ }
+                )
+            }
+        }
+
+        composeTestRule.waitUntil(5000) {
+            composeTestRule.onAllNodes(hasTestTag("player_controls_overlay"))
+                .fetchSemanticsNodes().isNotEmpty()
+        }
+
+        // Horizontal swipe across player surface
+        composeTestRule.onNodeWithTag("player_controls_overlay").performTouchInput {
+            swipeRight(startX = centerX - 100f, endX = centerX + 100f)
+        }
+        composeTestRule.waitForIdle()
+
+        assertEquals("Horizontal movement must never trigger minimize", 0, minimizeCalls)
+    }
+
+    @Test
+    fun fullscreen_enter_and_exit_cleans_stale_top_start_protected_bounds() {
+        val fakeService = FakeVideoService(
+            videoHandler = { AppResult.Success(testDetails(it)) },
+            streamInfoHandler = { AppResult.Success(StreamInfo(it, "Title", hlsManifestUrl = "https://manifest.m3u8")) }
+        )
+        val fakePlayer = FakePlayerController()
+        val viewModel = WatchViewModel(
+            videoService = fakeService,
+            playerController = fakePlayer,
+            savedStateHandle = androidx.lifecycle.SavedStateHandle()
+        )
+
+        var minimizeCalls = 0
+
+        composeTestRule.setContent {
+            HPreTheme {
+                WatchScreen(
+                    contentKey = testKey,
+                    viewModel = viewModel,
+                    onNavigateBack = {},
+                    onMinimizeToHome = { minimizeCalls++ }
+                )
+            }
+        }
+
+        composeTestRule.waitUntil(5000) {
+            composeTestRule.onAllNodes(hasTestTag("watch_video_title"))
+                .fetchSemanticsNodes().isNotEmpty()
+        }
+
+        // 1. Enter fullscreen -> fullscreen_top_start is registered
+        composeTestRule.onNodeWithTag("control_fullscreen_toggle").performClick()
+        composeTestRule.waitUntil(5000) {
+            composeTestRule.onAllNodes(hasTestTag("watch_screen_fullscreen"))
+                .fetchSemanticsNodes().isNotEmpty()
+        }
+        composeTestRule.onNodeWithTag("control_fullscreen_back").assertIsDisplayed()
+
+        // 2. Exit fullscreen -> fullscreen_top_start is disposed/unregistered
+        composeTestRule.onNodeWithTag("control_fullscreen_toggle").performClick()
+        composeTestRule.waitUntil(5000) {
+            composeTestRule.onAllNodes(hasTestTag("watch_screen"))
+                .fetchSemanticsNodes().isNotEmpty()
+        }
+
+        // 3. Now perform downward swipe starting at the top-left area where fullscreen back used to be
+        composeTestRule.onNodeWithTag("player_controls_overlay").performTouchInput {
+            swipeDown(startY = top + 20f, endY = top + 350f)
+        }
+        composeTestRule.waitForIdle()
+
+        assertEquals("Disposed fullscreen control bound must not suppress portrait minimize swipe", 1, minimizeCalls)
     }
 }

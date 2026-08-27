@@ -284,6 +284,31 @@ object StreamSelector {
             is QualityPreference.SpecificOption -> preference.option.height
         }
 
+        // Auto is genuinely adaptive only when Media3 receives a manifest. Fixed quality
+        // preferences keep the existing deterministic progressive/merged selection below.
+        if (preference is QualityPreference.Auto) {
+            if (isValidUrl(info.hlsManifestUrl)) {
+                return AppResult.Success(
+                    SelectedStreams(
+                        key = info.key,
+                        streamType = PlaybackStreamType.HLS,
+                        manifestUrl = info.hlsManifestUrl,
+                        subtitles = info.subtitles
+                    )
+                )
+            }
+            if (isValidUrl(info.dashManifestUrl)) {
+                return AppResult.Success(
+                    SelectedStreams(
+                        key = info.key,
+                        streamType = PlaybackStreamType.DASH,
+                        manifestUrl = info.dashManifestUrl,
+                        subtitles = info.subtitles
+                    )
+                )
+            }
+        }
+
         // 1. Try progressive (A/V merged together in one stream)
         val progressiveCandidates = info.videoStreams
             .filter { isProgressiveValid(it) }

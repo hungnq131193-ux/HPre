@@ -19,6 +19,35 @@ sealed interface QualityPreference {
     data class SpecificOption(val option: QualityOption) : QualityPreference
 }
 
+sealed interface UserQualityPolicy {
+    data class Auto(
+        val maxHeight: Int? = null,
+        val maxBitrate: Int? = null
+    ) : UserQualityPolicy
+
+    data class Fixed(val option: QualityOption) : UserQualityPolicy
+}
+
+data class EffectiveTrack(
+    val height: Int?,
+    val bitrate: Int?,
+    val isAdaptive: Boolean
+)
+
+object QualityPolicyResolver {
+    fun forSelection(
+        currentStreamType: PlaybackStreamType?,
+        option: QualityOption
+    ): UserQualityPolicy = if (
+        (currentStreamType == PlaybackStreamType.HLS || currentStreamType == PlaybackStreamType.DASH) &&
+        option.height > 0
+    ) {
+        UserQualityPolicy.Auto(maxHeight = option.height)
+    } else {
+        UserQualityPolicy.Fixed(option)
+    }
+}
+
 data class QualityOption(
     val height: Int,
     val label: String,
@@ -59,6 +88,8 @@ data class PlaybackState(
     val durationMs: Long = 0L,
     val playbackSpeed: Float = 1.0f,
     val selectedQuality: QualityOption? = null,
+    val qualityPolicy: UserQualityPolicy = UserQualityPolicy.Auto(),
+    val effectiveTrack: EffectiveTrack? = null,
     val pendingQuality: QualityOption? = null,
     val availableQualities: List<QualityOption> = emptyList(),
     val streamType: PlaybackStreamType? = null,

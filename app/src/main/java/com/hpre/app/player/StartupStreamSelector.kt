@@ -10,6 +10,16 @@ object StartupStreamSelector {
         info: StreamInfo,
         maxHeight: Int = DEFAULT_MAX_HEIGHT
     ): AppResult<SelectedStreams> {
+        // Prefer a real adaptive manifest at startup. The maxHeight is enforced by the service's
+        // track selector; progressive streams cannot provide continuous ABR.
+        val automatic = StreamSelector.selectStream(info, QualityPreference.Auto)
+        val automaticStreams = (automatic as? AppResult.Success)?.value
+        if (automaticStreams?.streamType == PlaybackStreamType.HLS ||
+            automaticStreams?.streamType == PlaybackStreamType.DASH
+        ) {
+            return automatic
+        }
+
         val preferred = StreamSelector.selectStream(
             info,
             QualityPreference.ExactOrBelow(maxHeight)
@@ -19,8 +29,6 @@ object StartupStreamSelector {
             return preferred
         }
 
-        val automatic = StreamSelector.selectStream(info, QualityPreference.Auto)
-        val automaticStreams = (automatic as? AppResult.Success)?.value
         if (automaticStreams?.streamType == PlaybackStreamType.PROGRESSIVE) {
             return automatic
         }

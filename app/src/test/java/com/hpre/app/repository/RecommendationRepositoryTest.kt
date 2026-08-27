@@ -3,6 +3,8 @@ package com.hpre.app.repository
 import com.hpre.app.core.error.AppError
 import com.hpre.app.core.error.AppResult
 import com.hpre.app.model.ContentKey
+import com.hpre.app.model.PageToken
+import com.hpre.app.model.SearchFilter
 import com.hpre.app.model.SearchPage
 import com.hpre.app.model.SearchResultItem
 import com.hpre.app.model.VideoSummary
@@ -35,6 +37,8 @@ class RecommendationRepositoryTest {
         durationSeconds = 120, viewCount = null, publishedTimestamp = null
     )
 
+    private fun video(index: Int) = video("v$index", "Video $index")
+
     private fun searchHistory(items: List<LocalSearchHistoryItem>) = object : SearchHistoryRepository {
         override fun observeRecentQueries(limit: Int): Flow<List<LocalSearchHistoryItem>> = flowOf(items.take(limit))
         override suspend fun recordQuery(rawQuery: String, timestamp: Long) = AppResult.Success(Unit)
@@ -50,6 +54,521 @@ class RecommendationRepositoryTest {
         override suspend fun clearHistory() = AppResult.Success(Unit)
     }
 
+    private fun <T> AppResult<T>.valueOrThrow(): T = when (this) {
+        is AppResult.Success -> value
+        is AppResult.Failure -> error("Expected success but got failure: $error")
+    }
+
+    @Test
+    fun `home returns at most 100 clean full content keys`() = runTest {
+        val excluded = (0 until 20).map(::video).map { it.key }.toSet()
+        val allVideos = (0 until 140).map(::video)
+        val service = FakeVideoService(trendingResponse = AppResult.Success(emptyList()))
+        service.searchHandler = { _, _, _ ->
+            AppResult.Success(SearchPage(allVideos.map { SearchResultItem.VideoItem(it) }))
+        }
+        val repository = RecommendationRepository(
+            CatalogRepository(service, this),
+            searchHistory(listOf(LocalSearchHistoryItem("topic", 1L))),
+            history(emptyList())
+        )
+        val result = repository.home(
+            RecommendationRequest(limit = 100, excludedKeys = excluded)
+        ).valueOrThrow()
+
+        assertEquals(100, result.size)
+        assertEquals(result.size, result.map { it.key }.toSet().size)
+        assertTrue(result.none { it.key in excluded })
+    }
+
+    @Test
+    fun `undersupply never refills with excluded videos`() = runTest {
+        val oldBatch = (0 until 100).map(::video)
+        val fresh = (100 until 117).map(::video)
+        val candidates = oldBatch + fresh
+        val service = FakeVideoService(trendingResponse = AppResult.Success(emptyList()))
+        service.searchHandler = { _, _, _ ->
+            AppResult.Success(SearchPage(candidates.map { SearchResultItem.VideoItem(it) }))
+        }
+        val repository = RecommendationRepository(
+            CatalogRepository(service, this),
+            searchHistory(listOf(LocalSearchHistoryItem("topic", 1L))),
+            history(emptyList())
+        )
+        val result = repository.home(
+            RecommendationRequest(excludedKeys = oldBatch.map { it.key }.toSet())
+        ).valueOrThrow()
+
+        assertEquals(fresh.map { it.key }, result.map { it.key })
+    }
+
+    @Test
+    fun `deduplication preserves distinct service ID for identical native ID`() = runTest {
+        val ytVideo = VideoSummary(
+            key = ContentKey(0, "dup_native"), title = "YouTube", canonicalUrl = "https://yt.test/dup",
+            channelKey = null, channelName = "Channel", channelAvatarUrl = null, thumbnailUrl = null,
+            durationSeconds = 120, viewCount = null, publishedTimestamp = null
+        )
+        val dmVideo = VideoSummary(
+            key = ContentKey(1, "dup_native"), title = "DailyMotion", canonicalUrl = "https://dm.test/dup",
+            channelKey = null, channelName = "Channel", channelAvatarUrl = null, thumbnailUrl = null,
+            durationSeconds = 120, viewCount = null, publishedTimestamp = null
+        )
+        val service = FakeVideoService(trendingResponse = AppResult.Success(emptyList()))
+        service.searchHandler = { _, _, _ ->
+            AppResult.Success(SearchPage(listOf(
+                SearchResultItem.VideoItem(ytVideo),
+                SearchResultItem.VideoItem(dmVideo)
+            )))
+        }
+        val repository = RecommendationRepository(
+            CatalogRepository(service, this),
+            searchHistory(listOf(LocalSearchHistoryItem("topic", 1L))),
+            history(emptyList())
+        )
+        val result = repository.home(RecommendationRequest()).valueOrThrow()
+
+        assertEquals(2, result.size)
+        assertEquals(setOf(ContentKey(0, "dup_native"), ContentKey(1, "dup_native")), result.map { it.key }.toSet())
+    }
+
+    private class ContinuationRecordingService : com.hpre.app.repository.VideoService {
+        override val serviceId: Int = 0
+        override val serviceName: String = "RecordingFake"
+        override val supportsShorts: Boolean = false
+        override val supportsComments: Boolean = false
+        override val supportsSearchSuggestions: Boolean = false
+
+        var maxConcurrentSearches = 0
+        private var currentConcurrentSearches = 0
+        private val lock = Any()
+        val pageCountByQuery = mutableMapOf<String, Int>()
+        var continuationCalls = 0
+        val searchCalls = mutableListOf<Pair<String, PageToken?>>()
+
+        var searchResponseProvider: suspend (query: String, pageToken: PageToken?) -> AppResult<SearchPage> = { query, token ->
+            val pageNum = if (token == null) 1 else 2
+            val startIndex = if (token == null) 0 else 20
+            val items = (startIndex until startIndex + 20).map { i ->
+                SearchResultItem.VideoItem(
+                    VideoSummary(
+                        key = ContentKey(0, "${query}_$i"),
+                        title = "$query video $i",
+                        canonicalUrl = "https://example.test/${query}_$i",
+                        channelKey = null, channelName = "Channel", channelAvatarUrl = null, thumbnailUrl = null,
+                        durationSeconds = 120, viewCount = null, publishedTimestamp = null
+                    )
+                )
+            }
+            val nextToken = if (pageNum == 1) PageToken.Id("next_${query}_2") else null
+            AppResult.Success(SearchPage(items = items, nextPageToken = nextToken))
+        }
+
+        override suspend fun search(query: String, filter: SearchFilter, pageToken: PageToken?): AppResult<SearchPage> {
+            synchronized(lock) {
+                currentConcurrentSearches++
+                if (currentConcurrentSearches > maxConcurrentSearches) {
+                    maxConcurrentSearches = currentConcurrentSearches
+                }
+                pageCountByQuery[query] = (pageCountByQuery[query] ?: 0) + 1
+                if (pageToken != null) {
+                    continuationCalls++
+                }
+                searchCalls += query to pageToken
+            }
+            val result = searchResponseProvider(query, pageToken)
+            synchronized(lock) {
+                currentConcurrentSearches--
+            }
+            return result
+        }
+
+        override suspend fun suggestions(query: String): AppResult<List<String>> = AppResult.Success(emptyList())
+        override suspend fun video(key: ContentKey): AppResult<VideoDetails> = throw NotImplementedError()
+        override suspend fun streamInfo(key: ContentKey): AppResult<com.hpre.app.model.StreamInfo> = throw NotImplementedError()
+        override suspend fun channel(key: ContentKey): AppResult<com.hpre.app.model.ChannelDetails> = throw NotImplementedError()
+        override suspend fun related(key: ContentKey): AppResult<List<VideoSummary>> = throw NotImplementedError()
+        override suspend fun playlist(key: ContentKey): AppResult<com.hpre.app.model.PlaylistDetails> = throw NotImplementedError()
+        override suspend fun comments(key: ContentKey, pageToken: PageToken?): AppResult<com.hpre.app.model.CommentPage> = throw NotImplementedError()
+        override suspend fun trending(): AppResult<List<VideoSummary>> = AppResult.Success(emptyList())
+    }
+
+    @Test
+    fun `continuation budget respects concurrency, max pages per query, total continuations, and reaches 100`() = runTest {
+        val fake = ContinuationRecordingService()
+        val queries = (1..6).map { "query$it" }.mapIndexed { idx, q -> LocalSearchHistoryItem(q, 100L - idx) }
+        val repository = RecommendationRepository(
+            CatalogRepository(fake, this),
+            searchHistory(queries),
+            history(emptyList())
+        )
+
+        val result = repository.home(RecommendationRequest(limit = 100)).valueOrThrow()
+
+        assertTrue("Max concurrent searches ${fake.maxConcurrentSearches} > 6", fake.maxConcurrentSearches <= 6)
+        assertTrue("Page count by query exceeded 2: ${fake.pageCountByQuery}", fake.pageCountByQuery.values.all { it <= 2 })
+        assertTrue("Continuation calls ${fake.continuationCalls} > 6", fake.continuationCalls <= 6)
+        assertEquals(100, result.size)
+    }
+
+    @Test
+    fun `records exact query and page token sequence without calling token twice`() = runTest {
+        val fake = ContinuationRecordingService()
+        val queries = listOf("alpha", "beta").mapIndexed { idx, q -> LocalSearchHistoryItem(q, 100L - idx) }
+        val repository = RecommendationRepository(
+            CatalogRepository(fake, this),
+            searchHistory(queries),
+            history(emptyList())
+        )
+
+        val result = repository.home(RecommendationRequest(limit = 60)).valueOrThrow()
+
+        // Two initial pages provide 40 candidates. The first deterministic continuation reaches
+        // the requested limit of 60, so the collector must stop without an unnecessary beta call.
+        assertEquals(3, fake.searchCalls.size)
+
+        // Initial calls have null token
+        val initialCalls = fake.searchCalls.filter { it.second == null }
+        assertEquals(setOf("alpha", "beta"), initialCalls.map { it.first }.toSet())
+
+        // Continuation calls have non-null token
+        val continuationCalls = fake.searchCalls.filter { it.second != null }
+        assertEquals(1, continuationCalls.size)
+        // Topic priority order: alpha is first in queries list.
+        assertEquals("alpha" to PageToken.Id("next_alpha_2"), continuationCalls[0])
+
+        // Verify each query called at most MAX_PAGES_PER_QUERY (2)
+        assertEquals(2, fake.searchCalls.count { it.first == "alpha" })
+        assertEquals(1, fake.searchCalls.count { it.first == "beta" })
+
+        // Verify no token is called twice
+        val tokensCalled = continuationCalls.map { it.second }
+        assertEquals(tokensCalled.size, tokensCalled.distinct().size)
+    }
+
+    @Test
+    fun `max pages per query constrains continuations even if tokens are returned`() = runTest {
+        val fake = ContinuationRecordingService()
+        // Provide token on every call, even continuation
+        fake.searchResponseProvider = { query, token ->
+            val items = (0 until 10).map { i ->
+                SearchResultItem.VideoItem(
+                    VideoSummary(
+                        key = ContentKey(0, "${query}_${token}_$i"),
+                        title = "$query video $i",
+                        canonicalUrl = "https://example.test/${query}_${token}_$i",
+                        channelKey = null, channelName = "Channel", channelAvatarUrl = null, thumbnailUrl = null,
+                        durationSeconds = 120, viewCount = null, publishedTimestamp = null
+                    )
+                )
+            }
+            AppResult.Success(SearchPage(items = items, nextPageToken = PageToken.Id("token_${query}_next")))
+        }
+
+        val queries = listOf("single_topic").mapIndexed { idx, q -> LocalSearchHistoryItem(q, 100L - idx) }
+        val repository = RecommendationRepository(
+            CatalogRepository(fake, this),
+            searchHistory(queries),
+            history(emptyList())
+        )
+
+        val result = repository.home(RecommendationRequest(limit = 100)).valueOrThrow()
+
+        // Even though targetLimit=100 and cleanCount=20 < 100, and nextToken is present,
+        // it must stop at MAX_PAGES_PER_QUERY (2 total calls: 1 initial + 1 continuation)
+        assertEquals(2, fake.searchCalls.size)
+        assertEquals(2, fake.pageCountByQuery["single_topic"])
+        assertEquals(20, result.size)
+    }
+
+    @Test
+    fun `continuation failure keeps prior candidate items`() = runTest {
+        val fake = ContinuationRecordingService()
+        fake.searchResponseProvider = { query, token ->
+            if (token != null) {
+                AppResult.Failure(AppError.NetworkError)
+            } else {
+                val items = (0 until 15).map { i ->
+                    SearchResultItem.VideoItem(
+                        VideoSummary(
+                            key = ContentKey(0, "${query}_$i"),
+                            title = "$query video $i",
+                            canonicalUrl = "https://example.test/${query}_$i",
+                            channelKey = null, channelName = "Channel", channelAvatarUrl = null, thumbnailUrl = null,
+                            durationSeconds = 120, viewCount = null, publishedTimestamp = null
+                        )
+                    )
+                }
+                AppResult.Success(SearchPage(items = items, nextPageToken = PageToken.Id("token_next")))
+            }
+        }
+
+        val queries = listOf("topic_fail").mapIndexed { idx, q -> LocalSearchHistoryItem(q, 100L - idx) }
+        val repository = RecommendationRepository(
+            CatalogRepository(fake, this),
+            searchHistory(queries),
+            history(emptyList())
+        )
+
+        val result = repository.home(RecommendationRequest(limit = 50)).valueOrThrow()
+
+        assertEquals(15, result.size)
+    }
+
+    @Test
+    fun `continuation is driven by clean count after exclusion and deduplication`() = runTest {
+        val fake = ContinuationRecordingService()
+        // Query 1 page 1 returns 20 items, but 10 of them are excluded
+        // Query 2 page 1 returns 20 items
+        // Total clean from page 1 = 10 + 20 = 30.
+        // Target limit = 50. Since 30 < 50, continuation must be triggered.
+        val excluded = (0 until 10).map { video("q1_$it") }.map { it.key }.toSet()
+        fake.searchResponseProvider = { query, token ->
+            val pageNum = if (token == null) 1 else 2
+            val startIndex = if (token == null) 0 else 20
+            val items = (startIndex until startIndex + 20).map { i ->
+                SearchResultItem.VideoItem(
+                    VideoSummary(
+                        key = ContentKey(0, "${query}_$i"),
+                        title = "$query video $i",
+                        canonicalUrl = "https://example.test/${query}_$i",
+                        channelKey = null, channelName = "Channel", channelAvatarUrl = null, thumbnailUrl = null,
+                        durationSeconds = 120, viewCount = null, publishedTimestamp = null
+                    )
+                )
+            }
+            val nextToken = if (pageNum == 1) PageToken.Id("next_${query}_2") else null
+            AppResult.Success(SearchPage(items = items, nextPageToken = nextToken))
+        }
+
+        val queries = listOf("q1", "q2").mapIndexed { idx, q -> LocalSearchHistoryItem(q, 100L - idx) }
+        val repository = RecommendationRepository(
+            CatalogRepository(fake, this),
+            searchHistory(queries),
+            history(emptyList())
+        )
+
+        val result = repository.home(RecommendationRequest(limit = 50, excludedKeys = excluded)).valueOrThrow()
+
+        // Continuations were called because clean count on first page was 30 < 50
+        assertTrue(fake.continuationCalls >= 1)
+        assertTrue(result.none { it.key in excluded })
+        assertEquals(50, result.size)
+    }
+
+    @Test
+    fun `no continuation call when first pages produce 100 clean candidates`() = runTest {
+        val fake = ContinuationRecordingService()
+        fake.searchResponseProvider = { query, _ ->
+            val items = (0 until 34).map { i ->
+                SearchResultItem.VideoItem(
+                    VideoSummary(
+                        key = ContentKey(0, "${query}_$i"),
+                        title = "$query video $i",
+                        canonicalUrl = "https://example.test/${query}_$i",
+                        channelKey = null, channelName = "Channel", channelAvatarUrl = null, thumbnailUrl = null,
+                        durationSeconds = 120, viewCount = null, publishedTimestamp = null
+                    )
+                )
+            }
+            // Three explicit queries * 34 unique items exceed the 100-item target on page 1.
+            AppResult.Success(SearchPage(items = items, nextPageToken = PageToken.Id("next_token")))
+        }
+        val queries = (1..3).map { "topic$it" }.mapIndexed { idx, q -> LocalSearchHistoryItem(q, 100L - idx) }
+        val repository = RecommendationRepository(
+            CatalogRepository(fake, this),
+            searchHistory(queries),
+            history(emptyList())
+        )
+
+        val result = repository.home(RecommendationRequest(limit = 100)).valueOrThrow()
+
+        assertEquals(100, result.size)
+        assertEquals(0, fake.continuationCalls)
+    }
+
+    @Test
+    fun `no loop on null token when undersupplied`() = runTest {
+        val fake = ContinuationRecordingService()
+        fake.searchResponseProvider = { query, _ ->
+            val items = (0 until 5).map { i ->
+                SearchResultItem.VideoItem(
+                    VideoSummary(
+                        key = ContentKey(0, "${query}_$i"),
+                        title = "$query video $i",
+                        canonicalUrl = "https://example.test/${query}_$i",
+                        channelKey = null, channelName = "Channel", channelAvatarUrl = null, thumbnailUrl = null,
+                        durationSeconds = 120, viewCount = null, publishedTimestamp = null
+                    )
+                )
+            }
+            AppResult.Success(SearchPage(items = items, nextPageToken = null))
+        }
+        val queries = listOf(LocalSearchHistoryItem("topic1", 100L))
+        val repository = RecommendationRepository(
+            CatalogRepository(fake, this),
+            searchHistory(queries),
+            history(emptyList())
+        )
+
+        val result = repository.home(RecommendationRequest(limit = 100)).valueOrThrow()
+
+        assertEquals(5, result.size)
+        assertEquals(0, fake.continuationCalls)
+        assertEquals(1, fake.pageCountByQuery["topic1"])
+    }
+
+    @Test
+    fun `initial fan out timeout returns completed sources and ignores hung sources`() = runTest {
+        val fake = ContinuationRecordingService()
+        fake.searchResponseProvider = { query, _ ->
+            if (query == "hung_topic") {
+                kotlinx.coroutines.delay(20_000L)
+                AppResult.Success(SearchPage(emptyList()))
+            } else {
+                val items = (0 until 10).map { i ->
+                    SearchResultItem.VideoItem(
+                        VideoSummary(
+                            key = ContentKey(0, "${query}_$i"),
+                            title = "$query video $i",
+                            canonicalUrl = "https://example.test/${query}_$i",
+                            channelKey = null, channelName = "Channel", channelAvatarUrl = null, thumbnailUrl = null,
+                            durationSeconds = 120, viewCount = null, publishedTimestamp = null
+                        )
+                    )
+                }
+                AppResult.Success(SearchPage(items = items, nextPageToken = null))
+            }
+        }
+        val queries = listOf(
+            LocalSearchHistoryItem("fast_topic", 100L),
+            LocalSearchHistoryItem("hung_topic", 99L)
+        )
+        val repository = RecommendationRepository(
+            CatalogRepository(fake, this),
+            searchHistory(queries),
+            history(emptyList())
+        )
+
+        val result = repository.home(RecommendationRequest(limit = 100)).valueOrThrow()
+
+        assertEquals(10, result.size)
+        assertTrue(result.all { it.key.nativeId.startsWith("fast_topic") })
+    }
+
+    @Test
+    fun `continuation timeout returns accumulated clean candidates without failing entire request`() = runTest {
+        val fake = ContinuationRecordingService()
+        fake.searchResponseProvider = { query, token ->
+            if (token != null) {
+                // Continuation hangs past 10s timeout
+                kotlinx.coroutines.delay(20_000L)
+                AppResult.Success(SearchPage(emptyList()))
+            } else {
+                val items = (0 until 10).map { i ->
+                    SearchResultItem.VideoItem(
+                        VideoSummary(
+                            key = ContentKey(0, "${query}_$i"),
+                            title = "$query video $i",
+                            canonicalUrl = "https://example.test/${query}_$i",
+                            channelKey = null, channelName = "Channel", channelAvatarUrl = null, thumbnailUrl = null,
+                            durationSeconds = 120, viewCount = null, publishedTimestamp = null
+                        )
+                    )
+                }
+                AppResult.Success(SearchPage(items = items, nextPageToken = PageToken.Id("token_$query")))
+            }
+        }
+        val queries = listOf(LocalSearchHistoryItem("topic1", 100L))
+        val repository = RecommendationRepository(
+            CatalogRepository(fake, this),
+            searchHistory(queries),
+            history(emptyList())
+        )
+
+        val result = repository.home(RecommendationRequest(limit = 100)).valueOrThrow()
+
+        assertEquals(10, result.size)
+        assertTrue(result.all { it.key.nativeId.startsWith("topic1") })
+    }
+
+    @Test
+    fun `watch recommendation collects clean candidates and handles timeout similarly`() = runTest {
+        val current = video("current", "Watch Current")
+        val related = video("related_1", "Related Video")
+        val service = FakeVideoService(
+            relatedHandler = { AppResult.Success(listOf(current, related)) },
+            trendingResponse = AppResult.Success(emptyList())
+        )
+        service.searchHandler = { query, _, _ ->
+            if (query == "hung") {
+                kotlinx.coroutines.delay(20_000L)
+                AppResult.Success(SearchPage(emptyList()))
+            } else {
+                val items = (0 until 10).map { i ->
+                    SearchResultItem.VideoItem(video("${query}_$i", "$query $i"))
+                }
+                AppResult.Success(SearchPage(items = items))
+            }
+        }
+        val repository = RecommendationRepository(
+            CatalogRepository(service, this),
+            searchHistory(listOf(LocalSearchHistoryItem("fast", 100L), LocalSearchHistoryItem("hung", 90L))),
+            history(emptyList()),
+            service,
+            FakePlaybackPreferences(true)
+        )
+        val details = VideoDetails(
+            key = current.key, title = current.title, canonicalUrl = current.canonicalUrl,
+            description = null, channelKey = null, channelName = "Channel",
+            channelAvatarUrl = null, subscriberCountText = null, thumbnailUrl = null,
+            durationSeconds = 120, viewCount = null, likeCount = null, publishedTimestamp = null
+        )
+
+        val result = repository.recommendations(current.key, details, RecommendationRequest(limit = 100)).valueOrThrow()
+
+        assertTrue(result.any { it.key == related.key })
+        assertTrue(result.none { it.key == current.key })
+        assertTrue(result.any { it.key.nativeId.startsWith("fast_") })
+    }
+
+    @Test
+    fun `one failed topic does not discard successful sources`() = runTest {
+        val fake = ContinuationRecordingService()
+        fake.searchResponseProvider = { query, _ ->
+            if (query == "failing_topic") {
+                AppResult.Failure(AppError.NetworkError)
+            } else {
+                val items = (0 until 10).map { i ->
+                    SearchResultItem.VideoItem(
+                        VideoSummary(
+                            key = ContentKey(0, "${query}_$i"),
+                            title = "$query video $i",
+                            canonicalUrl = "https://example.test/${query}_$i",
+                            channelKey = null, channelName = "Channel", channelAvatarUrl = null, thumbnailUrl = null,
+                            durationSeconds = 120, viewCount = null, publishedTimestamp = null
+                        )
+                    )
+                }
+                AppResult.Success(SearchPage(items = items, nextPageToken = null))
+            }
+        }
+        val queries = listOf(
+            LocalSearchHistoryItem("ok_topic", 100L),
+            LocalSearchHistoryItem("failing_topic", 99L)
+        )
+        val repository = RecommendationRepository(
+            CatalogRepository(fake, this),
+            searchHistory(queries),
+            history(emptyList())
+        )
+
+        val result = repository.home(RecommendationRequest(limit = 100)).valueOrThrow()
+
+        assertEquals(10, result.size)
+        assertTrue(result.all { it.key.nativeId.startsWith("ok_topic") })
+    }
+
     @Test fun empty_history_uses_trending_without_searching() = runTest {
         val trending = video("trending")
         val service = FakeVideoService(trendingResponse = AppResult.Success(listOf(trending)))
@@ -59,7 +578,7 @@ class RecommendationRepositoryTest {
 
         assertEquals(
             listOf(trending),
-            (repository.home(false) as AppResult.Success<List<VideoSummary>>).value
+            (repository.home(RecommendationRequest(forceRefresh = false)) as AppResult.Success<List<VideoSummary>>).value
         )
         assertEquals(0, service.searchCallCount)
         assertEquals(1, service.trendingCallCount)
@@ -78,7 +597,7 @@ class RecommendationRepositoryTest {
             CatalogRepository(service, this), searchHistory(queries), history(emptyList())
         )
 
-        val result = (repository.home(false) as AppResult.Success<List<VideoSummary>>).value
+        val result = (repository.home(RecommendationRequest(forceRefresh = false)) as AppResult.Success<List<VideoSummary>>).value
         assertEquals(3, service.searchCallCount)
         assertEquals(listOf("compose", "kotlin", "fallback"), result.map { it.key.nativeId })
     }
@@ -121,7 +640,7 @@ class RecommendationRepositoryTest {
             )
         )
 
-        repository.home(false)
+        repository.home(RecommendationRequest(forceRefresh = false))
 
         val joined = searched.joinToString(" ")
         assertEquals(3, searched.size)
@@ -151,7 +670,7 @@ class RecommendationRepositoryTest {
             )
         )
 
-        repository.home(false)
+        repository.home(RecommendationRequest(forceRefresh = false))
 
         val query = searched.single()
         assertFalse("Packaging noise leaked into the query: $query", query.contains("vietsub"))
@@ -181,7 +700,7 @@ class RecommendationRepositoryTest {
             )
         )
 
-        repository.home(false)
+        repository.home(RecommendationRequest(forceRefresh = false))
 
         assertEquals(RecommendationRepository.MAX_TOTAL_TOPICS, service.searchCallCount)
     }
@@ -199,7 +718,7 @@ class RecommendationRepositoryTest {
             history(listOf(watched("a", "Nấu ăn món Việt", channel = null)))
         )
 
-        repository.home(false)
+        repository.home(RecommendationRequest(forceRefresh = false))
 
         assertEquals("compose", searched.first())
     }
@@ -216,7 +735,7 @@ class RecommendationRepositoryTest {
         )
         var cancelled = false
         try {
-            repository.home(false)
+            repository.home(RecommendationRequest(forceRefresh = false))
         } catch (_: CancellationException) {
             cancelled = true
         }
@@ -234,7 +753,7 @@ class RecommendationRepositoryTest {
             FakePlaybackPreferences(false)
         )
 
-        val result = repository.home(false) as AppResult.Success<List<VideoSummary>>
+        val result = repository.home(RecommendationRequest(forceRefresh = false)) as AppResult.Success<List<VideoSummary>>
 
         assertEquals(listOf(trending), result.value)
         assertEquals(0, service.searchCallCount)
@@ -262,7 +781,7 @@ class RecommendationRepositoryTest {
             durationSeconds = 120, viewCount = null, likeCount = null, publishedTimestamp = null
         )
 
-        val result = repository.recommendations(current.key, details, false) as AppResult.Success<List<VideoSummary>>
+        val result = repository.recommendations(current.key, details, RecommendationRequest(forceRefresh = false)) as AppResult.Success<List<VideoSummary>>
 
         assertEquals(listOf("related", "supplemental"), result.value.map { it.key.nativeId })
         assertTrue(service.searchCallCount <= RecommendationRepository.MAX_TOTAL_TOPICS)
@@ -285,7 +804,7 @@ class RecommendationRepositoryTest {
             durationSeconds = null, viewCount = null, likeCount = null, publishedTimestamp = null
         )
 
-        val result = repository.recommendations(current.key, details, false)
+        val result = repository.recommendations(current.key, details, RecommendationRequest(forceRefresh = false))
 
         assertEquals(emptyList<VideoSummary>(), (result as AppResult.Success).value)
     }
@@ -299,7 +818,7 @@ class RecommendationRepositoryTest {
             history(emptyList())
         )
 
-        val result = repository.home(false)
+        val result = repository.home(RecommendationRequest(forceRefresh = false))
 
         assertEquals(emptyList<VideoSummary>(), (result as AppResult.Success).value)
     }

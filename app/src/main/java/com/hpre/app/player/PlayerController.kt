@@ -10,6 +10,14 @@ interface PlayerController {
 
     fun attachSurface(playerView: PlayerView)
     fun detachSurface(playerView: PlayerView)
+    fun attachSurface(playerView: PlayerView, lease: SurfaceLease): Boolean {
+        attachSurface(playerView)
+        return true
+    }
+    fun detachSurface(playerView: PlayerView, lease: SurfaceLease): Boolean {
+        detachSurface(playerView)
+        return true
+    }
     fun onLifecycleStart()
     fun onLifecycleStop()
 
@@ -27,6 +35,7 @@ interface PlayerController {
     fun seekBy(deltaMs: Long)
     fun setPlaybackSpeed(speed: Float)
     fun selectQuality(quality: QualityOption)
+    fun setQualityPolicy(policy: UserQualityPolicy) = Unit
     fun release()
 }
 

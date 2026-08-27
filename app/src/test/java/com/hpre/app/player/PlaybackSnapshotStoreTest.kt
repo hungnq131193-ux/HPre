@@ -19,6 +19,18 @@ import java.io.File
 
 class PlaybackSnapshotStoreTest {
 
+    @Test
+    fun snapshot_defaults_legacy_quality_to_fixed_user_policy() {
+        val option = QualityOption(720, "720p", true, "mp4")
+        val snapshot = PlaybackSnapshot(
+            key = ContentKey(0, "legacy_policy"),
+            positionMs = 1000L,
+            playWhenReady = true,
+            selectedQuality = option
+        )
+        assertEquals(UserQualityPolicy.Fixed(option), snapshot.qualityPolicy)
+    }
+
     private lateinit var tempDir: File
     private lateinit var store: PlaybackSnapshotStore
 

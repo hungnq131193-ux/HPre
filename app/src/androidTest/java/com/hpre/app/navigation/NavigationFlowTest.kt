@@ -1,11 +1,13 @@
 package com.hpre.app.navigation
 
+import androidx.activity.ComponentActivity
 import androidx.compose.ui.test.assertIsDisplayed
-import androidx.compose.ui.test.junit4.createComposeRule
+import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.navigation.compose.rememberNavController
+import androidx.navigation.compose.composable
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import com.hpre.app.core.designsystem.HPreTheme
 import com.hpre.app.di.AppContainer
@@ -22,7 +24,7 @@ import org.junit.runner.RunWith
 class NavigationFlowTest {
 
     @get:Rule
-    val composeTestRule = createComposeRule()
+    val composeTestRule = createAndroidComposeRule<ComponentActivity>()
 
     class TestContainer(val fakeService: FakeVideoService) : AppContainer {
         override val applicationScope: kotlinx.coroutines.CoroutineScope = kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.SupervisorJob())
@@ -256,7 +258,9 @@ class NavigationFlowTest {
             composeTestRule.onNodeWithTag("watch_screen").assertIsDisplayed()
             composeTestRule.onNodeWithText("Mock Video $nativeId").assertIsDisplayed()
 
-            composeTestRule.onNodeWithTag("watch_back_button").performClick()
+            composeTestRule.runOnUiThread {
+                navController?.popBackStack()
+            }
             composeTestRule.waitForIdle()
         }
     }
@@ -314,5 +318,138 @@ class NavigationFlowTest {
 
         composeTestRule.onNodeWithTag("playlist_unavailable_screen").assertIsDisplayed()
         composeTestRule.onNodeWithText("Playlist (playlist_xyz) Unavailable").assertIsDisplayed()
+    }
+
+    @Test
+    fun system_back_preserves_pop_back_stack_semantics_without_calling_minimize_helper() {
+        val fakeService = FakeVideoService()
+        val container = TestContainer(fakeService)
+        val testCoordinator = com.hpre.app.player.PlaybackUiCoordinator()
+
+        var navController: androidx.navigation.NavHostController? = null
+
+        composeTestRule.setContent {
+            HPreTheme {
+                val hostNavController = androidx.navigation.compose.rememberNavController()
+                navController = hostNavController
+                RootScaffold(container = container, navController = hostNavController, coordinator = testCoordinator)
+            }
+        }
+
+        // Navigate Search -> Watch
+        composeTestRule.onNodeWithTag("top_bar_search_button").performClick()
+        composeTestRule.waitForIdle()
+        composeTestRule.onNodeWithTag("search_screen").assertIsDisplayed()
+
+        val watchKey = ContentKey(0, "test_back_vid")
+        composeTestRule.runOnUiThread {
+            navController?.navigate(Screen.Watch.createRoute(watchKey))
+        }
+        composeTestRule.waitForIdle()
+        composeTestRule.onNodeWithTag("watch_screen").assertIsDisplayed()
+        org.junit.Assert.assertEquals(com.hpre.app.player.PlayerPresentation.WATCH, testCoordinator.state.value.presentation)
+
+        // System Back should pop to Search, NOT go to Home; presentation is strictly not MINIMIZING and not MINI_PLAYER (baseline WATCH)
+        composeTestRule.activityRule.scenario.onActivity { activity ->
+            activity.onBackPressedDispatcher.onBackPressed()
+        }
+        composeTestRule.waitForIdle()
+        composeTestRule.onNodeWithTag("search_screen").assertIsDisplayed()
+        org.junit.Assert.assertNotEquals(com.hpre.app.player.PlayerPresentation.MINIMIZING, testCoordinator.state.value.presentation)
+        org.junit.Assert.assertNotEquals(com.hpre.app.player.PlayerPresentation.MINI_PLAYER, testCoordinator.state.value.presentation)
+        org.junit.Assert.assertEquals(com.hpre.app.player.PlayerPresentation.WATCH, testCoordinator.state.value.presentation)
+    }
+
+    @Test
+    fun navigate_to_home_from_watch_with_no_home_in_graph_removes_watch_and_navigates_home() {
+        val fakeService = FakeVideoService()
+        val container = TestContainer(fakeService)
+
+        var navController: androidx.navigation.NavHostController? = null
+
+        // Custom host starting directly at Search (no Home in graph initial stack)
+        composeTestRule.setContent {
+            HPreTheme {
+                val hostNavController = androidx.navigation.compose.rememberNavController()
+                navController = hostNavController
+                androidx.navigation.compose.NavHost(
+                    navController = hostNavController,
+                    startDestination = Screen.Search.route
+                ) {
+                    composable(Screen.Search.route) {
+                        com.hpre.app.ui.search.SearchScreen(
+                            viewModel = androidx.lifecycle.viewmodel.compose.viewModel(
+                                factory = com.hpre.app.ui.search.SearchViewModel.provideFactory(
+                                    repository = container.catalogRepository,
+                                    videoService = container.videoService,
+                                    searchHistoryRepository = container.searchHistoryRepository,
+                                    playbackPreferences = container.playbackPreferences
+                                )
+                            ),
+                            onNavigateBack = { hostNavController.popBackStack() },
+                            onVideoClick = { key -> hostNavController.navigate(Screen.Watch.createRoute(key)) },
+                            onChannelClick = {},
+                            onPlaylistClick = {}
+                        )
+                    }
+                    composable(Screen.Watch.route) {
+                        com.hpre.app.ui.watch.WatchScreen(
+                            contentKey = ContentKey(0, "test_no_home_vid"),
+                            viewModel = androidx.lifecycle.viewmodel.compose.viewModel(
+                                factory = com.hpre.app.ui.watch.WatchViewModel.provideFactory(
+                                    videoService = container.videoService,
+                                    playerControllerFactory = { container.createPlayerController() },
+                                    catalogRepository = container.catalogRepository,
+                                    historyRepository = container.historyRepository,
+                                    subscriptionRepository = container.subscriptionRepository,
+                                    playlistRepository = container.playlistRepository,
+                                    watchRecommendationSource = container.recommendationRepository
+                                )
+                            ),
+                            onNavigateBack = { hostNavController.popBackStack() },
+                            onMinimizeToHome = { hostNavController.navigateToHomeFromWatch() }
+                        )
+                    }
+                    composable(Screen.Home.route) {
+                        com.hpre.app.ui.home.HomeScreen(
+                            viewModel = androidx.lifecycle.viewmodel.compose.viewModel(
+                                factory = com.hpre.app.ui.home.HomeViewModel.provideFactory(
+                                    repository = container.recommendationRepository,
+                                    topicFeedSource = container.topicFeedSource
+                                )
+                            ),
+                            onVideoClick = {}
+                        )
+                    }
+                }
+            }
+        }
+
+        // Initially on Search
+        composeTestRule.onNodeWithTag("search_screen").assertIsDisplayed()
+
+        // Navigate to Watch
+        composeTestRule.runOnUiThread {
+            navController?.navigate(Screen.Watch.createRoute(ContentKey(0, "test_no_home_vid")))
+        }
+        composeTestRule.waitForIdle()
+        composeTestRule.onNodeWithTag("watch_screen").assertIsDisplayed()
+
+        // Invoke navigateToHomeFromWatch
+        composeTestRule.runOnUiThread {
+            navController?.navigateToHomeFromWatch()
+        }
+        composeTestRule.waitForIdle()
+        composeTestRule.onNodeWithTag("home_screen").assertIsDisplayed()
+
+        // Assert Watch removed, Home current, exactly one Home, Search still in backstack
+        val backQueue = navController?.currentBackStack?.value ?: emptyList()
+        val homeCount = backQueue.count { it.destination.route == Screen.Home.route }
+        val watchCount = backQueue.count { it.destination.route?.startsWith("watch") == true }
+        val searchCount = backQueue.count { it.destination.route == Screen.Search.route }
+
+        org.junit.Assert.assertEquals(1, homeCount)
+        org.junit.Assert.assertEquals(0, watchCount)
+        org.junit.Assert.assertEquals(1, searchCount)
     }
 }

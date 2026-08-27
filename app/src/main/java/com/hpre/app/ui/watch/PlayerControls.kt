@@ -37,14 +37,27 @@ import androidx.compose.material3.SliderDefaults
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.ui.layout.LayoutCoordinates
+import androidx.compose.ui.layout.boundsInWindow
+import androidx.compose.ui.layout.findRootCoordinates
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
-import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.ui.input.pointer.util.VelocityTracker
+import androidx.compose.ui.input.pointer.positionChange
+import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.layout.boundsInParent
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.geometry.Rect
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
+import androidx.compose.foundation.gestures.waitForUpOrCancellation
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -72,36 +85,6 @@ private const val SEEK_FEEDBACK_VISIBLE_MS = 600L
 private val SEEK_TRACK_HEIGHT = 3.dp
 private val SEEK_THUMB_IDLE = 10.dp
 private val SEEK_THUMB_ACTIVE = 14.dp
-
-/** What a double tap on the video surface should do, based on where it landed. */
-enum class SeekGesture { REWIND, FORWARD, NONE }
-
-/**
- * Pure mapping from a tap position to a seek gesture, so the zone maths is unit testable.
- *
- * Double tapping the left or right edge scrubs by a fixed step, a convention shared by most video
- * players. The middle band is intentionally inert: it is where a user aiming for the play button
- * lands, and silently jumping the video there feels broken.
- */
-object PlayerGesturePolicy {
-    const val SEEK_STEP_MS = 10_000L
-
-    /** Fraction of the width on each side that reacts to a double tap. */
-    const val EDGE_ZONE_FRACTION = 0.4f
-
-    fun gestureForTap(tapX: Float, width: Float): SeekGesture {
-        if (width <= 0f) return SeekGesture.NONE
-        val fraction = tapX / width
-        return when {
-            fraction < EDGE_ZONE_FRACTION -> SeekGesture.REWIND
-            fraction > 1f - EDGE_ZONE_FRACTION -> SeekGesture.FORWARD
-            else -> SeekGesture.NONE
-        }
-    }
-
-    /** Seek deltas must never be applied to a stream with no known duration. */
-    fun isSeekAllowed(durationMs: Long): Boolean = durationMs > 0L
-}
 
 /**
  * Pure auto-hide rules for the playback control overlay, kept separate so the behaviour is unit
@@ -133,7 +116,10 @@ fun PlayerControlsOverlay(
     onSpeedSelected: (Float) -> Unit,
     onQualitySelected: (QualityOption) -> Unit,
     onToggleFullscreen: () -> Unit,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    onMinimizeToHome: () -> Unit = {},
+    minimizeEnabled: Boolean = true,
+    isInPip: Boolean = false
 ) {
     var controlsVisible by remember { mutableStateOf(true) }
     var isSpeedMenuOpen by remember { mutableStateOf(false) }
@@ -146,6 +132,29 @@ fun PlayerControlsOverlay(
     // dismiss timer instead of being swallowed as an unchanged state.
     var seekFeedback by remember { mutableStateOf(SeekGesture.NONE) }
     var feedbackNonce by remember { mutableIntStateOf(0) }
+
+    // Map of active protected control bounds in local overlay coordinates
+    val protectedControlBounds = remember { mutableMapOf<String, Rect>() }
+    var overlayLayoutCoordinates by remember { mutableStateOf<LayoutCoordinates?>(null) }
+
+    val registerProtectedBounds: (String, LayoutCoordinates) -> Unit = { key, coords ->
+        val parentCoords = overlayLayoutCoordinates
+        if (parentCoords != null && parentCoords.isAttached && coords.isAttached) {
+            protectedControlBounds[key] = parentCoords.localBoundingBoxOf(coords, clipBounds = false)
+        } else if (coords.isAttached) {
+            protectedControlBounds[key] = coords.boundsInParent()
+        }
+    }
+
+    val unregisterProtectedBounds: (String) -> Unit = { key ->
+        protectedControlBounds.remove(key)
+    }
+
+    LaunchedEffect(controlsVisible) {
+        if (!controlsVisible) {
+            protectedControlBounds.clear()
+        }
+    }
 
     LaunchedEffect(seekFeedback, feedbackNonce) {
         if (seekFeedback != SeekGesture.NONE) {
@@ -180,38 +189,185 @@ fun PlayerControlsOverlay(
         }
     }
 
+    val density = LocalDensity.current
+    val currentOnPlayPause = rememberUpdatedState(onPlayPause)
+    val currentOnSeekBy = rememberUpdatedState(onSeekBy)
+    val currentOnMinimizeToHome = rememberUpdatedState(onMinimizeToHome)
+    val currentDurationMs = playbackState.durationMs
+
+    val isMinimizeAllowed = PlayerGesturePolicy.isMinimizeGestureAllowed(
+        isFullscreen = isFullscreen,
+        isInPip = isInPip,
+        minimizeEnabled = minimizeEnabled
+    )
+
     Box(
         modifier = modifier
             .fillMaxSize()
-            .pointerInput(playbackState.durationMs) {
-                detectTapGestures(
-                    onTap = {
-                        if (controlsVisible) {
-                            controlsVisible = false
-                        } else {
-                            keepControlsAlive()
-                        }
-                    },
-                    onDoubleTap = { offset ->
-                        if (!PlayerGesturePolicy.isSeekAllowed(playbackState.durationMs)) {
-                            return@detectTapGestures
-                        }
-                        when (PlayerGesturePolicy.gestureForTap(offset.x, size.width.toFloat())) {
-                            SeekGesture.REWIND -> {
-                                seekFeedback = SeekGesture.REWIND
-                                feedbackNonce++
-                                onSeekBy(-PlayerGesturePolicy.SEEK_STEP_MS)
-                            }
-                            SeekGesture.FORWARD -> {
-                                seekFeedback = SeekGesture.FORWARD
-                                feedbackNonce++
-                                onSeekBy(PlayerGesturePolicy.SEEK_STEP_MS)
-                            }
-                            // Centre band belongs to the play button; do not hijack it.
-                            SeekGesture.NONE -> keepControlsAlive()
+            .onGloballyPositioned { coordinates ->
+                overlayLayoutCoordinates = coordinates
+            }
+            .pointerInput(isMinimizeAllowed, currentDurationMs, controlsVisible) {
+                val touchSlopPx = viewConfiguration.touchSlop
+                val doubleTapTimeoutMs = viewConfiguration.doubleTapTimeoutMillis
+                val doubleTapMinTimeMs = viewConfiguration.doubleTapMinTimeMillis
+                val gestureConfig = PlayerGestureConfig(
+                    touchSlopPx = touchSlopPx,
+                    minimizeDistancePx = with(density) { PlayerGesturePolicy.DEFAULT_MINIMIZE_DISTANCE_DP.toPx() },
+                    minimizeVelocityPxPerSecond = with(density) { PlayerGesturePolicy.DEFAULT_MINIMIZE_VELOCITY_DP_PER_SECOND.toPx() }
+                )
+
+                var lastUpUptime = 0L
+                var lastUpPosition = androidx.compose.ui.geometry.Offset.Zero
+
+                awaitEachGesture {
+                    val down = awaitFirstDown(requireUnconsumed = false)
+                    val downPosition = down.position
+                    val downUptime = down.uptimeMillis
+
+                    // If down pointer is already consumed or inside protected controls when visible, ignore
+                    val startedInProtected = down.isConsumed || (controlsVisible && PlayerGesturePolicy.isPointInProtectedRegion(
+                        downPosition.x,
+                        downPosition.y,
+                        protectedControlBounds.values
+                    ))
+
+                    if (startedInProtected) {
+                        // Reset double-tap chain and wait for pointer release without acting
+                        lastUpUptime = 0L
+                        lastUpPosition = androidx.compose.ui.geometry.Offset.Zero
+                        waitForUpOrCancellation()
+                        return@awaitEachGesture
+                    }
+
+                    var isDoubleTap = false
+                    val timeSinceLastUp = downUptime - lastUpUptime
+                    if (timeSinceLastUp in doubleTapMinTimeMs..doubleTapTimeoutMs) {
+                        val slopSquare = touchSlopPx * touchSlopPx
+                        val distSquare = (downPosition.x - lastUpPosition.x) * (downPosition.x - lastUpPosition.x) +
+                                (downPosition.y - lastUpPosition.y) * (downPosition.y - lastUpPosition.y)
+                        if (distSquare <= slopSquare) {
+                            isDoubleTap = true
                         }
                     }
-                )
+
+                    var totalX = 0f
+                    var totalY = 0f
+                    var decision = PlayerDragDecision.UNDECIDED
+                    val velocityTracker = VelocityTracker()
+                    velocityTracker.addPosition(down.uptimeMillis, down.position)
+
+                    val pointerId = down.id
+                    var isCancelled = false
+                    var confirmedUpChange: androidx.compose.ui.input.pointer.PointerInputChange? = null
+
+                    while (true) {
+                        val event = awaitPointerEvent()
+
+                        // Reject multi-touch: if multiple pointers are down, reset double-tap chain and cancel gesture
+                        if (event.changes.count { it.pressed } > 1) {
+                            isCancelled = true
+                            lastUpUptime = 0L
+                            lastUpPosition = androidx.compose.ui.geometry.Offset.Zero
+                            break
+                        }
+
+                        val change = event.changes.firstOrNull { it.id == pointerId }
+                        if (change == null) {
+                            // Pointer disappeared / untracked
+                            isCancelled = true
+                            lastUpUptime = 0L
+                            lastUpPosition = androidx.compose.ui.geometry.Offset.Zero
+                            break
+                        }
+
+                        if (change.isConsumed && decision == PlayerDragDecision.UNDECIDED) {
+                            // Child consumed the event before drag classification -> abort coordinator action
+                            isCancelled = true
+                            lastUpUptime = 0L
+                            lastUpPosition = androidx.compose.ui.geometry.Offset.Zero
+                            break
+                        }
+
+                        if (change.pressed != change.previousPressed && !change.pressed) {
+                            // Confirmed pointer UP
+                            confirmedUpChange = change
+                            velocityTracker.addPosition(change.uptimeMillis, change.position)
+                            break
+                        }
+
+                        val posChange = change.positionChange()
+                        totalX += posChange.x
+                        totalY += posChange.y
+                        velocityTracker.addPosition(change.uptimeMillis, change.position)
+
+                        if (decision == PlayerDragDecision.UNDECIDED) {
+                            decision = PlayerGesturePolicy.classifyDrag(totalX, totalY, touchSlopPx)
+                        }
+
+                        if (decision == PlayerDragDecision.VERTICAL_DOWN && isMinimizeAllowed) {
+                            // Downward drag classified: consume event so parent scroll/views don't steal
+                            change.consume()
+                        }
+                    }
+
+                    if (isCancelled || confirmedUpChange == null) {
+                        return@awaitEachGesture
+                    }
+
+                    val totalVelocity = velocityTracker.calculateVelocity()
+                    val velocityY = totalVelocity.y
+
+                    if (decision == PlayerDragDecision.VERTICAL_DOWN && isMinimizeAllowed) {
+                        val shouldTrigger = PlayerGesturePolicy.shouldMinimize(
+                            totalY = totalY,
+                            velocityY = velocityY,
+                            config = gestureConfig,
+                            enabled = true,
+                            startedInProtectedRegion = startedInProtected
+                        )
+                        if (shouldTrigger) {
+                            currentOnMinimizeToHome.value()
+                        }
+                        // Drag completed, clear double-tap state
+                        lastUpUptime = 0L
+                        lastUpPosition = androidx.compose.ui.geometry.Offset.Zero
+                    } else if (decision == PlayerDragDecision.UNDECIDED) {
+                        // Movement was within touch slop -> classified as tap or double-tap
+                        if (isDoubleTap) {
+                            lastUpUptime = 0L
+                            lastUpPosition = androidx.compose.ui.geometry.Offset.Zero
+                            if (PlayerGesturePolicy.isSeekAllowed(currentDurationMs)) {
+                                when (PlayerGesturePolicy.gestureForTap(downPosition.x, size.width.toFloat())) {
+                                    SeekGesture.REWIND -> {
+                                        seekFeedback = SeekGesture.REWIND
+                                        feedbackNonce++
+                                        currentOnSeekBy.value(-PlayerGesturePolicy.SEEK_STEP_MS)
+                                    }
+                                    SeekGesture.FORWARD -> {
+                                        seekFeedback = SeekGesture.FORWARD
+                                        feedbackNonce++
+                                        currentOnSeekBy.value(PlayerGesturePolicy.SEEK_STEP_MS)
+                                    }
+                                    SeekGesture.NONE -> keepControlsAlive()
+                                }
+                            }
+                        } else {
+                            // Record confirmed UP position and uptime
+                            lastUpUptime = confirmedUpChange.uptimeMillis
+                            lastUpPosition = confirmedUpChange.position
+                            if (controlsVisible) {
+                                controlsVisible = false
+                            } else {
+                                keepControlsAlive()
+                            }
+                        }
+                    } else {
+                        // Horizontal or rejected drag
+                        lastUpUptime = 0L
+                        lastUpPosition = androidx.compose.ui.geometry.Offset.Zero
+                    }
+                }
             }
             .testTag("player_controls_overlay")
     ) {
@@ -298,11 +454,17 @@ fun PlayerControlsOverlay(
             // Fullscreen needs its own way out plus context about what is playing, because the
             // watch screen's back button and title are not rendered in this mode.
             if (isFullscreen) {
+                DisposableEffect(Unit) {
+                    onDispose { unregisterProtectedBounds("fullscreen_top_start") }
+                }
                 Row(
                     modifier = Modifier
                         .align(Alignment.TopStart)
                         .displayCutoutPadding()
-                        .padding(8.dp),
+                        .padding(8.dp)
+                        .onGloballyPositioned { coordinates ->
+                            registerProtectedBounds("fullscreen_top_start", coordinates)
+                        },
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     IconButton(
@@ -337,8 +499,20 @@ fun PlayerControlsOverlay(
             }
 
             // Center play/pause & seek 10s buttons
+            DisposableEffect(Unit) {
+                onDispose {
+                    unregisterProtectedBounds("control_rewind_10")
+                    unregisterProtectedBounds("control_play_pause")
+                    unregisterProtectedBounds("control_forward_10")
+                    unregisterProtectedBounds("center_controls")
+                }
+            }
             Row(
-                modifier = Modifier.align(Alignment.Center),
+                modifier = Modifier
+                    .align(Alignment.Center)
+                    .onGloballyPositioned { coordinates ->
+                        registerProtectedBounds("center_controls", coordinates)
+                    },
                 horizontalArrangement = Arrangement.spacedBy(24.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
@@ -347,7 +521,11 @@ fun PlayerControlsOverlay(
                         keepControlsAlive()
                         onSeekBy(-10_000L)
                     },
-                    modifier = Modifier.testTag("control_rewind_10")
+                    modifier = Modifier
+                        .testTag("control_rewind_10")
+                        .onGloballyPositioned { coords ->
+                            registerProtectedBounds("control_rewind_10", coords)
+                        }
                 ) {
                     Icon(
                         imageVector = Icons.Default.Replay10,
@@ -365,6 +543,9 @@ fun PlayerControlsOverlay(
                     modifier = Modifier
                         .size(56.dp)
                         .testTag("control_play_pause")
+                        .onGloballyPositioned { coords ->
+                            registerProtectedBounds("control_play_pause", coords)
+                        }
                 ) {
                     Icon(
                         imageVector = if (playbackState.isPlaying) Icons.Default.Pause else Icons.Default.PlayArrow,
@@ -381,7 +562,11 @@ fun PlayerControlsOverlay(
                         keepControlsAlive()
                         onSeekBy(10_000L)
                     },
-                    modifier = Modifier.testTag("control_forward_10")
+                    modifier = Modifier
+                        .testTag("control_forward_10")
+                        .onGloballyPositioned { coords ->
+                            registerProtectedBounds("control_forward_10", coords)
+                        }
                 ) {
                     Icon(
                         imageVector = Icons.Default.Forward10,
@@ -393,13 +578,23 @@ fun PlayerControlsOverlay(
             }
 
             // Top-right controls: Speed and Quality menus
+            DisposableEffect(Unit) {
+                onDispose {
+                    unregisterProtectedBounds("top_end_menus")
+                    unregisterProtectedBounds("control_speed_button")
+                    unregisterProtectedBounds("control_quality_button")
+                }
+            }
             Row(
                 modifier = Modifier
                     .align(Alignment.TopEnd)
                     // In landscape fullscreen the camera cutout sits over this corner, so keep the
                     // buttons clear of it.
                     .then(if (isFullscreen) Modifier.displayCutoutPadding() else Modifier)
-                    .padding(8.dp),
+                    .padding(8.dp)
+                    .onGloballyPositioned { coordinates ->
+                        registerProtectedBounds("top_end_menus", coordinates)
+                    },
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 // Speed selection menu
@@ -409,7 +604,11 @@ fun PlayerControlsOverlay(
                             keepControlsAlive()
                             isSpeedMenuOpen = true
                         },
-                        modifier = Modifier.testTag("control_speed_button")
+                        modifier = Modifier
+                            .testTag("control_speed_button")
+                            .onGloballyPositioned { coords ->
+                                registerProtectedBounds("control_speed_button", coords)
+                            }
                     ) {
                         Icon(
                             imageVector = Icons.Default.Speed,
@@ -447,13 +646,20 @@ fun PlayerControlsOverlay(
 
                 // Quality selection menu (only show if available candidates exist)
                 if (playbackState.availableQualities.isNotEmpty()) {
+                    DisposableEffect(Unit) {
+                        onDispose { unregisterProtectedBounds("control_quality_button") }
+                    }
                     Box {
                         IconButton(
                             onClick = {
                                 keepControlsAlive()
                                 isQualityMenuOpen = true
                             },
-                            modifier = Modifier.testTag("control_quality_button")
+                            modifier = Modifier
+                                .testTag("control_quality_button")
+                                .onGloballyPositioned { coords ->
+                                    registerProtectedBounds("control_quality_button", coords)
+                                }
                         ) {
                             Icon(
                                 imageVector = Icons.Default.HighQuality,
@@ -493,6 +699,13 @@ fun PlayerControlsOverlay(
             }
 
             // Bottom bar: Progress slider, time labels, fullscreen toggle
+            DisposableEffect(Unit) {
+                onDispose {
+                    unregisterProtectedBounds("bottom_bar")
+                    unregisterProtectedBounds("player_progress_slider")
+                    unregisterProtectedBounds("control_fullscreen_toggle")
+                }
+            }
             Column(
                 modifier = Modifier
                     .align(Alignment.BottomCenter)
@@ -501,6 +714,9 @@ fun PlayerControlsOverlay(
                     // clear of the cutout in landscape.
                     .then(if (isFullscreen) Modifier.displayCutoutPadding() else Modifier)
                     .padding(horizontal = 16.dp, vertical = 8.dp)
+                    .onGloballyPositioned { coordinates ->
+                        registerProtectedBounds("bottom_bar", coordinates)
+                    }
             ) {
                 // Seek slider: disabled when duration <= 0 (no fake 1ms duration)
                 val isSeekEnabled = playbackState.durationMs > 0L
@@ -605,6 +821,9 @@ fun PlayerControlsOverlay(
                     modifier = Modifier
                         .fillMaxWidth()
                         .height(48.dp)
+                        .onGloballyPositioned { coords ->
+                            registerProtectedBounds("player_progress_slider", coords)
+                        }
                         .semantics {
                             if (isSeekEnabled) {
                                 setProgress { targetValue ->
@@ -635,7 +854,11 @@ fun PlayerControlsOverlay(
                             keepControlsAlive()
                             onToggleFullscreen()
                         },
-                        modifier = Modifier.testTag("control_fullscreen_toggle")
+                        modifier = Modifier
+                            .testTag("control_fullscreen_toggle")
+                            .onGloballyPositioned { coords ->
+                                registerProtectedBounds("control_fullscreen_toggle", coords)
+                            }
                     ) {
                         Icon(
                             imageVector = if (isFullscreen) Icons.Default.FullscreenExit else Icons.Default.Fullscreen,

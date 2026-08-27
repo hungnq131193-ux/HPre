@@ -57,6 +57,28 @@ class StreamSelectorTest {
     )
 
     @Test
+    fun auto_prefers_hls_then_dash_before_progressive() {
+        val progressive = videoStream(url = "https://video.mp4")
+        val both = StreamInfo(
+            key = testKey,
+            title = "Adaptive",
+            videoStreams = listOf(progressive),
+            hlsManifestUrl = "https://video.test/master.m3u8",
+            dashManifestUrl = "https://video.test/manifest.mpd"
+        )
+        assertEquals(
+            PlaybackStreamType.HLS,
+            (StreamSelector.selectStream(both, QualityPreference.Auto) as AppResult.Success).value.streamType
+        )
+
+        val dashOnly = both.copy(hlsManifestUrl = null)
+        assertEquals(
+            PlaybackStreamType.DASH,
+            (StreamSelector.selectStream(dashOnly, QualityPreference.Auto) as AppResult.Success).value.streamType
+        )
+    }
+
+    @Test
     fun chooses_progressive_stream_at_or_below_requested_quality() {
         val progressive720 = videoStream(height = 720, isVideoOnly = false, url = "https://p720.mp4", codec = "avc1.64001F")
         val progressive360 = videoStream(height = 360, isVideoOnly = false, url = "https://p360.mp4", codec = "avc1.64001F")

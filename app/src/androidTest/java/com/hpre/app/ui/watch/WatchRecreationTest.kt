@@ -163,7 +163,9 @@ class WatchRecreationTest {
         assertEquals(0, sharedPlayer.releaseCount)
 
         // 5. Press production back again to pop from Watch back to Home
-        composeTestRule.onNodeWithTag("watch_back_button").performClick()
+        scenario.onActivity { activity ->
+            activity.onBackPressedDispatcher.onBackPressed()
+        }
         composeTestRule.waitUntil(10000) {
             composeTestRule.onAllNodes(hasTestTag("home_screen"))
                 .fetchSemanticsNodes().isNotEmpty()

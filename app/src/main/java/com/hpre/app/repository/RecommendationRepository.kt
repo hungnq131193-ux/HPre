@@ -2,29 +2,55 @@ package com.hpre.app.repository
 
 import com.hpre.app.core.error.AppError
 import com.hpre.app.core.error.AppResult
+import com.hpre.app.model.ContentKey
+import com.hpre.app.model.PageToken
 import com.hpre.app.model.SearchFilter
 import com.hpre.app.model.SearchResultItem
-import com.hpre.app.model.ContentKey
 import com.hpre.app.model.VideoDetails
 import com.hpre.app.model.VideoSummary
 import com.hpre.app.settings.PlaybackPreferences
 import java.util.Locale
-import kotlinx.coroutines.async
-import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.TimeoutCancellationException
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.first
-import kotlinx.coroutines.supervisorScope
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
+import kotlinx.coroutines.withTimeoutOrNull
+
+data class RecommendationRequest(
+    val forceRefresh: Boolean = false,
+    val limit: Int = 100,
+    val excludedKeys: Set<ContentKey> = emptySet()
+)
 
 fun interface HomeRecommendationSource {
-    suspend fun home(forceRefresh: Boolean): AppResult<List<VideoSummary>>
+    suspend fun home(request: RecommendationRequest): AppResult<List<VideoSummary>>
 }
 
 fun interface WatchRecommendationSource {
     suspend fun recommendations(
         key: ContentKey,
         details: VideoDetails,
-        forceRefresh: Boolean
+        request: RecommendationRequest
     ): AppResult<List<VideoSummary>>
 }
+
+internal const val MAX_TOPIC_CONCURRENCY = 6
+internal const val MAX_PAGES_PER_QUERY = 2
+internal const val MAX_TOTAL_CONTINUATIONS = 6
+internal const val COLLECTION_DEADLINE_MS = 10_000L
+internal const val MAX_FEED_LIMIT = 100
+
+private fun RecommendationRequest.safeLimit(): Int = limit.coerceIn(0, MAX_FEED_LIMIT)
+
+private fun cleanCandidates(
+    candidates: List<VideoSummary>,
+    excludedKeys: Set<ContentKey>
+): List<VideoSummary> = candidates
+    .distinctBy(VideoSummary::key)
+    .filterNot { it.key in excludedKeys }
 
 class RecommendationRepository(
     private val catalogRepository: CatalogRepository,
@@ -33,10 +59,34 @@ class RecommendationRepository(
     private val videoService: VideoService? = null,
     private val playbackPreferences: PlaybackPreferences? = null
 ) : HomeRecommendationSource, WatchRecommendationSource {
-    override suspend fun home(forceRefresh: Boolean): AppResult<List<VideoSummary>> {
+
+    private class SourceRequestCancelled(
+        val cancellation: CancellationException
+    ) : RuntimeException(cancellation)
+
+    override suspend fun home(request: RecommendationRequest): AppResult<List<VideoSummary>> {
+        val targetLimit = request.safeLimit()
+        if (targetLimit <= 0) return AppResult.Success(emptyList())
+
         if (playbackPreferences?.isHistoryEnabled?.first() == false) {
-            return catalogRepository.getTrending(forceRefresh)
+            return when (val trendingResult = catalogRepository.getTrending(request.forceRefresh)) {
+                is AppResult.Success -> {
+                    val clean = cleanCandidates(trendingResult.value, request.excludedKeys)
+                    AppResult.Success(
+                        RecommendationRanker.rank(
+                            candidates = clean,
+                            signals = LocalInterestSignals(emptyList(), emptyMap(), emptySet()),
+                            context = RecommendationContext(
+                                nowEpochSeconds = System.currentTimeMillis() / 1000L
+                            ),
+                            limit = targetLimit
+                        )
+                    )
+                }
+                is AppResult.Failure -> trendingResult
+            }
         }
+
         val recentQueries = searchHistoryRepository.observeRecentQueries(MAX_SEARCH_QUERIES)
             .first()
             .map(LocalSearchHistoryItem::query)
@@ -47,8 +97,6 @@ class RecommendationRepository(
             .groupingBy(::normalize)
             .eachCount()
 
-        // Genre topics from the whole watch history, not just the newest entry. Raw titles make
-        // poor queries (episode numbers, years, "vietsub", ...), so search the salient words.
         val historyTopics = TopicExtractor.topicsFromHistory(
             recentTitles = watchHistory.map(WatchHistoryItem::title),
             channelFrequency = channelFrequency,
@@ -56,90 +104,93 @@ class RecommendationRepository(
             maxChannelTopics = MAX_CHANNEL_TOPICS
         )
 
-        // Explicit searches are the strongest statement of intent, so they lead.
         val topics = (recentQueries.map(::normalize) + historyTopics.map(InterestTopic::query))
             .filter(String::isNotBlank)
             .distinct()
-            .take(MAX_TOTAL_TOPICS)
+            .take(MAX_TOPIC_CONCURRENCY)
 
-        // New user with no usable topics still gets Vietnam trending, ranked against any retained
-        // watch signals so watched suppression and channel diversity remain consistent.
         if (topics.isEmpty()) {
-            return when (val result = catalogRepository.getTrending(forceRefresh)) {
-                is AppResult.Success -> AppResult.Success(
-                    RecommendationRanker.rank(
-                        candidates = result.value,
-                        signals = LocalInterestSignals(
-                            recentQueries = emptyList(),
-                            watchedChannelFrequency = channelFrequency,
-                            recentlyWatched = watchHistory.map(WatchHistoryItem::key).toSet()
-                        ),
-                        context = RecommendationContext(
-                            nowEpochSeconds = System.currentTimeMillis() / 1000L
-                        ),
-                        limit = FEED_LIMIT
+            return when (val result = catalogRepository.getTrending(request.forceRefresh)) {
+                is AppResult.Success -> {
+                    val clean = cleanCandidates(result.value, request.excludedKeys)
+                    AppResult.Success(
+                        RecommendationRanker.rank(
+                            candidates = clean,
+                            signals = LocalInterestSignals(
+                                recentQueries = emptyList(),
+                                watchedChannelFrequency = channelFrequency,
+                                recentlyWatched = watchHistory.map(WatchHistoryItem::key).toSet()
+                            ),
+                            context = RecommendationContext(
+                                nowEpochSeconds = System.currentTimeMillis() / 1000L
+                            ),
+                            limit = targetLimit
+                        )
                     )
-                )
+                }
                 is AppResult.Failure -> result
             }
         }
 
-        val (searchResults, trendingResult) = supervisorScope {
-            val trending = async { safeRequest { catalogRepository.getTrending(forceRefresh) } }
-            val searches = topics.map { topic ->
-                async {
-                    try {
-                        catalogRepository.search(
-                            query = topic,
-                            filter = SearchFilter.VIDEOS,
-                            forceRefresh = forceRefresh
-                        )
-                    } catch (cancelled: kotlinx.coroutines.CancellationException) {
-                        throw cancelled
-                    } catch (_: Throwable) {
-                        AppResult.Failure(AppError.Unknown)
-                    }
-                }
-            }.awaitAll()
-            searches to trending.await()
-        }
-        val candidates = searchResults.flatMap { result ->
-            when (result) {
-                is AppResult.Success -> result.value.items.mapNotNull { item ->
-                    (item as? SearchResultItem.VideoItem)?.summary
-                }
-                is AppResult.Failure -> emptyList()
-            }
-        }
         val signals = LocalInterestSignals(
             recentQueries = topics,
             watchedChannelFrequency = channelFrequency,
             recentlyWatched = watchHistory.map(WatchHistoryItem::key).toSet()
         )
-        val trending = (trendingResult as? AppResult.Success)?.value.orEmpty()
-        val merged = RecommendationRanker.rank(
-            candidates = candidates + trending,
+
+        val state = CollectionState()
+
+        try {
+            withTimeoutOrNull(COLLECTION_DEADLINE_MS) {
+                coroutineScope {
+                    launch {
+                        val res = safeRequest { catalogRepository.getTrending(request.forceRefresh) }
+                        state.recordResult(res)
+                    }
+                    for (topic in topics) {
+                        launch {
+                            val res = safeRequest {
+                                catalogRepository.search(
+                                    query = topic,
+                                    filter = SearchFilter.VIDEOS,
+                                    pageToken = null,
+                                    forceRefresh = request.forceRefresh
+                                )
+                            }
+                            state.recordSearchResult(topic, res)
+                        }
+                    }
+                }
+
+                collectContinuations(topics, targetLimit, request, state)
+            }
+        } catch (cancelled: SourceRequestCancelled) {
+            throw cancelled.cancellation
+        }
+
+        val candidates = state.snapshotCandidates()
+        val clean = cleanCandidates(candidates, request.excludedKeys)
+        val ranked = RecommendationRanker.rank(
+            candidates = clean,
             signals = signals,
             context = RecommendationContext(nowEpochSeconds = System.currentTimeMillis() / 1000L),
-            limit = FEED_LIMIT
+            limit = targetLimit
         )
 
-        if (merged.isNotEmpty()) return AppResult.Success(merged)
-        val anySourceSucceeded = trendingResult is AppResult.Success ||
-            searchResults.any { it is AppResult.Success }
-        if (anySourceSucceeded) return AppResult.Success(emptyList())
-        return when {
-            trendingResult is AppResult.Failure -> trendingResult
-            else -> searchResults.filterIsInstance<AppResult.Failure>().firstOrNull()
-                ?: AppResult.Success(emptyList())
-        }
+        if (ranked.isNotEmpty()) return AppResult.Success(ranked)
+        if (state.hasAnySuccess()) return AppResult.Success(emptyList())
+
+        return state.firstFailure() ?: AppResult.Success(emptyList())
     }
 
     override suspend fun recommendations(
         key: ContentKey,
         details: VideoDetails,
-        forceRefresh: Boolean
+        request: RecommendationRequest
     ): AppResult<List<VideoSummary>> {
+        val targetLimit = request.safeLimit()
+        if (targetLimit <= 0) return AppResult.Success(emptyList())
+
         val service = videoService ?: return AppResult.Failure(AppError.Unknown)
         val historyEnabled = playbackPreferences?.isHistoryEnabled?.first() != false
         val watchHistory = if (historyEnabled) {
@@ -175,66 +226,178 @@ class RecommendationRepository(
             details.channelName?.takeIf(String::isNotBlank)?.let(::add)
             addAll(recentQueries)
             addAll(localTopics)
-        }.map(::normalize).filter(String::isNotBlank).distinct().take(MAX_TOTAL_TOPICS)
+        }.map(::normalize).filter(String::isNotBlank).distinct().take(MAX_TOPIC_CONCURRENCY)
 
-        val (relatedResult, searchResults, trendingResult) = supervisorScope {
-            val related = async { safeRequest { service.related(key) } }
-            val searches = topics.map { topic ->
-                async {
-                    safeRequest {
-                        catalogRepository.search(
-                            query = topic,
-                            filter = SearchFilter.VIDEOS,
-                            forceRefresh = forceRefresh
-                        )
-                    }
-                }
-            }
-            val trending = async { safeRequest { catalogRepository.getTrending(forceRefresh) } }
-            Triple(related.await(), searches.awaitAll(), trending.await())
-        }
-        val related = (relatedResult as? AppResult.Success)?.value.orEmpty()
-        val searched = searchResults.flatMap { result ->
-            (result as? AppResult.Success)?.value?.items.orEmpty().mapNotNull { item ->
-                (item as? SearchResultItem.VideoItem)?.summary
-            }
-        }
-        val trending = (trendingResult as? AppResult.Success)?.value.orEmpty()
         val signals = LocalInterestSignals(
             recentQueries = topics,
             watchedChannelFrequency = channelFrequency,
             recentlyWatched = watchHistory.map(WatchHistoryItem::key).toSet()
         )
-        val merged = RecommendationRanker.rank(
-            candidates = related + searched + trending,
+
+        val state = CollectionState()
+        var relatedKeys: Set<ContentKey> = emptySet()
+        val relatedLock = Mutex()
+
+        try {
+            withTimeoutOrNull(COLLECTION_DEADLINE_MS) {
+                coroutineScope {
+                    launch {
+                        val res = safeRequest { service.related(key) }
+                        if (res is AppResult.Success) {
+                            val keys = res.value.map(VideoSummary::key).toSet()
+                            relatedLock.withLock { relatedKeys = keys }
+                        }
+                        state.recordResult(res)
+                    }
+                    launch {
+                        val res = safeRequest { catalogRepository.getTrending(request.forceRefresh) }
+                        state.recordResult(res)
+                    }
+                    for (topic in topics) {
+                        launch {
+                            val res = safeRequest {
+                                catalogRepository.search(
+                                    query = topic,
+                                    filter = SearchFilter.VIDEOS,
+                                    pageToken = null,
+                                    forceRefresh = request.forceRefresh
+                                )
+                            }
+                            state.recordSearchResult(topic, res)
+                        }
+                    }
+                }
+
+                collectContinuations(topics, targetLimit, request, state)
+            }
+        } catch (cancelled: SourceRequestCancelled) {
+            throw cancelled.cancellation
+        }
+
+        val candidates = state.snapshotCandidates()
+        val clean = cleanCandidates(candidates, request.excludedKeys)
+        val finalRelatedKeys = relatedLock.withLock { relatedKeys }
+        val ranked = RecommendationRanker.rank(
+            candidates = clean,
             signals = signals,
             context = RecommendationContext(
                 currentKey = key,
                 currentChannelName = details.channelName,
-                providerRelatedKeys = related.map(VideoSummary::key).toSet(),
+                providerRelatedKeys = finalRelatedKeys,
                 nowEpochSeconds = System.currentTimeMillis() / 1000L
             ),
-            limit = FEED_LIMIT
+            limit = targetLimit
         )
-        if (merged.isNotEmpty()) return AppResult.Success(merged)
 
-        val anySourceSucceeded = relatedResult is AppResult.Success ||
-            searchResults.any { it is AppResult.Success } ||
-            trendingResult is AppResult.Success
-        if (anySourceSucceeded) return AppResult.Success(emptyList())
+        if (ranked.isNotEmpty()) return AppResult.Success(ranked)
+        if (state.hasAnySuccess()) return AppResult.Success(emptyList())
 
-        val failures = buildList<AppResult.Failure> {
-            (relatedResult as? AppResult.Failure)?.let(::add)
-            addAll(searchResults.filterIsInstance<AppResult.Failure>())
-            (trendingResult as? AppResult.Failure)?.let(::add)
+        return state.firstFailure() ?: AppResult.Success(emptyList())
+    }
+
+    private suspend fun collectContinuations(
+        topics: List<String>,
+        targetLimit: Int,
+        request: RecommendationRequest,
+        state: CollectionState
+    ) {
+        var continuationsUsed = 0
+        while (continuationsUsed < MAX_TOTAL_CONTINUATIONS) {
+            val currentCleanCount = cleanCandidates(state.snapshotCandidates(), request.excludedKeys).size
+            if (currentCleanCount >= targetLimit) break
+
+            val (topic, token) = state.claimNextContinuationToken(topics) ?: break
+            val pageResult = safeRequest {
+                catalogRepository.search(
+                    query = topic,
+                    filter = SearchFilter.VIDEOS,
+                    pageToken = token,
+                    forceRefresh = request.forceRefresh
+                )
+            }
+            continuationsUsed++
+            if (pageResult is AppResult.Success) {
+                state.addCandidates(pageResult.value.items.mapNotNull { (it as? SearchResultItem.VideoItem)?.summary })
+            }
         }
-        return failures.firstOrNull() ?: AppResult.Success(emptyList())
+    }
+
+    private class CollectionState {
+        private val mutex = Mutex()
+        private val candidates = mutableListOf<VideoSummary>()
+        private val nextTokens = mutableMapOf<String, PageToken?>()
+        private val pageCountByTopic = mutableMapOf<String, Int>()
+        private var anySuccess = false
+        private val failures = mutableListOf<AppResult.Failure>()
+
+        suspend fun recordResult(result: AppResult<List<VideoSummary>>) {
+            mutex.withLock {
+                when (result) {
+                    is AppResult.Success -> {
+                        anySuccess = true
+                        candidates += result.value
+                    }
+                    is AppResult.Failure -> {
+                        failures += result
+                    }
+                }
+            }
+        }
+
+        suspend fun recordSearchResult(topic: String, result: AppResult<com.hpre.app.model.SearchPage>) {
+            mutex.withLock {
+                pageCountByTopic[topic] = (pageCountByTopic[topic] ?: 0) + 1
+                when (result) {
+                    is AppResult.Success -> {
+                        anySuccess = true
+                        candidates += result.value.items.mapNotNull { (it as? SearchResultItem.VideoItem)?.summary }
+                        nextTokens[topic] = result.value.nextPageToken
+                    }
+                    is AppResult.Failure -> {
+                        failures += result
+                        nextTokens[topic] = null
+                    }
+                }
+            }
+        }
+
+        suspend fun claimNextContinuationToken(topics: List<String>): Pair<String, PageToken>? {
+            return mutex.withLock {
+                val eligibleTopic = topics.firstOrNull { topic ->
+                    val pages = pageCountByTopic[topic] ?: 0
+                    pages < MAX_PAGES_PER_QUERY && nextTokens[topic] != null
+                } ?: return@withLock null
+                val token = nextTokens[eligibleTopic]!!
+                nextTokens[eligibleTopic] = null
+                pageCountByTopic[eligibleTopic] = (pageCountByTopic[eligibleTopic] ?: 0) + 1
+                eligibleTopic to token
+            }
+        }
+
+        suspend fun addCandidates(newCandidates: List<VideoSummary>) {
+            mutex.withLock {
+                candidates += newCandidates
+            }
+        }
+
+        suspend fun snapshotCandidates(): List<VideoSummary> {
+            return mutex.withLock { candidates.toList() }
+        }
+
+        suspend fun hasAnySuccess(): Boolean {
+            return mutex.withLock { anySuccess }
+        }
+
+        suspend fun firstFailure(): AppResult.Failure? {
+            return mutex.withLock { failures.firstOrNull() }
+        }
     }
 
     private suspend fun <T> safeRequest(block: suspend () -> AppResult<T>): AppResult<T> = try {
         block()
-    } catch (cancelled: kotlinx.coroutines.CancellationException) {
-        throw cancelled
+    } catch (cancelled: CancellationException) {
+        if (cancelled is TimeoutCancellationException) throw cancelled
+        throw SourceRequestCancelled(cancelled)
     } catch (_: Throwable) {
         AppResult.Failure(AppError.Unknown)
     }
@@ -260,7 +423,5 @@ class RecommendationRepository(
         const val MAX_TOTAL_TOPICS = 6
 
         const val MAX_WATCH_HISTORY_SIGNALS = 100
-
-        const val FEED_LIMIT = 30
     }
 }

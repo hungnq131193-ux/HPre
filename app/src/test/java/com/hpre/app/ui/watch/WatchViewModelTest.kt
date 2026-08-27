@@ -11,10 +11,12 @@ import com.hpre.app.model.VideoSummary
 import com.hpre.app.player.PlaybackState
 import com.hpre.app.player.PlayerController
 import com.hpre.app.player.QualityOption
+import com.hpre.app.repository.RecommendationRequest
 import com.hpre.app.repository.VideoService
 import com.hpre.app.repository.WatchRecommendationSource
 import com.hpre.app.testing.FakeVideoService
 import com.hpre.app.ui.common.AsyncState
+import com.hpre.app.ui.watch.RefreshableAsyncState
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -42,6 +44,19 @@ class WatchViewModelTest {
 
     private val testDispatcher = StandardTestDispatcher()
     private val testKey = ContentKey(0, "watch_test_video")
+
+    private fun summary(id: String) = VideoSummary(
+        key = ContentKey(0, id),
+        title = "Title $id",
+        canonicalUrl = "https://example.test/watch?v=$id",
+        channelKey = null,
+        channelName = "Channel",
+        channelAvatarUrl = null,
+        thumbnailUrl = null,
+        durationSeconds = 120,
+        viewCount = null,
+        publishedTimestamp = null
+    )
 
     private class FakePlayerController : PlayerController {
         val _state = MutableStateFlow(PlaybackState())
@@ -319,7 +334,9 @@ class WatchViewModelTest {
         model.load(testKey)
         advanceUntilIdle()
 
-        assertEquals(listOf(relatedVideo), (model.relatedState.value as AsyncState.Content<List<VideoSummary>>).value)
+        assertEquals(listOf(relatedVideo), model.relatedState.value.value)
+        assertEquals(false, model.relatedState.value.isRefreshing)
+        assertEquals(false, model.relatedState.value.isInitialLoading)
         assertEquals(listOf(comment), (model.commentsState.value as AsyncState.Content<CommentPage>).value.comments)
     }
 
@@ -353,7 +370,7 @@ class WatchViewModelTest {
         advanceUntilIdle()
 
         assertEquals(testDetails(testKey), receivedDetails)
-        assertEquals(listOf(expanded), (model.relatedState.value as AsyncState.Content).value)
+        assertEquals(listOf(expanded), model.relatedState.value.value)
     }
 
     @Test
@@ -585,8 +602,624 @@ class WatchViewModelTest {
         staleComments.complete(AppResult.Success(CommentPage(emptyList())))
         advanceUntilIdle()
 
-        assertEquals(listOf(relatedB), (viewModel.relatedState.value as AsyncState.Content).value)
+        assertEquals(listOf(relatedB), viewModel.relatedState.value.value)
         assertEquals(listOf(commentB), (viewModel.commentsState.value as AsyncState.Content).value.comments)
+    }
+
+    @Test
+    fun refreshRelated_keeps_batch_A_visible_and_excludes_all_A_keys() = runTest(testDispatcher) {
+        val key = ContentKey(0, "watch_refresh_test")
+        val batchA = List(100) { VideoSummary(
+            key = ContentKey(0, "rel_a_$it"), title = "A $it", canonicalUrl = "https://example.test/a$it",
+            channelKey = null, channelName = null, channelAvatarUrl = null, thumbnailUrl = null,
+            durationSeconds = null, viewCount = null, publishedTimestamp = null
+        ) }
+        val batchB = List(15) { VideoSummary(
+            key = ContentKey(0, "rel_b_$it"), title = "B $it", canonicalUrl = "https://example.test/b$it",
+            channelKey = null, channelName = null, channelAvatarUrl = null, thumbnailUrl = null,
+            durationSeconds = null, viewCount = null, publishedTimestamp = null
+        ) }
+
+        var callCount = 0
+        var capturedRequest: RecommendationRequest? = null
+        val bDeferred = CompletableDeferred<AppResult<List<VideoSummary>>>()
+
+        val recommendations = WatchRecommendationSource { _, _, req ->
+            callCount++
+            if (callCount == 1) {
+                AppResult.Success(batchA)
+            } else {
+                capturedRequest = req
+                bDeferred.await()
+            }
+        }
+        val service = FakeVideoService(
+            videoHandler = { AppResult.Success(testDetails(it)) },
+            streamInfoHandler = { AppResult.Success(testStreamInfo(it)) }
+        )
+        val viewModel = WatchViewModel(
+            videoService = service,
+            playerController = FakePlayerController(),
+            savedStateHandle = androidx.lifecycle.SavedStateHandle(),
+            watchRecommendationSource = recommendations,
+            ioDispatcher = testDispatcher
+        )
+
+        viewModel.load(key)
+        advanceUntilIdle()
+
+        assertEquals(batchA, viewModel.relatedState.value.value)
+        assertEquals(false, viewModel.relatedState.value.isRefreshing)
+
+        // Trigger refreshRelated
+        viewModel.refreshRelated()
+        runCurrent()
+
+        // Batch A stays visible while refreshing
+        assertEquals(batchA, viewModel.relatedState.value.value)
+        assertTrue(viewModel.relatedState.value.isRefreshing)
+        assertEquals(null, viewModel.relatedState.value.error)
+
+        assertNotNull(capturedRequest)
+        assertEquals(true, capturedRequest?.forceRefresh)
+        assertEquals(batchA.map { it.key }.toSet(), capturedRequest?.excludedKeys)
+
+        // Complete B
+        bDeferred.complete(AppResult.Success(batchB))
+        advanceUntilIdle()
+
+        assertEquals(batchB, viewModel.relatedState.value.value)
+        assertEquals(false, viewModel.relatedState.value.isRefreshing)
+    }
+
+    @Test
+    fun refreshRelated_repeated_A_to_B_to_A_eligibility() = runTest(testDispatcher) {
+        val key = ContentKey(0, "watch_refresh_cycle")
+        val batchA = List(50) { VideoSummary(
+            key = ContentKey(0, "rel_a_$it"), title = "A $it", canonicalUrl = "https://example.test/a$it",
+            channelKey = null, channelName = null, channelAvatarUrl = null, thumbnailUrl = null,
+            durationSeconds = null, viewCount = null, publishedTimestamp = null
+        ) }
+        val batchB = List(20) { VideoSummary(
+            key = ContentKey(0, "rel_b_$it"), title = "B $it", canonicalUrl = "https://example.test/b$it",
+            channelKey = null, channelName = null, channelAvatarUrl = null, thumbnailUrl = null,
+            durationSeconds = null, viewCount = null, publishedTimestamp = null
+        ) }
+
+        val requests = mutableListOf<RecommendationRequest>()
+        var callCount = 0
+        val recommendations = WatchRecommendationSource { _, _, req ->
+            callCount++
+            requests += req
+            when (callCount) {
+                1 -> AppResult.Success(batchA)
+                2 -> AppResult.Success(batchB)
+                else -> AppResult.Success(batchA)
+            }
+        }
+        val service = FakeVideoService(
+            videoHandler = { AppResult.Success(testDetails(it)) },
+            streamInfoHandler = { AppResult.Success(testStreamInfo(it)) }
+        )
+        val viewModel = WatchViewModel(
+            videoService = service,
+            playerController = FakePlayerController(),
+            savedStateHandle = androidx.lifecycle.SavedStateHandle(),
+            watchRecommendationSource = recommendations,
+            ioDispatcher = testDispatcher
+        )
+
+        viewModel.load(key)
+        advanceUntilIdle()
+
+        // Refresh 1: A -> B
+        viewModel.refreshRelated()
+        advanceUntilIdle()
+        assertEquals(2, requests.size)
+        assertEquals(batchA.map { it.key }.toSet(), requests[1].excludedKeys)
+
+        // Refresh 2: B -> A (excludes B, A is re-eligible)
+        viewModel.refreshRelated()
+        advanceUntilIdle()
+        assertEquals(3, requests.size)
+        assertEquals(batchB.map { it.key }.toSet(), requests[2].excludedKeys)
+        assertEquals(batchA, viewModel.relatedState.value.value)
+    }
+
+    @Test
+    fun refreshRelated_error_preserves_batch_and_exposes_error() = runTest(testDispatcher) {
+        val key = ContentKey(0, "watch_refresh_err")
+        val batch = listOf(
+            VideoSummary(
+                key = ContentKey(0, "init_rel"), title = "Init", canonicalUrl = "https://example.test/init",
+                channelKey = null, channelName = null, channelAvatarUrl = null, thumbnailUrl = null,
+                durationSeconds = null, viewCount = null, publishedTimestamp = null
+            )
+        )
+        var callCount = 0
+        val recommendations = WatchRecommendationSource { _, _, _ ->
+            callCount++
+            if (callCount == 1) AppResult.Success(batch) else AppResult.Failure(AppError.NetworkError)
+        }
+        val service = FakeVideoService(
+            videoHandler = { AppResult.Success(testDetails(it)) },
+            streamInfoHandler = { AppResult.Success(testStreamInfo(it)) }
+        )
+        val viewModel = WatchViewModel(
+            videoService = service,
+            playerController = FakePlayerController(),
+            savedStateHandle = androidx.lifecycle.SavedStateHandle(),
+            watchRecommendationSource = recommendations,
+            ioDispatcher = testDispatcher
+        )
+
+        viewModel.load(key)
+        advanceUntilIdle()
+
+        viewModel.refreshRelated()
+        advanceUntilIdle()
+
+        val state = viewModel.relatedState.value
+        assertEquals(batch, state.value)
+        assertEquals(false, state.isRefreshing)
+        assertEquals(AppError.NetworkError, state.error)
+    }
+
+    @Test
+    fun refreshRelated_clean_empty_publishes_empty_success_not_error() = runTest(testDispatcher) {
+        val key = ContentKey(0, "watch_refresh_empty")
+        val batch = listOf(
+            VideoSummary(
+                key = ContentKey(0, "init_rel"), title = "Init", canonicalUrl = "https://example.test/init",
+                channelKey = null, channelName = null, channelAvatarUrl = null, thumbnailUrl = null,
+                durationSeconds = null, viewCount = null, publishedTimestamp = null
+            )
+        )
+        var callCount = 0
+        val recommendations = WatchRecommendationSource { _, _, _ ->
+            callCount++
+            if (callCount == 1) AppResult.Success(batch) else AppResult.Success(emptyList())
+        }
+        val service = FakeVideoService(
+            videoHandler = { AppResult.Success(testDetails(it)) },
+            streamInfoHandler = { AppResult.Success(testStreamInfo(it)) }
+        )
+        val viewModel = WatchViewModel(
+            videoService = service,
+            playerController = FakePlayerController(),
+            savedStateHandle = androidx.lifecycle.SavedStateHandle(),
+            watchRecommendationSource = recommendations,
+            ioDispatcher = testDispatcher
+        )
+
+        viewModel.load(key)
+        advanceUntilIdle()
+
+        viewModel.refreshRelated()
+        advanceUntilIdle()
+
+        val state = viewModel.relatedState.value
+        assertEquals(emptyList<VideoSummary>(), state.value)
+        assertEquals(false, state.isRefreshing)
+        assertEquals(null, state.error)
+    }
+
+    @Test
+    fun video_route_change_invalidates_all_previous_recommendation_refreshes() = runTest(testDispatcher) {
+        val keyA = ContentKey(0, "video_route_A")
+        val keyB = ContentKey(0, "video_route_B")
+        val slowRefreshA = CompletableDeferred<AppResult<List<VideoSummary>>>()
+
+        val recommendations = WatchRecommendationSource { key, _, req ->
+            if (key == keyA && req.forceRefresh) {
+                slowRefreshA.await()
+            } else if (key == keyA) {
+                AppResult.Success(listOf(VideoSummary(
+                    key = ContentKey(0, "rel_A_initial"), title = "A", canonicalUrl = "",
+                    channelKey = null, channelName = null, channelAvatarUrl = null, thumbnailUrl = null,
+                    durationSeconds = null, viewCount = null, publishedTimestamp = null
+                )))
+            } else {
+                AppResult.Success(listOf(VideoSummary(
+                    key = ContentKey(0, "rel_B_initial"), title = "B", canonicalUrl = "",
+                    channelKey = null, channelName = null, channelAvatarUrl = null, thumbnailUrl = null,
+                    durationSeconds = null, viewCount = null, publishedTimestamp = null
+                )))
+            }
+        }
+        val service = FakeVideoService(
+            videoHandler = { AppResult.Success(testDetails(it)) },
+            streamInfoHandler = { AppResult.Success(testStreamInfo(it)) }
+        )
+        val viewModel = WatchViewModel(
+            videoService = service,
+            playerController = FakePlayerController(),
+            savedStateHandle = androidx.lifecycle.SavedStateHandle(),
+            watchRecommendationSource = recommendations,
+            ioDispatcher = testDispatcher
+        )
+
+        // Load A
+        viewModel.load(keyA)
+        advanceUntilIdle()
+        assertEquals("rel_A_initial", viewModel.relatedState.value.value?.first()?.key?.nativeId)
+
+        // Start refresh on A (slow)
+        viewModel.refreshRelated()
+        runCurrent()
+
+        // Navigate to B
+        viewModel.load(keyB)
+        advanceUntilIdle()
+        assertEquals("rel_B_initial", viewModel.relatedState.value.value?.first()?.key?.nativeId)
+
+        // Slow refresh for A finishes now
+        slowRefreshA.complete(AppResult.Success(listOf(VideoSummary(
+            key = ContentKey(0, "rel_A_stale_refresh"), title = "Stale A", canonicalUrl = "",
+            channelKey = null, channelName = null, channelAvatarUrl = null, thumbnailUrl = null,
+            durationSeconds = null, viewCount = null, publishedTimestamp = null
+        ))))
+        advanceUntilIdle()
+
+        // Must still show B, not overwritten by stale refresh of A
+        assertEquals("rel_B_initial", viewModel.relatedState.value.value?.first()?.key?.nativeId)
+    }
+
+    @Test
+    fun retryRelated_when_content_present_runs_as_refresh_retry_preserving_batch_and_exclusion() = runTest(testDispatcher) {
+        val key = ContentKey(0, "retry_related_with_content")
+        val batchA = listOf(
+            VideoSummary(
+                key = ContentKey(0, "rel_1"), title = "R1", canonicalUrl = "",
+                channelKey = null, channelName = null, channelAvatarUrl = null, thumbnailUrl = null,
+                durationSeconds = null, viewCount = null, publishedTimestamp = null
+            )
+        )
+        val batchB = listOf(
+            VideoSummary(
+                key = ContentKey(0, "rel_2"), title = "R2", canonicalUrl = "",
+                channelKey = null, channelName = null, channelAvatarUrl = null, thumbnailUrl = null,
+                durationSeconds = null, viewCount = null, publishedTimestamp = null
+            )
+        )
+        var callCount = 0
+        var capturedExcludedKeys: Set<ContentKey>? = null
+        val retryGate = CompletableDeferred<Unit>()
+        val recommendations = WatchRecommendationSource { _, _, req ->
+            callCount++
+            capturedExcludedKeys = req.excludedKeys
+            when (callCount) {
+                1 -> AppResult.Success(batchA)
+                2 -> AppResult.Failure(AppError.NetworkError)
+                else -> {
+                    retryGate.await()
+                    AppResult.Success(batchB)
+                }
+            }
+        }
+        val service = FakeVideoService(
+            videoHandler = { AppResult.Success(testDetails(it)) },
+            streamInfoHandler = { AppResult.Success(testStreamInfo(it)) }
+        )
+        val viewModel = WatchViewModel(
+            videoService = service,
+            playerController = FakePlayerController(),
+            savedStateHandle = androidx.lifecycle.SavedStateHandle(),
+            watchRecommendationSource = recommendations,
+            ioDispatcher = testDispatcher
+        )
+
+        viewModel.load(key)
+        advanceUntilIdle()
+        assertEquals(batchA, viewModel.relatedState.value.value)
+
+        // Trigger refreshRelated -> fails
+        viewModel.refreshRelated()
+        advanceUntilIdle()
+        assertEquals(batchA, viewModel.relatedState.value.value)
+        assertEquals(AppError.NetworkError, viewModel.relatedState.value.error)
+
+        // Trigger retryRelated -> with batchA present, must run as refresh retry preserving batchA while refreshing
+        viewModel.retryRelated()
+        runCurrent()
+        assertTrue(viewModel.relatedState.value.isRefreshing)
+        assertEquals(batchA, viewModel.relatedState.value.value)
+        assertEquals(batchA.map { it.key }.toSet(), capturedExcludedKeys)
+
+        retryGate.complete(Unit)
+        advanceUntilIdle()
+        assertEquals(batchB, viewModel.relatedState.value.value)
+        assertFalse(viewModel.relatedState.value.isRefreshing)
+        assertNull(viewModel.relatedState.value.error)
+    }
+
+    @Test
+    fun interleaved_admit_A_then_admit_B_before_A_starts_guarantees_B_handle_cancellable_and_A_cannot_publish() = runTest(testDispatcher) {
+        val key = ContentKey(0, "interleaved_key")
+        val gateA = CompletableDeferred<Unit>()
+        val gateB = CompletableDeferred<Unit>()
+        var callCount = 0
+
+        val recommendations = WatchRecommendationSource { _, _, req ->
+            callCount++
+            val cur = callCount
+            if (cur == 1) {
+                // Initial load
+                AppResult.Success(listOf(VideoSummary(
+                    key = ContentKey(0, "rel_initial"), title = "Initial", canonicalUrl = "",
+                    channelKey = null, channelName = null, channelAvatarUrl = null, thumbnailUrl = null,
+                    durationSeconds = null, viewCount = null, publishedTimestamp = null
+                )))
+            } else if (cur == 2) {
+                // Request A (refresh 1)
+                gateA.await()
+                AppResult.Success(listOf(VideoSummary(
+                    key = ContentKey(0, "rel_from_A"), title = "A", canonicalUrl = "",
+                    channelKey = null, channelName = null, channelAvatarUrl = null, thumbnailUrl = null,
+                    durationSeconds = null, viewCount = null, publishedTimestamp = null
+                )))
+            } else {
+                // Request B (refresh 2)
+                gateB.await()
+                AppResult.Success(listOf(VideoSummary(
+                    key = ContentKey(0, "rel_from_B"), title = "B", canonicalUrl = "",
+                    channelKey = null, channelName = null, channelAvatarUrl = null, thumbnailUrl = null,
+                    durationSeconds = null, viewCount = null, publishedTimestamp = null
+                )))
+            }
+        }
+        val service = FakeVideoService(
+            videoHandler = { AppResult.Success(testDetails(it)) },
+            streamInfoHandler = { AppResult.Success(testStreamInfo(it)) }
+        )
+        val viewModel = WatchViewModel(
+            videoService = service,
+            playerController = FakePlayerController(),
+            savedStateHandle = androidx.lifecycle.SavedStateHandle(),
+            watchRecommendationSource = recommendations,
+            ioDispatcher = testDispatcher
+        )
+
+        viewModel.load(key)
+        advanceUntilIdle()
+        assertEquals("rel_initial", viewModel.relatedState.value.value?.first()?.key?.nativeId)
+
+        // Admit A
+        viewModel.refreshRelated()
+        runCurrent()
+
+        // A repeated refresh while A is active is intentionally ignored to prevent request loops.
+        viewModel.refreshRelated()
+        runCurrent()
+
+        // Let A finish
+        gateA.complete(Unit)
+        runCurrent()
+        // A is the only admitted request and publishes once complete; B was never started.
+        advanceUntilIdle()
+        assertEquals(2, callCount)
+        assertEquals("rel_from_A", viewModel.relatedState.value.value?.first()?.key?.nativeId)
+        assertFalse(viewModel.relatedState.value.isRefreshing)
+    }
+
+    @Test
+    fun check_and_publish_critical_section_prevents_TOCTOU_during_route_change() = runTest(testDispatcher) {
+        val keyA = ContentKey(0, "toctou_video_A")
+        val keyB = ContentKey(0, "toctou_video_B")
+
+        val resumePublishA = CompletableDeferred<Unit>()
+        val recommendations = WatchRecommendationSource { key, _, _ ->
+            if (key == keyA) {
+                withContext(NonCancellable) {
+                    resumePublishA.await()
+                    AppResult.Success(listOf(VideoSummary(
+                        key = ContentKey(0, "rel_A"), title = "A", canonicalUrl = "",
+                        channelKey = null, channelName = null, channelAvatarUrl = null, thumbnailUrl = null,
+                        durationSeconds = null, viewCount = null, publishedTimestamp = null
+                    )))
+                }
+            } else {
+                AppResult.Success(listOf(VideoSummary(
+                    key = ContentKey(0, "rel_B"), title = "B", canonicalUrl = "",
+                    channelKey = null, channelName = null, channelAvatarUrl = null, thumbnailUrl = null,
+                    durationSeconds = null, viewCount = null, publishedTimestamp = null
+                )))
+            }
+        }
+        val service = FakeVideoService(
+            videoHandler = { AppResult.Success(testDetails(it)) },
+            streamInfoHandler = { AppResult.Success(testStreamInfo(it)) }
+        )
+        val viewModel = WatchViewModel(
+            videoService = service,
+            playerController = FakePlayerController(),
+            savedStateHandle = androidx.lifecycle.SavedStateHandle(),
+            watchRecommendationSource = recommendations,
+            ioDispatcher = testDispatcher
+        )
+
+        viewModel.load(keyA)
+        runCurrent()
+
+        // While A is waiting right before publish under NonCancellable, route immediately to B
+        viewModel.load(keyB)
+        advanceUntilIdle()
+        assertEquals("rel_B", viewModel.relatedState.value.value?.first()?.key?.nativeId)
+
+        // Unblock A
+        resumePublishA.complete(Unit)
+        advanceUntilIdle()
+
+        // State remains B and was not corrupted by A
+        assertEquals("rel_B", viewModel.relatedState.value.value?.first()?.key?.nativeId)
+    }
+
+    @Test
+    fun direct_video_service_related_fallback_applies_exclusion_and_handles_initial_and_refresh() = runTest(testDispatcher) {
+        val key = ContentKey(0, "fallback_test_key")
+        val serviceRelatedList = listOf(
+            VideoSummary(
+                key = ContentKey(0, "item_1"), title = "Item 1", canonicalUrl = "",
+                channelKey = null, channelName = null, channelAvatarUrl = null, thumbnailUrl = null,
+                durationSeconds = null, viewCount = null, publishedTimestamp = null
+            ),
+            VideoSummary(
+                key = ContentKey(0, "item_2"), title = "Item 2", canonicalUrl = "",
+                channelKey = null, channelName = null, channelAvatarUrl = null, thumbnailUrl = null,
+                durationSeconds = null, viewCount = null, publishedTimestamp = null
+            )
+        )
+        val service = FakeVideoService(
+            videoHandler = { AppResult.Success(testDetails(it)) },
+            streamInfoHandler = { AppResult.Success(testStreamInfo(it)) },
+            relatedHandler = { AppResult.Success(serviceRelatedList) }
+        )
+        // No watchRecommendationSource injected -> falls back to videoService.related
+        val viewModel = WatchViewModel(
+            videoService = service,
+            playerController = FakePlayerController(),
+            savedStateHandle = androidx.lifecycle.SavedStateHandle(),
+            watchRecommendationSource = null,
+            ioDispatcher = testDispatcher
+        )
+
+        viewModel.load(key)
+        advanceUntilIdle()
+
+        // Initial load: shows all 2 items
+        assertEquals(serviceRelatedList, viewModel.relatedState.value.value)
+        assertFalse(viewModel.relatedState.value.isRefreshing)
+
+        // Refresh: snapshots item_1 and item_2 as excluded. Since service returns same 2 items, local filter excludes both -> empty list
+        viewModel.refreshRelated()
+        advanceUntilIdle()
+
+        assertEquals(emptyList<VideoSummary>(), viewModel.relatedState.value.value)
+        assertFalse(viewModel.relatedState.value.isRefreshing)
+        assertNull(viewModel.relatedState.value.error)
+    }
+
+    @Test
+    fun refreshable_async_state_helper_construct_and_transition_invariants() {
+        val initial: RefreshableAsyncState<List<VideoSummary>> = RefreshableAsyncState.initial()
+        assertNull(initial.value)
+        assertTrue(initial.isInitialLoading)
+        assertFalse(initial.isRefreshing)
+        assertNull(initial.error)
+
+        val batch = listOf(
+            VideoSummary(
+                key = ContentKey(0, "test"), title = "Test", canonicalUrl = "",
+                channelKey = null, channelName = null, channelAvatarUrl = null, thumbnailUrl = null,
+                durationSeconds = null, viewCount = null, publishedTimestamp = null
+            )
+        )
+        val content = RefreshableAsyncState.content(batch)
+        assertEquals(batch, content.value)
+        assertFalse(content.isInitialLoading)
+        assertFalse(content.isRefreshing)
+        assertNull(content.error)
+
+        val refreshing = RefreshableAsyncState.refreshing(content.value)
+        assertEquals(batch, refreshing.value)
+        assertFalse(refreshing.isInitialLoading)
+        assertTrue(refreshing.isRefreshing)
+        assertNull(refreshing.error)
+
+        val error = RefreshableAsyncState.error(AppError.NetworkError, refreshing.value)
+        assertEquals(batch, error.value)
+        assertFalse(error.isInitialLoading)
+        assertFalse(error.isRefreshing)
+        assertEquals(AppError.NetworkError, error.error)
+    }
+
+    @Test
+    fun refreshRelated_noops_when_value_is_null_or_initial_loading_active() = runTest(testDispatcher) {
+        var recommendationCalls = 0
+        val gate = CompletableDeferred<AppResult<List<VideoSummary>>>()
+        val recommendations = WatchRecommendationSource { _, _, _ ->
+            recommendationCalls++
+            gate.await()
+        }
+        val service = FakeVideoService(
+            videoHandler = { AppResult.Success(testDetails(it)) },
+            streamInfoHandler = { AppResult.Success(testStreamInfo(it)) }
+        )
+        val viewModel = WatchViewModel(
+            videoService = service,
+            playerController = FakePlayerController(),
+            savedStateHandle = androidx.lifecycle.SavedStateHandle(),
+            watchRecommendationSource = recommendations,
+            ioDispatcher = testDispatcher
+        )
+
+        viewModel.load(testKey)
+        runCurrent()
+
+        // State is currently in initial loading
+        assertTrue(viewModel.relatedState.value.isInitialLoading)
+        assertNull(viewModel.relatedState.value.value)
+        assertEquals(1, recommendationCalls)
+
+        // refreshRelated while initial is active should be a NO-OP
+        viewModel.refreshRelated()
+        runCurrent()
+        assertEquals(1, recommendationCalls)
+
+        // Complete initial
+        gate.complete(AppResult.Success(listOf(summary("item_1"))))
+        advanceUntilIdle()
+        assertEquals(1, recommendationCalls)
+        assertEquals(listOf(summary("item_1")), viewModel.relatedState.value.value)
+    }
+
+    @Test
+    fun refreshRelated_repeated_invocation_while_refreshing_noops_and_prevents_request_loop() = runTest(testDispatcher) {
+        var recommendationCalls = 0
+        val refreshGate = CompletableDeferred<AppResult<List<VideoSummary>>>()
+        val recommendations = WatchRecommendationSource { _, _, req ->
+            recommendationCalls++
+            if (req.forceRefresh) {
+                refreshGate.await()
+            } else {
+                AppResult.Success(listOf(summary("init_item")))
+            }
+        }
+        val service = FakeVideoService(
+            videoHandler = { AppResult.Success(testDetails(it)) },
+            streamInfoHandler = { AppResult.Success(testStreamInfo(it)) }
+        )
+        val viewModel = WatchViewModel(
+            videoService = service,
+            playerController = FakePlayerController(),
+            savedStateHandle = androidx.lifecycle.SavedStateHandle(),
+            watchRecommendationSource = recommendations,
+            ioDispatcher = testDispatcher
+        )
+
+        viewModel.load(testKey)
+        advanceUntilIdle()
+        assertEquals(1, recommendationCalls)
+        assertFalse(viewModel.relatedState.value.isRefreshing)
+
+        // First refresh call
+        viewModel.refreshRelated()
+        runCurrent()
+        assertEquals(2, recommendationCalls)
+        assertTrue(viewModel.relatedState.value.isRefreshing)
+
+        // Second and third rapid refresh calls while isRefreshing == true must NO-OP
+        viewModel.refreshRelated()
+        viewModel.refreshRelated()
+        runCurrent()
+        assertEquals(2, recommendationCalls)
+
+        // Complete refresh
+        refreshGate.complete(AppResult.Success(listOf(summary("refreshed_item"))))
+        advanceUntilIdle()
+        assertEquals(2, recommendationCalls)
+        assertFalse(viewModel.relatedState.value.isRefreshing)
+        assertEquals(listOf(summary("refreshed_item")), viewModel.relatedState.value.value)
     }
 
     @Test
@@ -787,5 +1420,35 @@ class WatchViewModelTest {
         advanceUntilIdle()
 
         assertEquals(0L, fakePlayer.startPositionMs)
+    }
+
+    @Test
+    fun initial_page_duplicate_comment_ids_produces_unique_list() = runTest(testDispatcher) {
+        val duplicateComments = listOf(
+            Comment("comm_dup", "Author 1", null, null, "Comment body 1", null, null),
+            Comment("comm_dup", "Author 1 Duplicate", null, null, "Comment body duplicate", null, null),
+            Comment("comm_unique", "Author 2", null, null, "Comment body 2", null, null)
+        )
+        val service = FakeVideoService(
+            supportsComments = true,
+            videoHandler = { AppResult.Success(testDetails(it)) },
+            streamInfoHandler = { AppResult.Success(testStreamInfo(it)) },
+            commentsHandler = { _, _ -> AppResult.Success(CommentPage(duplicateComments)) }
+        )
+        val model = WatchViewModel(
+            videoService = service,
+            playerController = FakePlayerController(),
+            savedStateHandle = androidx.lifecycle.SavedStateHandle(),
+            ioDispatcher = testDispatcher
+        )
+
+        model.load(testKey)
+        advanceUntilIdle()
+
+        val commentsContent = (model.commentsState.value as AsyncState.Content<CommentPage>).value.comments
+        assertEquals(2, commentsContent.size)
+        assertEquals("comm_dup", commentsContent[0].commentId)
+        assertEquals("Comment body 1", commentsContent[0].commentText)
+        assertEquals("comm_unique", commentsContent[1].commentId)
     }
 }

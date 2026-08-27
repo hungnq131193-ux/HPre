@@ -155,4 +155,28 @@ class RecommendationRankerTest {
 
         assertEquals(listOf("newer", "older"), result.map { it.key.nativeId })
     }
+
+    @Test fun rank_distinguishes_same_native_id_with_different_service_id() {
+        val yt = VideoSummary(
+            key = ContentKey(0, "123"),
+            title = "YouTube Video",
+            canonicalUrl = "https://youtube.test/123",
+            channelKey = null, channelName = "Channel", channelAvatarUrl = null, thumbnailUrl = null,
+            durationSeconds = 120, viewCount = null, publishedTimestamp = null
+        )
+        val dm = VideoSummary(
+            key = ContentKey(1, "123"),
+            title = "DailyMotion Video",
+            canonicalUrl = "https://dailymotion.test/123",
+            channelKey = null, channelName = "Channel", channelAvatarUrl = null, thumbnailUrl = null,
+            durationSeconds = 120, viewCount = null, publishedTimestamp = null
+        )
+        val result = RecommendationRanker.rank(
+            listOf(yt, dm),
+            LocalInterestSignals(emptyList(), emptyMap(), emptySet()),
+            limit = 100
+        )
+        assertEquals(2, result.size)
+        assertEquals(setOf(ContentKey(0, "123"), ContentKey(1, "123")), result.map { it.key }.toSet())
+    }
 }

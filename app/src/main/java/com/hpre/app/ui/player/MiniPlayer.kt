@@ -42,13 +42,17 @@ import com.hpre.app.core.designsystem.MinimumTouchTarget
 import com.hpre.app.model.ContentKey
 import com.hpre.app.player.PlaybackState
 import com.hpre.app.player.PlayerController
+import com.hpre.app.player.PlaybackUiCoordinator
+import com.hpre.app.player.SurfaceOwner
+import com.hpre.app.ui.watch.PlayerSurface
 
 @Composable
 fun MiniPlayer(
     playerController: PlayerController,
     onExpandWatch: (ContentKey) -> Unit,
     onDismiss: () -> Unit,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    coordinator: PlaybackUiCoordinator? = null
 ) {
     val state by playerController.state.collectAsStateWithLifecycle()
     val currentKey = state.key
@@ -105,11 +109,11 @@ fun MiniPlayer(
                         .testTag("mini_player_thumbnail"),
                     contentAlignment = Alignment.Center
                 ) {
-                    Icon(
-                        imageVector = Icons.Default.PlayArrow,
-                        contentDescription = null,
-                        tint = MaterialTheme.colorScheme.onSecondaryContainer,
-                        modifier = Modifier.size(20.dp)
+                    PlayerSurface(
+                        playerController = playerController,
+                        coordinator = coordinator,
+                        owner = SurfaceOwner.MINI_PLAYER,
+                        modifier = Modifier.fillMaxWidth()
                     )
                 }
 

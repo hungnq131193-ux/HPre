@@ -20,6 +20,7 @@ import com.hpre.app.player.PlaybackState
 import com.hpre.app.player.PlayerController
 import com.hpre.app.player.QualityOption
 import com.hpre.app.repository.CatalogRepository
+import com.hpre.app.repository.RecommendationRequest
 import com.hpre.app.repository.VideoService
 import com.hpre.app.repository.WatchRecommendationSource
 import com.hpre.app.ui.common.AsyncState
@@ -37,6 +38,65 @@ import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+
+class RefreshableAsyncState<T> private constructor(
+    val value: T?,
+    val isInitialLoading: Boolean,
+    val isRefreshing: Boolean,
+    val error: AppError?
+) {
+    override fun equals(other: Any?): Boolean {
+        if (this === other) return true
+        if (other !is RefreshableAsyncState<*>) return false
+        if (value != other.value) return false
+        if (isInitialLoading != other.isInitialLoading) return false
+        if (isRefreshing != other.isRefreshing) return false
+        if (error != other.error) return false
+        return true
+    }
+
+    override fun hashCode(): Int {
+        var result = value?.hashCode() ?: 0
+        result = 31 * result + isInitialLoading.hashCode()
+        result = 31 * result + isRefreshing.hashCode()
+        result = 31 * result + (error?.hashCode() ?: 0)
+        return result
+    }
+
+    override fun toString(): String {
+        return "RefreshableAsyncState(value=$value, isInitialLoading=$isInitialLoading, isRefreshing=$isRefreshing, error=$error)"
+    }
+
+    companion object {
+        fun <T> initial(): RefreshableAsyncState<T> = RefreshableAsyncState(
+            value = null,
+            isInitialLoading = true,
+            isRefreshing = false,
+            error = null
+        )
+
+        fun <T> content(value: T): RefreshableAsyncState<T> = RefreshableAsyncState(
+            value = value,
+            isInitialLoading = false,
+            isRefreshing = false,
+            error = null
+        )
+
+        fun <T> refreshing(currentValue: T?): RefreshableAsyncState<T> = RefreshableAsyncState(
+            value = currentValue,
+            isInitialLoading = false,
+            isRefreshing = true,
+            error = null
+        )
+
+        fun <T> error(error: AppError, previousValue: T? = null): RefreshableAsyncState<T> = RefreshableAsyncState(
+            value = previousValue,
+            isInitialLoading = false,
+            isRefreshing = false,
+            error = error
+        )
+    }
+}
 
 data class WatchUiState(
     val key: ContentKey? = null,
@@ -129,8 +189,8 @@ class WatchViewModel(
     private val _uiState = MutableStateFlow(WatchUiState(isFullscreen = initialFullscreen))
     val uiState: StateFlow<WatchUiState> = _uiState.asStateFlow()
 
-    private val _relatedState = MutableStateFlow<AsyncState<List<VideoSummary>>>(AsyncState.Loading)
-    val relatedState: StateFlow<AsyncState<List<VideoSummary>>> = _relatedState.asStateFlow()
+    private val _relatedState = MutableStateFlow<RefreshableAsyncState<List<VideoSummary>>>(RefreshableAsyncState.initial())
+    val relatedState: StateFlow<RefreshableAsyncState<List<VideoSummary>>> = _relatedState.asStateFlow()
     private val _commentsState = MutableStateFlow<AsyncState<CommentPage>>(AsyncState.Loading)
     val commentsState: StateFlow<AsyncState<CommentPage>> = _commentsState.asStateFlow()
 
@@ -161,6 +221,8 @@ class WatchViewModel(
     private var currentKey: ContentKey? = null
     @Volatile
     private var currentGeneration: Long = 0L
+    @Volatile
+    private var relatedGeneration: Long = 0L
     private val sessionGuard = Any()
     private var loadJob: Job? = null
     private var relatedJob: Job? = null
@@ -178,6 +240,7 @@ class WatchViewModel(
             commentsJob?.cancel()
             commentsInFlight = false
             currentKey = key
+            relatedGeneration++
             ++currentGeneration
         }
 
@@ -220,7 +283,7 @@ class WatchViewModel(
                 }
                 if (!preparedCurrentSession) return@launch
                 if (watchRecommendationSource == null) {
-                    loadRelated(key, null, generation, forceRefresh)
+                    executeRelated(key, null, forceRefresh = forceRefresh, isRefresh = false)
                 }
                 loadComments(key, generation, null, append = false)
 
@@ -249,7 +312,7 @@ class WatchViewModel(
                             it.copy(isLoading = false, details = detailsResult.value, error = null)
                         }
                         if (watchRecommendationSource != null) {
-                            loadRelated(key, detailsResult.value, generation, forceRefresh)
+                            executeRelated(key, detailsResult.value, forceRefresh = forceRefresh, isRefresh = false)
                         }
                     }
                     is AppResult.Failure -> {
@@ -274,9 +337,113 @@ class WatchViewModel(
     }
 
     fun retryRelated() {
-        val key = currentKey ?: return
-        loadRelated(key, _uiState.value.details, currentGeneration, forceRefresh = true)
+        val key = synchronized(sessionGuard) { currentKey } ?: return
+        val hasExistingContent = _relatedState.value.value != null
+        executeRelated(
+            key = key,
+            details = _uiState.value.details,
+            forceRefresh = true,
+            isRefresh = hasExistingContent
+        )
     }
+
+    fun refreshRelated() {
+        val key = synchronized(sessionGuard) { currentKey } ?: return
+        val currentState = _relatedState.value
+        // If there is no loaded batch or initial loading is still in-progress, or already refreshing: no-op
+        if (currentState.value == null || currentState.isInitialLoading || currentState.isRefreshing) {
+            return
+        }
+        executeRelated(
+            key = key,
+            details = _uiState.value.details,
+            forceRefresh = true,
+            isRefresh = true
+        )
+    }
+
+    private fun executeRelated(
+        key: ContentKey,
+        details: VideoDetails?,
+        forceRefresh: Boolean,
+        isRefresh: Boolean
+    ) {
+        val (admittedGeneration, admittedRelGeneration, admittedExcludedKeys, previousValue, jobToStart) = synchronized(sessionGuard) {
+            if (currentKey != key) return
+            relatedJob?.cancel()
+            val relGen = ++relatedGeneration
+            val prev = _relatedState.value.value
+            val excluded = if (isRefresh) prev?.map { it.key }?.toSet().orEmpty() else emptySet()
+            if (isRefresh) {
+                _relatedState.value = RefreshableAsyncState.refreshing(prev)
+            } else {
+                _relatedState.value = RefreshableAsyncState.initial()
+            }
+            val currentGlobalGen = currentGeneration
+
+            val newJob = viewModelScope.launch(ioDispatcher, start = kotlinx.coroutines.CoroutineStart.LAZY) {
+                try {
+                    val req = RecommendationRequest(
+                        forceRefresh = forceRefresh,
+                        excludedKeys = excluded
+                    )
+                    val result = if (watchRecommendationSource != null && details != null) {
+                        watchRecommendationSource.recommendations(key, details, req)
+                    } else {
+                        when (val rel = videoService.related(key)) {
+                            is AppResult.Success -> {
+                                val filtered = rel.value.filter { it.key !in excluded }
+                                AppResult.Success(filtered)
+                            }
+                            is AppResult.Failure -> rel
+                        }
+                    }
+
+                    synchronized(sessionGuard) {
+                        if (currentGeneration == currentGlobalGen &&
+                            currentKey == key &&
+                            relatedGeneration == relGen
+                        ) {
+                            when (result) {
+                                is AppResult.Success -> {
+                                    _relatedState.value = RefreshableAsyncState.content(result.value)
+                                }
+                                is AppResult.Failure -> {
+                                    _relatedState.value = if (isRefresh) {
+                                        RefreshableAsyncState.error(result.error, prev)
+                                    } else {
+                                        RefreshableAsyncState.error(result.error, null)
+                                    }
+                                }
+                            }
+                        }
+                    }
+                } catch (cancelled: CancellationException) {
+                    throw cancelled
+                } catch (_: Throwable) {
+                    synchronized(sessionGuard) {
+                        if (currentGeneration == currentGlobalGen &&
+                            currentKey == key &&
+                            relatedGeneration == relGen
+                        ) {
+                            _relatedState.value = if (isRefresh) {
+                                RefreshableAsyncState.error(AppError.Unknown, prev)
+                            } else {
+                                RefreshableAsyncState.error(AppError.Unknown, null)
+                            }
+                        }
+                    }
+                }
+            }
+
+            relatedJob = newJob
+            Tuple5(currentGlobalGen, relGen, excluded, prev, newJob)
+        }
+
+        jobToStart.start()
+    }
+
+    private data class Tuple5<A, B, C, D, E>(val a: A, val b: B, val c: C, val d: D, val e: E)
 
     fun retryComments() = currentKey?.let {
         loadComments(it, currentGeneration, null, append = false)
@@ -287,38 +454,6 @@ class WatchViewModel(
         val page = (_commentsState.value as? AsyncState.Content)?.value ?: return
         val token = page.nextPageToken ?: return
         loadComments(key, currentGeneration, token, append = true)
-    }
-
-    private fun loadRelated(
-        key: ContentKey,
-        details: VideoDetails?,
-        generation: Long,
-        forceRefresh: Boolean
-    ) {
-        relatedJob?.cancel()
-        _relatedState.value = AsyncState.Loading
-        relatedJob = viewModelScope.launch(ioDispatcher) {
-            try {
-                val result = if (watchRecommendationSource != null && details != null) {
-                    watchRecommendationSource.recommendations(key, details, forceRefresh)
-                } else {
-                    videoService.related(key)
-                }
-                val nextState = when (result) {
-                    is AppResult.Success -> if (result.value.isEmpty()) AsyncState.Empty else AsyncState.Content(result.value)
-                    is AppResult.Failure -> AsyncState.Error(result.error)
-                }
-                if (generation == currentGeneration && currentKey == key) {
-                    _relatedState.value = nextState
-                }
-            } catch (cancelled: CancellationException) {
-                throw cancelled
-            } catch (_: Throwable) {
-                if (generation == currentGeneration && currentKey == key) {
-                    _relatedState.value = AsyncState.Error(AppError.Unknown)
-                }
-            }
-        }
     }
 
     private fun loadComments(
@@ -348,7 +483,8 @@ class WatchViewModel(
                 val nextState = when (val result = videoService.comments(key, token)) {
                     is AppResult.Success -> {
                         val prior = if (append) (_commentsState.value as? AsyncState.Content)?.value?.comments.orEmpty() else emptyList()
-                        val page = result.value.copy(comments = (prior + result.value.comments).distinctBy { it.commentId })
+                        val deduped = (prior + result.value.comments).distinctBy { it.commentId }
+                        val page = result.value.copy(comments = deduped)
                         if (page.comments.isEmpty()) AsyncState.Empty else AsyncState.Content(page)
                     }
                     is AppResult.Failure -> AsyncState.Error(result.error)

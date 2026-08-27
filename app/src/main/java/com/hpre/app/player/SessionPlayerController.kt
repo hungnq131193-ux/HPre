@@ -191,6 +191,33 @@ class SessionPlayerController(
                 stopProgressTracker()
             }
         }
+
+        override fun onTracksChanged(tracks: androidx.media3.common.Tracks) {
+            val groups = tracks.groups.filter {
+                it.type == androidx.media3.common.C.TRACK_TYPE_VIDEO && it.isSelected
+            }
+            val selected = groups.asSequence()
+                .flatMap { group ->
+                    (0 until group.length).asSequence().map {
+                        group.getTrackFormat(it) to group.isTrackSelected(it)
+                    }
+                }
+                .firstOrNull { it.second }
+                ?.first
+            _state.update { state ->
+                state.copy(
+                    effectiveTrack = selected?.let { format ->
+                        EffectiveTrack(
+                            height = format.height.takeIf { value -> value > 0 },
+                            bitrate = format.bitrate.takeIf { value -> value > 0 },
+                            isAdaptive = (state.streamType == PlaybackStreamType.HLS ||
+                                state.streamType == PlaybackStreamType.DASH) &&
+                                groups.any { group -> group.length > 1 }
+                        )
+                    }
+                )
+            }
+        }
     }
 
     init {
@@ -367,6 +394,26 @@ class SessionPlayerController(
         }
     }
 
+    @Volatile
+    private var currentSurfaceLease: SurfaceLease = SurfaceLease(SurfaceOwner.NONE, 0L)
+
+    override fun attachSurface(playerView: PlayerView, lease: SurfaceLease): Boolean {
+        if (isReleased || lease.generation < currentSurfaceLease.generation) return false
+        currentSurfaceLease = lease
+        scope.launch(mainDispatcher) {
+            if (isReleased || currentSurfaceLease != lease) return@launch
+            val previousView = currentSurfaceView
+            currentSurfaceView = playerView
+            val controller = mediaController
+            if (controller != null && playerView.player != controller) playerView.player = controller
+            if (previousView != null && previousView !== playerView && previousView.player == controller) {
+                previousView.player = null
+            }
+        }
+
+        return true
+    }
+
     override fun detachSurface(playerView: PlayerView) {
         scope.launch(mainDispatcher) {
             if (isReleased) return@launch
@@ -379,6 +426,25 @@ class SessionPlayerController(
                 playerView.player = null
             }
         }
+    }
+
+    override fun detachSurface(playerView: PlayerView, lease: SurfaceLease): Boolean {
+        if (lease != currentSurfaceLease || currentSurfaceView != playerView) {
+            // A disposed host may still retain a reference after a newer host won the lease. Clear
+            // only that stale PlayerView; never touch the active owner or lease.
+            scope.launch(mainDispatcher) {
+                if (playerView !== currentSurfaceView && playerView.player == mediaController) {
+                    playerView.player = null
+                }
+            }
+            return false
+        }
+        scope.launch(mainDispatcher) {
+            if (isReleased || lease != currentSurfaceLease || currentSurfaceView != playerView) return@launch
+            currentSurfaceView = null
+            if (playerView.player == mediaController) playerView.player = null
+        }
+        return true
     }
 
     override fun onLifecycleStart() {
@@ -454,6 +520,7 @@ class SessionPlayerController(
         }
         val initialStreamType = (initialSelection as? AppResult.Success)?.value?.streamType
         val clampedSpeed = playbackSpeed.takeIf { it.isFinite() }?.coerceIn(0.25f, 3.0f) ?: 1.0f
+        val existingPolicy = _state.value.qualityPolicy
         _state.update {
             it.copy(
                 key = key,
@@ -465,6 +532,7 @@ class SessionPlayerController(
                 isEnded = false,
                 availableQualities = available,
                 selectedQuality = initialQuality?.takeIf { option -> available.contains(option) },
+                qualityPolicy = initialQuality?.let(UserQualityPolicy::Fixed) ?: existingPolicy,
                 streamType = initialStreamType,
                 currentPositionMs = startPositionMs.coerceAtLeast(0L),
                 playWhenReady = playWhenReady,
@@ -478,7 +546,8 @@ class SessionPlayerController(
             positionMs = startPositionMs.coerceAtLeast(0L),
             playWhenReady = playWhenReady,
             selectedQuality = initialQuality?.takeIf { option -> available.contains(option) },
-            playbackSpeed = clampedSpeed
+            playbackSpeed = clampedSpeed,
+            qualityPolicy = initialQuality?.let(UserQualityPolicy::Fixed) ?: existingPolicy
         )
         val token = snapshotStore.enqueueSave()
         snapshotStore.executeSave(snap, token)
@@ -638,7 +707,8 @@ class SessionPlayerController(
                     positionMs = currentPos,
                     playWhenReady = pwr,
                     selectedQuality = _state.value.selectedQuality,
-                    playbackSpeed = clamped
+                    playbackSpeed = clamped,
+                    qualityPolicy = _state.value.qualityPolicy
                 )
                 val token = snapshotStore.enqueueSave()
                 snapshotStore.executeSave(snap, token)
@@ -650,6 +720,19 @@ class SessionPlayerController(
         if (isReleased) return
         val key = currentKey ?: return
         val matched = _state.value.availableQualities.firstOrNull { it == quality } ?: return
+        val resolvedPolicy = QualityPolicyResolver.forSelection(_state.value.streamType, matched)
+        if (resolvedPolicy is UserQualityPolicy.Auto) {
+            _state.update {
+                it.copy(
+                    selectedQuality = matched,
+                    pendingQuality = null,
+                    qualityPolicy = resolvedPolicy,
+                    error = null
+                )
+            }
+            setQualityPolicy(resolvedPolicy)
+            return
+        }
         val priorQuality = _state.value.selectedQuality
 
         val qualityGen = ++localQualityRequestGen
@@ -705,6 +788,7 @@ class SessionPlayerController(
                                 isLoading = false,
                                 pendingQuality = null,
                                 selectedQuality = matched,
+                                qualityPolicy = UserQualityPolicy.Fixed(matched),
                                 streamType = streamType,
                                 error = null
                             )
@@ -712,6 +796,34 @@ class SessionPlayerController(
                     }
                 }
             }, { runnable -> scope.launch(mainDispatcher) { runnable.run() } })
+        }
+    }
+
+    override fun setQualityPolicy(policy: UserQualityPolicy) {
+        if (isReleased) return
+        val key = currentKey ?: return
+        _state.update { it.copy(qualityPolicy = policy) }
+        scope.launch(mainDispatcher) {
+            val controller = mediaController ?: return@launch
+            val args = Bundle().apply {
+                putInt(HPrePlaybackService.EXTRA_SERVICE_ID, key.serviceId)
+                putString(HPrePlaybackService.EXTRA_NATIVE_ID, key.nativeId)
+                when (policy) {
+                    is UserQualityPolicy.Auto -> {
+                        putBoolean(HPrePlaybackService.EXTRA_POLICY_AUTO, true)
+                        policy.maxHeight?.let { putInt(HPrePlaybackService.EXTRA_POLICY_MAX_HEIGHT, it) }
+                        policy.maxBitrate?.let { putInt(HPrePlaybackService.EXTRA_POLICY_MAX_BITRATE, it) }
+                    }
+                    is UserQualityPolicy.Fixed -> {
+                        putBoolean(HPrePlaybackService.EXTRA_POLICY_AUTO, false)
+                        putInt(HPrePlaybackService.EXTRA_QUALITY_HEIGHT, policy.option.height)
+                    }
+                }
+            }
+            controller.sendCustomCommand(
+                SessionCommand(HPrePlaybackService.CUSTOM_COMMAND_SET_QUALITY_POLICY, Bundle.EMPTY),
+                args
+            )
         }
     }
 
@@ -761,39 +873,9 @@ class SessionPlayerController(
                         }
                     }
                 }
-                pollAuthoritativeServiceState()
                 delay(500)
             }
         }
-    }
-
-    private fun pollAuthoritativeServiceState() {
-        val controller = mediaController ?: return
-        try {
-            val future = controller.sendCustomCommand(
-                SessionCommand(HPrePlaybackService.CUSTOM_COMMAND_GET_PROBE_SNAPSHOT, Bundle.EMPTY),
-                Bundle.EMPTY
-            )
-            future.addListener({
-                try {
-                    val result = future.get()
-                    val extras = result.extras ?: return@addListener
-                    val serviceErrorName = extras.getString(HPrePlaybackService.EXTRA_PROBE_ERROR_CODE)
-                    val mapped = serviceErrorName?.takeIf { it.isNotBlank() }?.let(::mapServiceErrorName)
-                    if (mapped != null && !isReleased) {
-                        scope.launch(mainDispatcher) {
-                            _state.update {
-                                if (it.error == null || it.error == AppError.Unknown || it.error == AppError.StreamExpired) {
-                                    it.copy(error = mapped, isLoading = false)
-                                } else {
-                                    it
-                                }
-                            }
-                        }
-                    }
-                } catch (_: Throwable) {}
-            }, { r -> scope.launch(mainDispatcher) { r.run() } })
-        } catch (_: Throwable) {}
     }
 
     private fun stopProgressTracker() {

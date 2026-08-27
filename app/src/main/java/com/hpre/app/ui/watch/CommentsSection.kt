@@ -1,13 +1,15 @@
 package com.hpre.app.ui.watch
 
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.material3.Button
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.lazy.LazyListScope
+import androidx.compose.foundation.lazy.items
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
-import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
@@ -19,34 +21,80 @@ import com.hpre.app.ui.common.EmptyPane
 import com.hpre.app.ui.common.ErrorPane
 import com.hpre.app.ui.common.LoadingPane
 
-@Composable
-fun CommentsSection(
+const val WATCH_KEY_COMMENTS_HEADER = "section:comments_header"
+const val WATCH_KEY_COMMENTS_STATUS = "section:comments_status"
+const val WATCH_KEY_COMMENTS_LOAD_MORE = "section:comments_load_more_sentinel"
+
+fun LazyListScope.commentsItems(
     state: AsyncState<CommentPage>,
-    onRetry: () -> Unit,
-    onLoadMore: () -> Unit,
-    modifier: Modifier = Modifier
+    onRetry: () -> Unit
 ) {
-    Column(modifier.fillMaxWidth().testTag("comments_section")) {
-        Text(stringResource(R.string.screen_comments))
-        when (state) {
-            AsyncState.Loading -> LoadingPane(testTag = "comments_loading")
-            AsyncState.Empty -> EmptyPane(
-                stringResource(R.string.comments_empty),
-                testTag = "comments_empty"
+    item(key = WATCH_KEY_COMMENTS_HEADER) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .testTag("comments_section")
+        ) {
+            Text(
+                text = stringResource(R.string.screen_comments),
+                style = MaterialTheme.typography.titleSmall
             )
-            is AsyncState.Error -> ErrorPane(state.error, onRetry, testTag = "comments_error")
-            is AsyncState.Content -> {
-                state.value.comments.forEach { comment ->
-                    Column(Modifier.fillMaxWidth().testTag("comment_${comment.commentId}")) {
-                        Text(comment.authorName, style = MaterialTheme.typography.labelLarge)
-                        Text(comment.commentText, style = MaterialTheme.typography.bodyMedium)
-                        Spacer(Modifier.height(12.dp))
-                    }
+        }
+    }
+
+    when (state) {
+        AsyncState.Loading -> {
+            item(key = WATCH_KEY_COMMENTS_STATUS) {
+                LoadingPane(testTag = "comments_loading")
+            }
+        }
+        AsyncState.Empty -> {
+            item(key = WATCH_KEY_COMMENTS_STATUS) {
+                EmptyPane(
+                    message = stringResource(R.string.comments_empty),
+                    testTag = "comments_empty"
+                )
+            }
+        }
+        is AsyncState.Error -> {
+            item(key = WATCH_KEY_COMMENTS_STATUS) {
+                ErrorPane(
+                    error = state.error,
+                    onRetry = onRetry,
+                    testTag = "comments_error"
+                )
+            }
+        }
+        is AsyncState.Content -> {
+            items(
+                items = state.value.comments,
+                key = { comment -> "comment:${comment.commentId}" }
+            ) { comment ->
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .testTag("comment_${comment.commentId}")
+                ) {
+                    Text(
+                        text = comment.authorName,
+                        style = MaterialTheme.typography.labelLarge
+                    )
+                    Text(
+                        text = comment.commentText,
+                        style = MaterialTheme.typography.bodyMedium
+                    )
+                    Spacer(Modifier.height(12.dp))
                 }
-                if (state.value.nextPageToken != null) {
-                    Button(onClick = onLoadMore, modifier = Modifier.testTag("comments_load_more")) {
-                        Text(stringResource(R.string.comments_load_more))
-                    }
+            }
+
+            if (state.value.nextPageToken != null) {
+                item(key = WATCH_KEY_COMMENTS_LOAD_MORE) {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(1.dp)
+                            .testTag("comments_load_more_sentinel")
+                    )
                 }
             }
         }

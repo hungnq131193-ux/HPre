@@ -95,6 +95,8 @@ open class MainActivity : ComponentActivity() {
                 if (playbackUiState.isInPip) {
                     PlayerSurface(
                         playerController = playerController,
+                        coordinator = app.playbackUiCoordinator,
+                        owner = com.hpre.app.player.SurfaceOwner.SYSTEM_PIP,
                         modifier = Modifier.fillMaxSize()
                     )
                 } else {

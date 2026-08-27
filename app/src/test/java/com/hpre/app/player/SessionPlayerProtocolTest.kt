@@ -18,12 +18,57 @@ class SessionPlayerProtocolTest {
     private val testKey = ContentKey(0, "proto_test_123")
 
     @Test
+    fun adaptive_quality_selection_resolves_to_auto_cap_while_progressive_stays_fixed() {
+        val option = QualityOption(720, "720p", true, "mp4")
+        assertEquals(
+            UserQualityPolicy.Auto(maxHeight = 720),
+            QualityPolicyResolver.forSelection(PlaybackStreamType.HLS, option)
+        )
+        assertEquals(
+            UserQualityPolicy.Fixed(option),
+            QualityPolicyResolver.forSelection(PlaybackStreamType.PROGRESSIVE, option)
+        )
+    }
+
+    @Test
+    fun surface_handoff_generations_reject_stale_attach_and_retain_previous_on_reject() {
+        val coordinator = PlaybackUiCoordinator()
+        val watch = coordinator.beginSurfaceHandoff(SurfaceOwner.WATCH)
+        assertTrue(coordinator.confirmSurfaceAttached(watch))
+        assertEquals(watch, coordinator.currentSurfaceLease())
+        assertTrue(coordinator.isCurrentSurfaceLease(watch))
+
+        val mini = coordinator.beginSurfaceHandoff(SurfaceOwner.MINI_PLAYER)
+        assertTrue(mini.generation > watch.generation)
+        assertFalse(coordinator.confirmSurfaceAttached(watch))
+        assertTrue(coordinator.rejectSurfaceAttach(mini))
+        assertEquals(watch, coordinator.currentSurfaceLease())
+        assertFalse(coordinator.isCurrentSurfaceLease(mini))
+    }
+
+    @Test
+    fun surface_handoff_latest_owner_supersedes_stale_detach_generation() {
+        val coordinator = PlaybackUiCoordinator()
+        val watch = coordinator.beginSurfaceHandoff(SurfaceOwner.WATCH)
+        assertTrue(coordinator.confirmSurfaceAttached(watch))
+        val mini = coordinator.beginSurfaceHandoff(SurfaceOwner.MINI_PLAYER)
+        assertTrue(coordinator.confirmSurfaceAttached(mini))
+        val pip = coordinator.beginSurfaceHandoff(SurfaceOwner.SYSTEM_PIP)
+        assertTrue(coordinator.confirmSurfaceAttached(pip))
+
+        assertFalse(coordinator.confirmSurfaceAttached(mini))
+        assertEquals(SurfaceOwner.SYSTEM_PIP, coordinator.currentSurfaceLease().owner)
+        assertEquals(pip.generation, coordinator.currentSurfaceLease().generation)
+    }
+
+    @Test
     fun playback_ui_coordinator_emits_setting_state_updates() {
         val coordinator = PlaybackUiCoordinator()
         assertTrue(coordinator.state.value.backgroundPlaybackEnabled)
         assertTrue(coordinator.state.value.pipEnabled)
         assertFalse(coordinator.state.value.watchVisible)
         assertFalse(coordinator.state.value.isInPip)
+        assertEquals(PlayerPresentation.WATCH, coordinator.state.value.presentation)
 
         coordinator.setBackgroundPlaybackEnabled(false)
         assertFalse(coordinator.state.value.backgroundPlaybackEnabled)
@@ -33,9 +78,65 @@ class SessionPlayerProtocolTest {
 
         coordinator.setWatchVisible(true)
         assertTrue(coordinator.state.value.watchVisible)
+        assertEquals(PlayerPresentation.WATCH, coordinator.state.value.presentation)
 
         coordinator.setInPip(true)
         assertTrue(coordinator.state.value.isInPip)
+        assertEquals(PlayerPresentation.SYSTEM_PIP, coordinator.state.value.presentation)
+
+        coordinator.setInPip(false)
+        assertFalse(coordinator.state.value.isInPip)
+        assertEquals(PlayerPresentation.WATCH, coordinator.state.value.presentation)
+    }
+
+    @Test
+    fun playback_ui_coordinator_minimize_request_and_visibility_transitions_with_guards() {
+        val coordinator = PlaybackUiCoordinator()
+
+        // Guard 1: Cannot minimize when watchVisible is false
+        assertFalse(coordinator.state.value.watchVisible)
+        coordinator.requestMinimizeToHome()
+        assertEquals(PlayerPresentation.WATCH, coordinator.state.value.presentation)
+
+        // Show Watch
+        coordinator.setWatchVisible(true)
+        assertEquals(PlayerPresentation.WATCH, coordinator.state.value.presentation)
+
+        // Guard 2: Cannot minimize when in PiP
+        coordinator.setInPip(true)
+        assertEquals(PlayerPresentation.SYSTEM_PIP, coordinator.state.value.presentation)
+        coordinator.requestMinimizeToHome()
+        assertEquals(PlayerPresentation.SYSTEM_PIP, coordinator.state.value.presentation)
+
+        coordinator.setInPip(false)
+        assertEquals(PlayerPresentation.WATCH, coordinator.state.value.presentation)
+
+        // Request minimize when valid (watchVisible == true, presentation == WATCH, isInPip == false)
+        coordinator.requestMinimizeToHome()
+        assertEquals(PlayerPresentation.MINIMIZING, coordinator.state.value.presentation)
+        assertFalse(coordinator.state.value.isInPip)
+        assertTrue(coordinator.state.value.pipEnabled)
+
+        // Guard 3: Idempotent while MINIMIZING
+        coordinator.requestMinimizeToHome()
+        assertEquals(PlayerPresentation.MINIMIZING, coordinator.state.value.presentation)
+
+        // setWatchVisible(false) while MINIMIZING -> transitions to MINI_PLAYER
+        coordinator.setWatchVisible(false)
+        assertEquals(PlayerPresentation.MINI_PLAYER, coordinator.state.value.presentation)
+
+        // Normal hide from non-MINIMIZING state does not transition to MINI_PLAYER
+        val normalCoordinator = PlaybackUiCoordinator()
+        normalCoordinator.setWatchVisible(true)
+        assertEquals(PlayerPresentation.WATCH, normalCoordinator.state.value.presentation)
+        normalCoordinator.setWatchVisible(false)
+        assertEquals(PlayerPresentation.WATCH, normalCoordinator.state.value.presentation)
+
+        // PiP exit returns to MINI_PLAYER if prior was MINI_PLAYER
+        coordinator.setInPip(true)
+        assertEquals(PlayerPresentation.SYSTEM_PIP, coordinator.state.value.presentation)
+        coordinator.setInPip(false)
+        assertEquals(PlayerPresentation.MINI_PLAYER, coordinator.state.value.presentation)
     }
 
     @Test

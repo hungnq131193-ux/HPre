@@ -74,4 +74,45 @@ class PlayerControlsPolicyTest {
     fun auto_hide_delay_stays_within_a_comfortable_reading_window() {
         assertEquals(3500L, PlayerControlsPolicy.AUTO_HIDE_DELAY_MS)
     }
+
+    // --- Task 4 Coordinator Decision Logic Tests ---
+
+    @Test
+    fun isMinimizeGestureAllowed_only_in_portrait_non_fullscreen_non_pip() {
+        assertTrue(
+            "Allowed in portrait, non-fullscreen, non-pip",
+            PlayerGesturePolicy.isMinimizeGestureAllowed(
+                isFullscreen = false,
+                isInPip = false,
+                minimizeEnabled = true
+            )
+        )
+
+        assertFalse(
+            "Disallowed in fullscreen",
+            PlayerGesturePolicy.isMinimizeGestureAllowed(
+                isFullscreen = true,
+                isInPip = false,
+                minimizeEnabled = true
+            )
+        )
+
+        assertFalse(
+            "Disallowed in PiP",
+            PlayerGesturePolicy.isMinimizeGestureAllowed(
+                isFullscreen = false,
+                isInPip = true,
+                minimizeEnabled = true
+            )
+        )
+
+        assertFalse(
+            "Disallowed when minimizeEnabled flag is false",
+            PlayerGesturePolicy.isMinimizeGestureAllowed(
+                isFullscreen = false,
+                isInPip = false,
+                minimizeEnabled = false
+            )
+        )
+    }
 }

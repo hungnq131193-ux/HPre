@@ -7,6 +7,8 @@ import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollTo
+import androidx.compose.ui.test.performTouchInput
+import androidx.compose.ui.test.swipeDown
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import com.hpre.app.core.designsystem.HPreTheme
 import com.hpre.app.di.AppContainer
@@ -138,9 +140,11 @@ class HomeToWatchNavigationTest {
                 _settingsFlow.value = _settingsFlow.value.copy(historyEnabled = enabled)
             }
         }
-        override fun createPlayerController(): PlayerController = object : PlayerController {
+        class CountingPlayerController : PlayerController {
             private val _state = kotlinx.coroutines.flow.MutableStateFlow(com.hpre.app.player.PlaybackState())
             override val state = _state
+            var prepareCount = 0
+
             override fun attachSurface(playerView: androidx.media3.ui.PlayerView) {}
             override fun detachSurface(playerView: androidx.media3.ui.PlayerView) {}
             override fun onLifecycleStart() {}
@@ -151,16 +155,44 @@ class HomeToWatchNavigationTest {
                 startPositionMs: Long,
                 playWhenReady: Boolean,
                 initialQuality: com.hpre.app.player.QualityOption?
-            ) {}
-            override fun play() {}
-            override fun pause() {}
-            override fun playPause() {}
-            override fun seekTo(positionMs: Long) {}
-            override fun seekBy(deltaMs: Long) {}
-            override fun setPlaybackSpeed(speed: Float) {}
-            override fun selectQuality(quality: com.hpre.app.player.QualityOption) {}
+            ) {
+                prepareCount++
+                _state.value = com.hpre.app.player.PlaybackState(
+                    key = key,
+                    title = streamInfo.title,
+                    isPlaying = playWhenReady,
+                    playWhenReady = playWhenReady,
+                    durationMs = 120_000L,
+                    currentPositionMs = startPositionMs,
+                    isReady = true
+                )
+            }
+            override fun play() {
+                _state.value = _state.value.copy(isPlaying = true)
+            }
+            override fun pause() {
+                _state.value = _state.value.copy(isPlaying = false)
+            }
+            override fun playPause() {
+                _state.value = _state.value.copy(isPlaying = !_state.value.isPlaying)
+            }
+            override fun seekTo(positionMs: Long) {
+                _state.value = _state.value.copy(currentPositionMs = positionMs)
+            }
+            override fun seekBy(deltaMs: Long) {
+                _state.value = _state.value.copy(currentPositionMs = _state.value.currentPositionMs + deltaMs)
+            }
+            override fun setPlaybackSpeed(speed: Float) {
+                _state.value = _state.value.copy(playbackSpeed = speed)
+            }
+            override fun selectQuality(quality: com.hpre.app.player.QualityOption) {
+                _state.value = _state.value.copy(selectedQuality = quality)
+            }
             override fun release() {}
         }
+
+        val countingPlayer = CountingPlayerController()
+        override fun createPlayerController(): PlayerController = countingPlayer
     }
 
     @Test
@@ -172,9 +204,13 @@ class HomeToWatchNavigationTest {
         )
         val container = TestContainer(fakeService)
 
+        var hostNavController: androidx.navigation.NavHostController? = null
+
         composeTestRule.setContent {
             HPreTheme {
-                RootScaffold(container = container)
+                val nav = androidx.navigation.compose.rememberNavController()
+                hostNavController = nav
+                RootScaffold(container = container, navController = nav)
             }
         }
 
@@ -200,8 +236,11 @@ class HomeToWatchNavigationTest {
         composeTestRule.onNodeWithTag("watch_video_title").assertIsDisplayed()
         composeTestRule.onNodeWithText("Video Details item999").assertIsDisplayed()
 
-        // Press back
-        composeTestRule.onNodeWithTag("watch_back_button").performClick()
+        // Press system back via NavController popBackStack
+        composeTestRule.runOnUiThread {
+            hostNavController?.popBackStack()
+        }
+        composeTestRule.waitForIdle()
         composeTestRule.onNodeWithTag("home_screen").assertIsDisplayed()
     }
 
@@ -246,6 +285,167 @@ class HomeToWatchNavigationTest {
         composeTestRule.onNodeWithTag("home_filter_chips").assertIsDisplayed()
         composeTestRule.onNodeWithTag("home_filter_chip_1").assertIsSelected()
         composeTestRule.onNodeWithTag("video_card_music_topic").assertIsDisplayed()
+    }
+
+    @Test
+    fun swipe_down_minimize_from_home_search_channel_library_subscriptions_and_related_watch_all_reach_single_home() {
+        val testVideo = summary("vid_1")
+        val relatedVideo = summary("vid_related")
+        val fakeService = FakeVideoService(
+            trendingResponse = com.hpre.app.core.error.AppResult.Success(listOf(testVideo)),
+            videoHandler = { key -> com.hpre.app.core.error.AppResult.Success(details(key.nativeId)) },
+            streamInfoHandler = { key -> com.hpre.app.core.error.AppResult.Success(StreamInfo(key, "Title ${key.nativeId}")) },
+            relatedHandler = { com.hpre.app.core.error.AppResult.Success(listOf(relatedVideo)) },
+            searchHandler = { _, _, _ -> com.hpre.app.core.error.AppResult.Success(SearchPage(listOf(SearchResultItem.VideoItem(testVideo)))) },
+            channelHandler = { key ->
+                com.hpre.app.core.error.AppResult.Success(
+                    com.hpre.app.model.ChannelDetails(
+                        channel = com.hpre.app.model.Channel(
+                            key = key,
+                            name = "Test Channel",
+                            canonicalUrl = "https://example.test/channel/${key.nativeId}",
+                            avatarUrl = null,
+                            bannerUrl = null,
+                            subscriberCountText = "10K",
+                            description = "desc"
+                        ),
+                        videos = listOf(testVideo)
+                    )
+                )
+            }
+        )
+        val container = TestContainer(fakeService)
+        val testCoordinator = com.hpre.app.player.PlaybackUiCoordinator()
+        var hostNavController: androidx.navigation.NavHostController? = null
+
+        composeTestRule.setContent {
+            HPreTheme {
+                val nav = androidx.navigation.compose.rememberNavController()
+                hostNavController = nav
+                RootScaffold(container = container, navController = nav, coordinator = testCoordinator)
+            }
+        }
+
+        fun assertSingleHomeDestination() {
+            composeTestRule.waitForIdle()
+            composeTestRule.onNodeWithTag("home_screen").assertIsDisplayed()
+            // Verify exactly one Home destination in backstack
+            val backQueue = hostNavController?.currentBackStack?.value ?: emptyList()
+            val homeCount = backQueue.count { it.destination.route == Screen.Home.route }
+            org.junit.Assert.assertEquals(1, homeCount)
+            org.junit.Assert.assertEquals(com.hpre.app.player.PlayerPresentation.MINI_PLAYER, testCoordinator.state.value.presentation)
+        }
+
+        fun performSwipeMinimize() {
+            composeTestRule.onNodeWithTag("player_controls_overlay").performTouchInput {
+                swipeDown(startY = centerY - 50, endY = centerY + 300)
+            }
+            composeTestRule.waitForIdle()
+        }
+
+        // 1. Origin: Home -> Watch -> Swipe Minimize -> Home (Canonical Flow asserting MiniPlayer and active state)
+        composeTestRule.waitUntil(5000) {
+            composeTestRule.onAllNodes(androidx.compose.ui.test.hasTestTag("video_card_vid_1")).fetchSemanticsNodes().isNotEmpty()
+        }
+        composeTestRule.onNodeWithTag("video_card_vid_1").performClick()
+        composeTestRule.waitUntil(5000) {
+            composeTestRule.onAllNodes(androidx.compose.ui.test.hasTestTag("watch_screen")).fetchSemanticsNodes().isNotEmpty()
+        }
+        org.junit.Assert.assertEquals(com.hpre.app.player.PlayerPresentation.WATCH, testCoordinator.state.value.presentation)
+        val initialPrepareCount = container.countingPlayer.prepareCount
+        val initialIsPlaying = container.countingPlayer.state.value.isPlaying
+        val initialPosition = container.countingPlayer.state.value.currentPositionMs
+        org.junit.Assert.assertTrue(initialPrepareCount > 0)
+        org.junit.Assert.assertTrue(initialIsPlaying)
+
+        performSwipeMinimize()
+        assertSingleHomeDestination()
+
+        // Assert mini player is displayed on Home, active media unchanged without re-prepare
+        composeTestRule.onNodeWithTag("mini-player", useUnmergedTree = true).assertIsDisplayed()
+        org.junit.Assert.assertEquals(initialPrepareCount, container.countingPlayer.prepareCount)
+        org.junit.Assert.assertEquals(testVideo.key, container.countingPlayer.state.value.key)
+        org.junit.Assert.assertEquals(initialIsPlaying, container.countingPlayer.state.value.isPlaying)
+        org.junit.Assert.assertEquals(initialPosition, container.countingPlayer.state.value.currentPositionMs)
+
+        // 2. Stack-origin integration fixture: Search -> Watch -> Swipe Minimize -> Home
+        composeTestRule.onNodeWithTag("top_bar_search_button").performClick()
+        composeTestRule.waitUntil(5000) {
+            composeTestRule.onAllNodes(androidx.compose.ui.test.hasTestTag("search_screen")).fetchSemanticsNodes().isNotEmpty()
+        }
+        composeTestRule.runOnUiThread {
+            hostNavController?.navigate(Screen.Watch.createRoute(testVideo.key))
+        }
+        composeTestRule.waitUntil(5000) {
+            composeTestRule.onAllNodes(androidx.compose.ui.test.hasTestTag("watch_screen")).fetchSemanticsNodes().isNotEmpty()
+        }
+        org.junit.Assert.assertEquals(com.hpre.app.player.PlayerPresentation.WATCH, testCoordinator.state.value.presentation)
+        performSwipeMinimize()
+        assertSingleHomeDestination()
+
+        // 3. Stack-origin integration fixture: Channel -> Watch -> Swipe Minimize -> Home
+        composeTestRule.runOnUiThread {
+            hostNavController?.navigate(Screen.Channel.createRoute(ContentKey(0, "c_vid_1")))
+        }
+        composeTestRule.waitUntil(5000) {
+            composeTestRule.onAllNodes(androidx.compose.ui.test.hasTestTag("channel_screen")).fetchSemanticsNodes().isNotEmpty()
+        }
+        composeTestRule.runOnUiThread {
+            hostNavController?.navigate(Screen.Watch.createRoute(testVideo.key))
+        }
+        composeTestRule.waitUntil(5000) {
+            composeTestRule.onAllNodes(androidx.compose.ui.test.hasTestTag("watch_screen")).fetchSemanticsNodes().isNotEmpty()
+        }
+        org.junit.Assert.assertEquals(com.hpre.app.player.PlayerPresentation.WATCH, testCoordinator.state.value.presentation)
+        performSwipeMinimize()
+        assertSingleHomeDestination()
+
+        // 4. Stack-origin integration fixture: Library -> Watch -> Swipe Minimize -> Home
+        composeTestRule.onNodeWithTag("bottom_nav_library").performClick()
+        composeTestRule.waitUntil(5000) {
+            composeTestRule.onAllNodes(androidx.compose.ui.test.hasTestTag("library_screen")).fetchSemanticsNodes().isNotEmpty()
+        }
+        composeTestRule.runOnUiThread {
+            hostNavController?.navigate(Screen.Watch.createRoute(testVideo.key))
+        }
+        composeTestRule.waitUntil(5000) {
+            composeTestRule.onAllNodes(androidx.compose.ui.test.hasTestTag("watch_screen")).fetchSemanticsNodes().isNotEmpty()
+        }
+        org.junit.Assert.assertEquals(com.hpre.app.player.PlayerPresentation.WATCH, testCoordinator.state.value.presentation)
+        performSwipeMinimize()
+        assertSingleHomeDestination()
+
+        // 5. Stack-origin integration fixture: Subscriptions -> Watch -> Swipe Minimize -> Home
+        composeTestRule.onNodeWithTag("bottom_nav_subscriptions").performClick()
+        composeTestRule.waitUntil(5000) {
+            composeTestRule.onAllNodes(androidx.compose.ui.test.hasTestTag("subscriptions_screen")).fetchSemanticsNodes().isNotEmpty()
+        }
+        composeTestRule.runOnUiThread {
+            hostNavController?.navigate(Screen.Watch.createRoute(testVideo.key))
+        }
+        composeTestRule.waitUntil(5000) {
+            composeTestRule.onAllNodes(androidx.compose.ui.test.hasTestTag("watch_screen")).fetchSemanticsNodes().isNotEmpty()
+        }
+        org.junit.Assert.assertEquals(com.hpre.app.player.PlayerPresentation.WATCH, testCoordinator.state.value.presentation)
+        performSwipeMinimize()
+        assertSingleHomeDestination()
+
+        // 6. Stack-origin integration fixture: Watch -> Related Watch -> Swipe Minimize -> Home
+        composeTestRule.runOnUiThread {
+            hostNavController?.navigate(Screen.Watch.createRoute(testVideo.key))
+        }
+        composeTestRule.waitUntil(5000) {
+            composeTestRule.onAllNodes(androidx.compose.ui.test.hasTestTag("watch_screen")).fetchSemanticsNodes().isNotEmpty()
+        }
+        composeTestRule.runOnUiThread {
+            hostNavController?.navigate(Screen.Watch.createRoute(relatedVideo.key))
+        }
+        composeTestRule.waitUntil(5000) {
+            composeTestRule.onAllNodes(androidx.compose.ui.test.hasTestTag("watch_screen")).fetchSemanticsNodes().isNotEmpty()
+        }
+        org.junit.Assert.assertEquals(com.hpre.app.player.PlayerPresentation.WATCH, testCoordinator.state.value.presentation)
+        performSwipeMinimize()
+        assertSingleHomeDestination()
     }
 }
 

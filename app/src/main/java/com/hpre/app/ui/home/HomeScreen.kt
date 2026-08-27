@@ -86,8 +86,8 @@ fun HomeScreen(
             is HomeUiState.Content -> {
                 val pullRefreshState = rememberPullToRefreshState()
                 PullToRefreshBox(
-                    isRefreshing = false,
-                    onRefresh = { viewModel.load(forceRefresh = true) },
+                    isRefreshing = state.content.isRefreshing,
+                    onRefresh = { viewModel.refresh() },
                     state = pullRefreshState,
                     modifier = Modifier.fillMaxSize()
                 ) {
@@ -96,7 +96,7 @@ fun HomeScreen(
                         modifier = Modifier.fillMaxSize().testTag("home_video_list")
                     ) {
                         items(
-                            items = state.videos,
+                            items = state.content.videos,
                             key = { it.key.toString() }
                         ) { video ->
                             VideoCard(

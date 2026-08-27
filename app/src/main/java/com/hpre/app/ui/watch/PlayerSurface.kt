@@ -4,20 +4,26 @@ import android.view.ViewGroup
 import android.widget.FrameLayout
 import androidx.annotation.OptIn
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.ui.PlayerView
 import com.hpre.app.player.PlayerController
+import com.hpre.app.player.PlaybackUiCoordinator
+import com.hpre.app.player.SurfaceOwner
 
 @OptIn(UnstableApi::class)
 @Composable
 fun PlayerSurface(
     playerController: PlayerController,
     modifier: Modifier = Modifier,
-    useController: Boolean = false
+    useController: Boolean = false,
+    coordinator: PlaybackUiCoordinator? = null,
+    owner: SurfaceOwner = SurfaceOwner.WATCH
 ) {
+    val lease = remember(coordinator, owner) { coordinator?.beginSurfaceHandoff(owner) }
     AndroidView(
         factory = { ctx ->
             PlayerView(ctx).apply {
@@ -30,13 +36,21 @@ fun PlayerSurface(
             }
         },
         update = { playerView ->
-            playerController.attachSurface(playerView)
+            if (lease == null) {
+                playerController.attachSurface(playerView)
+            } else if (playerController.attachSurface(playerView, lease)) {
+                coordinator?.confirmSurfaceAttached(lease)
+            } else {
+                coordinator?.rejectSurfaceAttach(lease)
+            }
         },
         onRelease = { playerView ->
-            playerController.detachSurface(playerView)
+            if (lease == null) playerController.detachSurface(playerView)
+            else playerController.detachSurface(playerView, lease)
         },
         onReset = { playerView ->
-            playerController.detachSurface(playerView)
+            if (lease == null) playerController.detachSurface(playerView)
+            else playerController.detachSurface(playerView, lease)
         },
         modifier = modifier.testTag("player_surface")
     )
