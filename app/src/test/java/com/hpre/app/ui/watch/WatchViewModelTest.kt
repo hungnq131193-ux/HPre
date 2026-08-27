@@ -25,6 +25,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.test.StandardTestDispatcher
+import kotlinx.coroutines.test.advanceTimeBy
 import kotlinx.coroutines.test.advanceUntilIdle
 import kotlinx.coroutines.test.resetMain
 import kotlinx.coroutines.test.runCurrent
@@ -63,6 +64,7 @@ class WatchViewModelTest {
         override val state: StateFlow<PlaybackState> = _state
 
         var preparedKey: ContentKey? = null
+        var prepareCount = 0
         var preparedStreamInfo: StreamInfo? = null
         var startPositionMs: Long? = null
         var playWhenReady: Boolean? = null
@@ -70,6 +72,7 @@ class WatchViewModelTest {
         var isReleased = false
         var playPauseCalled = false
         var seekByDelta: Long? = null
+        val seekToPositions = mutableListOf<Long>()
         var selectedSpeed: Float? = null
         var selectedQualityOption: QualityOption? = null
         var attachedViewCount = 0
@@ -93,6 +96,7 @@ class WatchViewModelTest {
             playWhenReady: Boolean,
             initialQuality: QualityOption?
         ) {
+            prepareCount++
             preparedKey = key
             preparedStreamInfo = streamInfo
             this.startPositionMs = startPositionMs
@@ -121,6 +125,7 @@ class WatchViewModelTest {
         }
 
         override fun seekTo(positionMs: Long) {
+            seekToPositions += positionMs
             _state.value = _state.value.copy(currentPositionMs = positionMs)
         }
 
@@ -211,6 +216,38 @@ class WatchViewModelTest {
     }
 
     @Test
+    fun load_active_key_skips_stream_extraction_prepare_and_seek() = runTest(testDispatcher) {
+        val fakeService = FakeVideoService(
+            videoHandler = { AppResult.Success(testDetails(it)) },
+            streamInfoHandler = { AppResult.Success(testStreamInfo(it)) }
+        )
+        val fakePlayer = FakePlayerController().apply {
+            _state.value = PlaybackState(
+                key = testKey,
+                isPlaying = true,
+                isReady = true,
+                currentPositionMs = 42_000L,
+                durationMs = 120_000L
+            )
+        }
+        val viewModel = WatchViewModel(
+            videoService = fakeService,
+            playerController = fakePlayer,
+            savedStateHandle = androidx.lifecycle.SavedStateHandle(),
+            ioDispatcher = testDispatcher
+        )
+
+        viewModel.load(testKey)
+        advanceUntilIdle()
+
+        assertEquals(0, fakeService.streamInfoCallCount)
+        assertEquals(0, fakePlayer.prepareCount)
+        assertTrue(fakePlayer.seekToPositions.isEmpty())
+        assertEquals(42_000L, fakePlayer.state.value.currentPositionMs)
+        assertEquals(testDetails(testKey), viewModel.uiState.value.details)
+    }
+
+    @Test
     fun load_prepares_player_before_video_details_finish() = runTest(testDispatcher) {
         val details = CompletableDeferred<AppResult<VideoDetails>>()
         val stream = CompletableDeferred<AppResult<StreamInfo>>()
@@ -244,7 +281,7 @@ class WatchViewModelTest {
     }
 
     @Test
-    fun load_prepares_before_slow_history_then_applies_resume_seek() = runTest(testDispatcher) {
+    fun load_falls_back_to_zero_when_history_lookup_times_out() = runTest(testDispatcher) {
         val historyResult = CompletableDeferred<AppResult<com.hpre.app.repository.WatchHistoryItem?>>()
         val historyRepo = object : com.hpre.app.repository.HistoryRepository {
             override fun observeHistory() = kotlinx.coroutines.flow.emptyFlow<List<com.hpre.app.repository.WatchHistoryItem>>()
@@ -268,19 +305,14 @@ class WatchViewModelTest {
 
         model.load(testKey)
         runCurrent()
+        assertNull(player.preparedKey)
+
+        advanceTimeBy(WatchViewModel.RESUME_LOOKUP_TIMEOUT_MS)
+        runCurrent()
+
         assertEquals(testKey, player.preparedKey)
         assertEquals(0L, player.startPositionMs)
-
-        historyResult.complete(
-            AppResult.Success(
-                com.hpre.app.repository.WatchHistoryItem(
-                    testKey, "https://hpre.test/watch", "Title", null, null, null,
-                    durationSeconds = 100, playbackPositionMs = 50_000, watchedTimestamp = 1
-                )
-            )
-        )
-        advanceUntilIdle()
-        assertEquals(50_000L, player.state.value.currentPositionMs)
+        assertTrue(player.seekToPositions.isEmpty())
     }
 
     @Test
@@ -1338,7 +1370,7 @@ class WatchViewModelTest {
     }
 
     @Test
-    fun load_reads_history_and_seeks_if_should_offer_resume() = runTest(testDispatcher) {
+    fun load_passes_resumable_history_position_into_prepare_without_post_seek() = runTest(testDispatcher) {
         val fakeService = FakeVideoService(
             videoHandler = { AppResult.Success(testDetails(it)) },
             streamInfoHandler = { AppResult.Success(testStreamInfo(it)) }
@@ -1376,8 +1408,9 @@ class WatchViewModelTest {
         viewModel.load(testKey)
         advanceUntilIdle()
 
-        assertEquals(0L, fakePlayer.startPositionMs)
-        assertEquals(50000L, fakePlayer.state.value.currentPositionMs)
+        assertEquals(50_000L, fakePlayer.startPositionMs)
+        assertEquals(1, fakePlayer.prepareCount)
+        assertTrue(fakePlayer.seekToPositions.isEmpty())
     }
 
     @Test

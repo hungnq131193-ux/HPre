@@ -20,6 +20,7 @@ import com.hpre.app.player.PlaybackState
 import com.hpre.app.player.PlayerController
 import com.hpre.app.player.QualityOption
 import com.hpre.app.repository.CatalogRepository
+import com.hpre.app.repository.HistoryRepository
 import com.hpre.app.repository.RecommendationRequest
 import com.hpre.app.repository.VideoService
 import com.hpre.app.repository.WatchRecommendationSource
@@ -38,6 +39,7 @@ import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withTimeoutOrNull
 
 class RefreshableAsyncState<T> private constructor(
     val value: T?,
@@ -120,6 +122,7 @@ class WatchViewModel(
 
     companion object {
         const val KEY_IS_FULLSCREEN = "watch_is_fullscreen"
+        internal const val RESUME_LOOKUP_TIMEOUT_MS = 1_500L
 
         fun provideFactory(
             videoService: VideoService,
@@ -229,6 +232,19 @@ class WatchViewModel(
     private var commentsJob: Job? = null
     private var commentsInFlight = false
 
+    private suspend fun loadResumePosition(key: ContentKey): Long {
+        val repository = historyRepository ?: return 0L
+        return withTimeoutOrNull(RESUME_LOOKUP_TIMEOUT_MS) {
+            val item = (repository.getHistoryItem(key) as? AppResult.Success)?.value
+            item?.takeIf {
+                HistoryRepository.shouldOfferResume(
+                    positionMs = it.playbackPositionMs,
+                    durationSeconds = it.durationSeconds
+                )
+            }?.playbackPositionMs ?: 0L
+        } ?: 0L
+    }
+
     fun load(key: ContentKey, forceRefresh: Boolean = false) {
         if (!forceRefresh && currentKey == key && _uiState.value.details != null && _uiState.value.error == null && playbackState.value.error == null) {
             return
@@ -257,53 +273,45 @@ class WatchViewModel(
                 val detailsDeferred = async {
                     catalogRepository?.video(key, forceRefresh = forceRefresh) ?: videoService.video(key)
                 }
-                val streamDeferred = async { videoService.streamInfo(key) }
+                val activePlayback = playbackState.value
+                val reuseActivePlayer = activePlayback.key == key && activePlayback.error == null
 
-                val streamResult = streamDeferred.await()
+                if (!reuseActivePlayer) {
+                    val resumeDeferred = async { loadResumePosition(key) }
+                    val streamResult = videoService.streamInfo(key)
 
-                if (generation != currentGeneration || currentKey != key) return@launch
-
-                if (streamResult is AppResult.Failure) {
-                    detailsDeferred.cancel()
-                    _uiState.update { it.copy(isLoading = false, error = streamResult.error) }
-                    return@launch
-                }
-
-                val preparedCurrentSession = synchronized(sessionGuard) {
                     if (generation != currentGeneration || currentKey != key) {
-                        false
-                    } else {
-                        playerController.prepare(
-                            key,
-                            (streamResult as AppResult.Success).value,
-                            startPositionMs = 0L
-                        )
-                        true
+                        resumeDeferred.cancel()
+                        return@launch
                     }
+
+                    if (streamResult is AppResult.Failure) {
+                        resumeDeferred.cancel()
+                        detailsDeferred.cancel()
+                        _uiState.update { it.copy(isLoading = false, error = streamResult.error) }
+                        return@launch
+                    }
+
+                    val resumePositionMs = resumeDeferred.await()
+                    val preparedCurrentSession = synchronized(sessionGuard) {
+                        if (generation != currentGeneration || currentKey != key) {
+                            false
+                        } else {
+                            playerController.prepare(
+                                key,
+                                (streamResult as AppResult.Success).value,
+                                startPositionMs = resumePositionMs
+                            )
+                            true
+                        }
+                    }
+                    if (!preparedCurrentSession) return@launch
                 }
-                if (!preparedCurrentSession) return@launch
+
                 if (watchRecommendationSource == null) {
                     executeRelated(key, null, forceRefresh = forceRefresh, isRefresh = false)
                 }
                 loadComments(key, generation, null, append = false)
-
-                launch {
-                    val historyResult = historyRepository?.getHistoryItem(key)
-                    if (generation != currentGeneration || currentKey != key) return@launch
-                    val historyItem = (historyResult as? AppResult.Success)?.value
-                    if (historyItem != null &&
-                        com.hpre.app.repository.HistoryRepository.shouldOfferResume(
-                            historyItem.playbackPositionMs,
-                            historyItem.durationSeconds
-                        )
-                    ) {
-                        synchronized(sessionGuard) {
-                            if (generation == currentGeneration && currentKey == key) {
-                                playerController.seekTo(historyItem.playbackPositionMs)
-                            }
-                        }
-                    }
-                }
 
                 when (val detailsResult = detailsDeferred.await()) {
                     is AppResult.Success -> {
