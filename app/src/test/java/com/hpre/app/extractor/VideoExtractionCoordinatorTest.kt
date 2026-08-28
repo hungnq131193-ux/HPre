@@ -113,7 +113,7 @@ class VideoExtractionCoordinatorTest {
     }
 
     @Test fun extraction_count_increases_only_for_real_upstream_work() = runTest {
-        val coordinator = VideoExtractionCoordinator(this)
+        val coordinator = VideoExtractionCoordinator(this, countExtractions = true)
         val key = ContentKey(0, "counted")
 
         repeat(3) {
