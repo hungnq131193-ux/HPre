@@ -15,6 +15,8 @@ import com.hpre.app.model.VideoSummary
 import com.hpre.app.repository.VideoService
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineDispatcher
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withContext
 import java.io.InterruptedIOException
@@ -32,7 +34,9 @@ import kotlin.coroutines.resumeWithException
  */
 class NewPipeVideoService internal constructor(
     private val ioDispatcher: CoroutineDispatcher = ExtractorDispatcher.IO,
-    private val operations: ExtractorOperations = DefaultExtractorOperations()
+    private val operations: ExtractorOperations = DefaultExtractorOperations(),
+    serviceScope: CoroutineScope = CoroutineScope(SupervisorJob() + ioDispatcher),
+    private val extractionCoordinator: VideoExtractionCoordinator = VideoExtractionCoordinator(serviceScope)
 ) : VideoService {
 
     constructor(ioDispatcher: CoroutineDispatcher = ExtractorDispatcher.IO) : this(
@@ -105,8 +109,9 @@ class NewPipeVideoService internal constructor(
         if (key.serviceId != serviceId) {
             return AppResult.Failure(AppError.ExtractionFailed)
         }
-        return extract {
-            operations.video(key)
+        return when (val result = bundle(key)) {
+            is AppResult.Success -> AppResult.Success(result.value.details)
+            is AppResult.Failure -> result
         }
     }
 
@@ -114,8 +119,9 @@ class NewPipeVideoService internal constructor(
         if (key.serviceId != serviceId) {
             return AppResult.Failure(AppError.ExtractionFailed)
         }
-        return extract {
-            operations.streamInfo(key)
+        return when (val result = bundle(key)) {
+            is AppResult.Success -> AppResult.Success(result.value.streamInfo)
+            is AppResult.Failure -> result
         }
     }
 
@@ -132,10 +138,16 @@ class NewPipeVideoService internal constructor(
         if (key.serviceId != serviceId) {
             return AppResult.Failure(AppError.ExtractionFailed)
         }
-        return extract {
-            operations.related(key)
+        return when (val result = bundle(key)) {
+            is AppResult.Success -> AppResult.Success(result.value.related)
+            is AppResult.Failure -> result
         }
     }
+
+    private suspend fun bundle(key: ContentKey): AppResult<ExtractedVideoBundle> =
+        extractionCoordinator.execute(key) {
+            extract { operations.videoBundle(key) }
+        }
 
     override suspend fun playlist(key: ContentKey): AppResult<PlaylistDetails> {
         if (key.serviceId != serviceId) {
