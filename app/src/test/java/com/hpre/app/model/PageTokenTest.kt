@@ -19,8 +19,8 @@ class PageTokenTest {
 
     @Test
     fun page_token_source_has_no_extractor_or_external_package_imports() {
-        val sourceFile = File("src/main/java/com/HPre/app/model/PageToken.kt")
-            .let { if (it.exists()) it else File("app/src/main/java/com/HPre/app/model/PageToken.kt") }
+        val sourceFile = File("src/main/java/com/hpre/app/model/PageToken.kt")
+            .let { if (it.exists()) it else File("app/src/main/java/com/hpre/app/model/PageToken.kt") }
         assertTrue("PageToken.kt must exist", sourceFile.exists())
 
         val content = sourceFile.readText()

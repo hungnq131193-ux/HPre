@@ -45,8 +45,8 @@ class PlayerPackageBoundaryTest {
         val mainSourceRoot = findMainSourceRoot()
         val testSourceRoot = findTestSourceRoot()
 
-        val playerMainDir = File(mainSourceRoot, "com/HPre/app/player")
-        val playerTestDir = File(testSourceRoot, "com/HPre/app/player")
+        val playerMainDir = File(mainSourceRoot, "com/hpre/app/player")
+        val playerTestDir = File(testSourceRoot, "com/hpre/app/player")
 
         assertTrue("Player main directory must exist", playerMainDir.exists())
         assertTrue("Player test directory must exist", playerTestDir.exists())
@@ -85,7 +85,7 @@ class PlayerPackageBoundaryTest {
     @Test
     fun ui_watch_package_does_not_directly_import_or_invoke_raw_exoplayer() {
         val mainSourceRoot = findMainSourceRoot()
-        val watchUiDir = File(mainSourceRoot, "com/HPre/app/ui/watch")
+        val watchUiDir = File(mainSourceRoot, "com/hpre/app/ui/watch")
 
         assertTrue("Watch UI directory must exist", watchUiDir.exists())
 

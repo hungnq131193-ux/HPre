@@ -152,9 +152,9 @@ class PackageBoundaryArchitectureTest {
     @Test
     fun isExtractorFile_correctly_identifies_exact_package_and_rejects_deceptive_paths() {
         val sourceRoot = findMainSourceRoot()
-        val extractorFile = File(sourceRoot, "com/HPre/app/extractor/OkHttpDownloader.kt")
-        val outsideFile = File(sourceRoot, "com/HPre/app/repository/VideoService.kt")
-        val deceptiveFile = File(sourceRoot, "com/HPre/app/extractors/FakeService.kt")
+        val extractorFile = File(sourceRoot, "com/hpre/app/extractor/OkHttpDownloader.kt")
+        val outsideFile = File(sourceRoot, "com/hpre/app/repository/VideoService.kt")
+        val deceptiveFile = File(sourceRoot, "com/hpre/app/extractors/FakeService.kt")
 
         assertTrue(isExtractorFile(extractorFile, sourceRoot))
         assertFalse(isExtractorFile(outsideFile, sourceRoot))
