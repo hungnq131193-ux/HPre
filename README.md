@@ -63,6 +63,8 @@ Trên Windows có thể dùng `gradlew.bat assembleDebug`.
 
 Release build phải dùng signing key riêng của người phát hành. Keystore và mật khẩu không thuộc source repository và không được chia sẻ công khai. Mọi bản cập nhật phải dùng cùng signing certificate để có thể cài đè an toàn.
 
+Trước mỗi bản phát hành mới, phải tăng cả `versionName` và `versionCode`, sau đó chạy cổng kiểm tra cài đè trong [`scripts/release`](scripts/release/README.md). Tag và GitHub Release chỉ được tạo sau khi APK mới cài đè thành công lên APK đã phát hành bằng `adb install -r`, giữ nguyên dữ liệu cục bộ và có cùng signing certificate.
+
 ## Tải xuống
 
 Tải APK đã ký từ mục **Releases** của repository GitHub. Không tải APK từ nhánh source.
