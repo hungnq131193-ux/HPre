@@ -71,6 +71,10 @@ interface AppContainer {
             UpdateCheckResult.Unavailable(UpdateUnavailableReason.NETWORK)
         }
     fun createPlayerController(): PlayerController
+    fun updatePlayerLifecyclePolicy(
+        backgroundEnabled: Boolean,
+        pipActiveOrEntering: Boolean
+    ) = Unit
 }
 
 /**
@@ -174,6 +178,11 @@ class DefaultAppContainer(
         GitHubReleaseUpdateChecker(okHttpClient)
     }
 
+    @Volatile
+    private var backgroundPlaybackEnabled = true
+    @Volatile
+    private var pipActiveOrEntering = false
+
     private val sessionPlayerController = AppScopedPlayerControllerProvider {
         val coordinator = StreamRecoveryCoordinator(videoService = videoService)
         SessionPlayerController(
@@ -181,8 +190,25 @@ class DefaultAppContainer(
             mediaSourceFactory = mediaSourceFactory,
             recoveryCoordinator = coordinator,
             externalScope = applicationScope
-        )
+        ).also { controller ->
+            controller.updateLifecyclePolicy(
+                backgroundEnabled = backgroundPlaybackEnabled,
+                pipActiveOrEntering = pipActiveOrEntering
+            )
+        }
     }
 
     override fun createPlayerController(): PlayerController = sessionPlayerController.get()
+
+    override fun updatePlayerLifecyclePolicy(
+        backgroundEnabled: Boolean,
+        pipActiveOrEntering: Boolean
+    ) {
+        backgroundPlaybackEnabled = backgroundEnabled
+        this.pipActiveOrEntering = pipActiveOrEntering
+        sessionPlayerController.getIfInitialized()?.updateLifecyclePolicy(
+            backgroundEnabled = backgroundEnabled,
+            pipActiveOrEntering = pipActiveOrEntering
+        )
+    }
 }

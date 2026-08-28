@@ -3,7 +3,12 @@ package com.hpre.app.player
 internal class AppScopedPlayerControllerProvider<T : PlayerController>(
     private val factory: () -> T
 ) {
-    private val instance: T by lazy(factory)
+    @Volatile
+    private var instance: T? = null
 
-    fun get(): T = instance
+    fun get(): T = instance ?: synchronized(this) {
+        instance ?: factory().also { instance = it }
+    }
+
+    fun getIfInitialized(): T? = instance
 }
