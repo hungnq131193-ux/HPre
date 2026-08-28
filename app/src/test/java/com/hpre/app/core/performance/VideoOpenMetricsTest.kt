@@ -37,4 +37,16 @@ class VideoOpenMetricsTest {
         metrics.mark(session, VideoOpenEvent.DETAILS_READY)
         assertTrue(records.isEmpty())
     }
+
+    @Test fun starting_another_key_replaces_the_only_active_session() {
+        val metrics = VideoOpenMetrics(enabled = true, sink = {})
+        val firstKey = ContentKey(0, "first")
+        val secondKey = ContentKey(0, "second")
+
+        metrics.start(firstKey)
+        val second = metrics.start(secondKey)
+
+        assertEquals(null, metrics.activeSession(firstKey))
+        assertEquals(second, metrics.activeSession(secondKey))
+    }
 }

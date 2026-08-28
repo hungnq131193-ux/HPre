@@ -285,35 +285,61 @@ class WatchViewModel(
 
             cachedSnapshot.relatedVideos?.let { videos ->
                 _relatedState.value = RefreshableAsyncState.content(videos)
+            } ?: run {
+                _relatedState.value = RefreshableAsyncState.initial()
             }
             videoOpenMetrics.mark(metricsSession, VideoOpenEvent.DETAILS_READY)
 
             cachedSnapshot.comments?.let { page ->
                 _commentsState.value = if (page.comments.isEmpty()) AsyncState.Empty else AsyncState.Content(page)
+            } ?: run {
+                _commentsState.value = if (videoService.supportsComments) AsyncState.Loading else AsyncState.Empty
             }
 
             val activePlayback = playbackState.value
             val reuseActivePlayer = activePlayback.key == key && activePlayback.error == null
             if (!reuseActivePlayer) {
-                viewModelScope.launch(ioDispatcher) {
-                    val resumeDeferred = async { loadResumePosition(key) }
-                    val streamResult = videoService.streamInfo(key)
-                    if (generation == currentGeneration && currentKey == key && streamResult is AppResult.Success) {
+                loadJob = viewModelScope.launch(ioDispatcher) {
+                    try {
+                        val resumeDeferred = async { loadResumePosition(key) }
+                        val streamResult = videoService.streamInfo(key)
+                        if (generation != currentGeneration || currentKey != key) {
+                            resumeDeferred.cancel()
+                            return@launch
+                        }
+                        if (streamResult is AppResult.Failure) {
+                            resumeDeferred.cancel()
+                            _uiState.update { it.copy(isLoading = false, error = streamResult.error) }
+                            return@launch
+                        }
                         videoOpenMetrics.mark(metricsSession, VideoOpenEvent.STREAM_INFO_READY)
-                        videoOpenMetrics.mark(metricsSession, VideoOpenEvent.PLAYER_PREPARE)
-                        playerController.prepare(
-                            key,
-                            streamResult.value,
-                            startPositionMs = resumeDeferred.await()
-                        )
+                        val resumePositionMs = resumeDeferred.await()
+                        val preparedCurrentSession = synchronized(sessionGuard) {
+                            if (generation != currentGeneration || currentKey != key) {
+                                false
+                            } else {
+                                videoOpenMetrics.mark(metricsSession, VideoOpenEvent.PLAYER_PREPARE)
+                                playerController.prepare(
+                                    key,
+                                    (streamResult as AppResult.Success).value,
+                                    startPositionMs = resumePositionMs
+                                )
+                                true
+                            }
+                        }
+                        if (!preparedCurrentSession) return@launch
                         if (cachedSnapshot.relatedVideos == null) {
                             executeRelated(key, cachedSnapshot.details, forceRefresh = false, isRefresh = false)
                         }
                         if (cachedSnapshot.comments == null) {
                             loadComments(key, generation, null, append = false)
                         }
-                    } else {
-                        resumeDeferred.cancel()
+                    } catch (cancelled: CancellationException) {
+                        throw cancelled
+                    } catch (_: Throwable) {
+                        if (generation == currentGeneration && currentKey == key) {
+                            _uiState.update { it.copy(isLoading = false, error = AppError.Unknown) }
+                        }
                     }
                 }
             } else {
@@ -344,6 +370,8 @@ class WatchViewModel(
                 error = null
             )
         }
+        _relatedState.value = RefreshableAsyncState.initial()
+        _commentsState.value = if (videoService.supportsComments) AsyncState.Loading else AsyncState.Empty
 
         loadJob = viewModelScope.launch(ioDispatcher) {
             try {

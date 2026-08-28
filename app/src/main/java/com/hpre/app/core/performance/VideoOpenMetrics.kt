@@ -45,7 +45,10 @@ class VideoOpenMetrics(
 
     fun start(key: ContentKey): VideoOpenSession {
         val session = VideoOpenSession(key, generation.incrementAndGet(), nowMs())
-        synchronized(lock) { active[key] = session }
+        synchronized(lock) {
+            active.clear()
+            active[key] = session
+        }
         emit(session, VideoOpenEvent.VIDEO_OPEN_START)
         return session
     }
