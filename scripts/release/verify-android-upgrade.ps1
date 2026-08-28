@@ -24,9 +24,16 @@ function Invoke-Checked {
         [Parameter(Mandatory = $true)][string[]]$Arguments,
         [string]$FailureMessage = 'Native command failed'
     )
-    $output = @(& $FilePath @Arguments 2>&1)
-    if ($LASTEXITCODE -ne 0) {
-        Fail "$FailureMessage (exit $LASTEXITCODE)"
+    $previousPreference = $ErrorActionPreference
+    $ErrorActionPreference = 'Continue'
+    try {
+        $output = @(& $FilePath @Arguments 2>&1)
+        $exitCode = $LASTEXITCODE
+    } finally {
+        $ErrorActionPreference = $previousPreference
+    }
+    if ($exitCode -ne 0) {
+        Fail "$FailureMessage (exit $exitCode)"
     }
     return $output
 }
@@ -144,21 +151,27 @@ function Open-Settings {
     Invoke-Adb $Adb $Serial @('shell', 'am', 'start', '-W', '-n', 'com.hpre.app/.MainActivity') 'Could not launch HPre' | Out-Null
     Start-Sleep -Seconds 2
     $homeDump = Join-Path $TempDirectory 'home.xml'
-    $home = Get-UiHierarchy $Adb $Serial $homeDump 'hpre-upgrade-home.xml'
-    $settingsNode = Find-UiNode $home '' $script:settingsLabel
+    $homeHierarchy = Get-UiHierarchy $Adb $Serial $homeDump 'hpre-upgrade-home.xml'
+    $settingsNode = Find-UiNode $homeHierarchy '' $script:settingsLabel
     $center = Get-BoundsCenter $settingsNode.GetAttribute('bounds')
     Invoke-Adb $Adb $Serial @('shell', 'input', 'tap', "$($center.X)", "$($center.Y)") 'Could not open Settings' | Out-Null
     Start-Sleep -Seconds 1
 }
 
 function Set-BackgroundPlaybackDisabled {
-    param([string]$Adb, [string]$Serial, [string]$TempDirectory, [string]$DumpName)
+    param(
+        [string]$Adb,
+        [string]$Serial,
+        [string]$TempDirectory,
+        [string]$DumpName,
+        [bool]$AllowToggle
+    )
     $dump = Join-Path $TempDirectory $DumpName
     $hierarchy = Get-UiHierarchy $Adb $Serial $dump "hpre-$DumpName"
     $label = Find-UiNode $hierarchy $script:backgroundPlaybackLabel ''
     $labelCenter = Get-BoundsCenter $label.GetAttribute('bounds')
     $switches = @($hierarchy.SelectNodes('//node') | Where-Object {
-        $_.GetAttribute('class') -eq 'android.widget.Switch' -or
+        ($_.GetAttribute('checkable') -eq 'true' -and $_.GetAttribute('clickable') -eq 'true') -or
             $_.GetAttribute('content-desc') -eq $script:backgroundPlaybackLabel
     })
     $near = @($switches | ForEach-Object {
@@ -169,12 +182,15 @@ function Set-BackgroundPlaybackDisabled {
         Fail 'Could not identify the background playback switch.'
     }
     $switch = $near[0]
+    if ($switch.Node.GetAttribute('checked') -eq 'true' -and -not $AllowToggle) {
+        Fail 'Background playback marker was reset during install-over.'
+    }
     if ($switch.Node.GetAttribute('checked') -eq 'true') {
         Invoke-Adb $Adb $Serial @('shell', 'input', 'tap', "$($switch.Center.X)", "$($switch.Center.Y)") 'Could not toggle background playback' | Out-Null
         Start-Sleep -Milliseconds 500
         $hierarchy = Get-UiHierarchy $Adb $Serial $dump "hpre-$DumpName"
         $switches = @($hierarchy.SelectNodes('//node') | Where-Object {
-            $_.GetAttribute('class') -eq 'android.widget.Switch'
+            $_.GetAttribute('checkable') -eq 'true' -and $_.GetAttribute('clickable') -eq 'true'
         })
         $switch = @($switches | ForEach-Object {
             $center = Get-BoundsCenter $_.GetAttribute('bounds')
@@ -231,7 +247,7 @@ try {
     }
 
     Open-Settings $adb $serial $tempDirectory
-    Set-BackgroundPlaybackDisabled $adb $serial $tempDirectory 'baseline-settings.xml'
+    Set-BackgroundPlaybackDisabled $adb $serial $tempDirectory 'baseline-settings.xml' $true
 
     $installCandidate = Invoke-Adb $adb $serial @('install', '-r', $candidate.Path) 'Could not install candidate over baseline'
     if (($installCandidate -join "`n") -notmatch 'Success') { Fail 'Candidate install-over did not report Success.' }
@@ -241,7 +257,7 @@ try {
     }
 
     Open-Settings $adb $serial $tempDirectory
-    Set-BackgroundPlaybackDisabled $adb $serial $tempDirectory 'candidate-settings.xml'
+    Set-BackgroundPlaybackDisabled $adb $serial $tempDirectory 'candidate-settings.xml' $false
     for ($i = 0; $i -lt 4; $i++) {
         Invoke-Adb $adb $serial @('shell', 'input', 'swipe', '500', '1600', '500', '500', '300') 'Could not scroll Settings' | Out-Null
         Start-Sleep -Milliseconds 300
