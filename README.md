@@ -1,5 +1,10 @@
 # HPre
 
+[![Android CI](https://github.com/hungnq131193-ux/HPre/actions/workflows/android.yml/badge.svg?branch=main)](https://github.com/hungnq131193-ux/HPre/actions/workflows/android.yml)
+[![Latest Release](https://img.shields.io/github/v/release/hungnq131193-ux/HPre)](https://github.com/hungnq131193-ux/HPre/releases/latest)
+[![License: GPL-3.0-or-later](https://img.shields.io/badge/License-GPL--3.0--or--later-blue.svg)](LICENSE)
+[![Android API](https://img.shields.io/badge/Android-API%2026%2B-3DDC84.svg?logo=android)](https://developer.android.com/about/versions/oreo)
+
 ## Giới thiệu
 
 HPre là ứng dụng khách video độc lập dành cho Android. Ứng dụng sử dụng NewPipeExtractor để xử lý dữ liệu và luồng công khai, không sử dụng YouTube Data API chính thức cho chức năng này. Việc phát nội dung được thực hiện bằng AndroidX Media3/ExoPlayer.
@@ -13,6 +18,7 @@ HPre là ứng dụng khách video độc lập dành cho Android. Ứng dụng 
 - Xem bình luận và nội dung liên quan.
 - Lưu cục bộ lịch sử xem, danh sách phát và kênh theo dõi.
 - Giao diện theo hệ thống, sáng hoặc tối.
+- Kiểm tra cập nhật thủ công trong Cài đặt và mở trang GitHub Release chính thức.
 
 ## Screenshots
 
