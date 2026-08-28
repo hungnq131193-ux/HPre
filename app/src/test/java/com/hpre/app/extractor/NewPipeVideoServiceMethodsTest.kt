@@ -48,7 +48,7 @@ class NewPipeVideoServiceMethodsTest {
     fun related_returns_failure_on_http_error() = runBlocking {
         ExtractorBootstrap.init(OkHttpDownloader())
         val errorOps = object : ExtractorOperations by DefaultExtractorOperations() {
-            override fun related(key: ContentKey): List<VideoSummary> {
+            override fun videoBundle(key: ContentKey): ExtractedVideoBundle {
                 throw ExtractorHttpException(404, ExtractorOperationContext.EXTRACTION_METADATA)
             }
         }

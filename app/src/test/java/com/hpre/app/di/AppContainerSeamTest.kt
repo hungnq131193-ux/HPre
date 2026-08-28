@@ -10,6 +10,7 @@ import kotlinx.coroutines.test.setMain
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import java.lang.reflect.Modifier
@@ -122,10 +123,13 @@ class AppContainerSeamTest {
             controller
         }
 
+        assertNull(provider.getIfInitialized())
+        assertEquals(0, factoryCalls)
         val first = provider.get()
         val second = provider.get()
 
         org.junit.Assert.assertSame(first, second)
+        org.junit.Assert.assertSame(first, provider.getIfInitialized())
         assertEquals(1, factoryCalls)
     }
 }

@@ -4,6 +4,9 @@ import com.hpre.app.model.ContentKey
 import com.hpre.app.model.PageToken
 import com.hpre.app.model.SearchFilter
 import com.hpre.app.model.SearchResultItem
+import com.hpre.app.model.StreamInfo
+import com.hpre.app.model.VideoDetails
+import com.hpre.app.model.VideoSummary
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
@@ -20,6 +23,54 @@ import org.schabi.newpipe.extractor.stream.StreamInfoItem
 import org.schabi.newpipe.extractor.stream.StreamType
 
 class DefaultExtractorOperationsGatewayTest {
+
+    @Test
+    fun videoBundle_calls_loader_once_and_returns_all_projections() {
+        val key = ContentKey(0, "dQw4w9WgXcQ")
+        val details = VideoDetails(
+            key = key,
+            title = "Bundle details",
+            canonicalUrl = "https://youtube.com/watch?v=${key.nativeId}",
+            description = null,
+            channelKey = null,
+            channelName = null,
+            channelAvatarUrl = null,
+            subscriberCountText = null,
+            thumbnailUrl = null,
+            durationSeconds = 120,
+            viewCount = null,
+            likeCount = null,
+            publishedTimestamp = null
+        )
+        val streams = StreamInfo(key = key, title = "Bundle streams")
+        val related = listOf(
+            VideoSummary(
+                key = ContentKey(0, "related"),
+                title = "Related",
+                canonicalUrl = "https://youtube.com/watch?v=related",
+                channelKey = null,
+                channelName = null,
+                channelAvatarUrl = null,
+                thumbnailUrl = null,
+                durationSeconds = null,
+                viewCount = null,
+                publishedTimestamp = null
+            )
+        )
+        val expected = ExtractedVideoBundle(details, streams, related)
+        var loaderCalls = 0
+        val operations = DefaultExtractorOperations(
+            videoBundleLoader = { _, requestedKey, serviceId ->
+                loaderCalls++
+                assertEquals(key, requestedKey)
+                assertEquals(0, serviceId)
+                expected
+            }
+        )
+
+        assertEquals(expected, operations.videoBundle(key))
+        assertEquals(1, loaderCalls)
+    }
 
     private class RecordingSearchCommentsGateway : SearchCommentsGateway {
         var searchGetInfoCount = 0

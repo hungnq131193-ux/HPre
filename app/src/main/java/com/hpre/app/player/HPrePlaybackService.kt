@@ -28,6 +28,9 @@ import com.hpre.app.HPreApplication
 import com.hpre.app.MainActivity
 import com.hpre.app.core.error.AppError
 import com.hpre.app.core.error.AppResult
+import com.hpre.app.core.performance.VideoOpenEvent
+import com.hpre.app.core.performance.VideoOpenMetrics
+import com.hpre.app.core.performance.VideoOpenSession
 import com.hpre.app.model.ContentKey
 import com.hpre.app.model.StreamInfo
 import com.hpre.app.model.VideoSummary
@@ -144,6 +147,11 @@ class HPrePlaybackService : MediaSessionService() {
     private val audioDecoderInitCounters = mutableMapOf<Long, Int>()
     private val videoDecoderInitCounters = mutableMapOf<Long, Int>()
     private var activeAnalyticsListener: AnalyticsListener? = null
+    private var metricsReadySessionGeneration: Long = -1L
+    private var metricsFirstFrameMediaGeneration: Long = -1L
+    private var activeMetricsSession: VideoOpenSession? = null
+    private var activeMetricsPlaybackGeneration: Long = -1L
+    private var activeMetricsMediaGeneration: Long = -1L
 
     override fun onCreate() {
         super.onCreate()
@@ -282,6 +290,15 @@ class HPrePlaybackService : MediaSessionService() {
             ) {
                 if (isReleased) return
                 renderedFirstFrameCounters[boundToken] = (renderedFirstFrameCounters[boundToken] ?: 0) + 1
+                if (boundToken == activeMetricsMediaGeneration &&
+                    metricsFirstFrameMediaGeneration != boundToken
+                ) {
+                    metricsFirstFrameMediaGeneration = boundToken
+                    activeMetricsSession?.let { session ->
+                        VideoOpenMetrics.Default.finish(session, VideoOpenEvent.FIRST_FRAME)
+                    }
+                    activeMetricsSession = null
+                }
             }
 
             override fun onAudioDecoderInitialized(
@@ -430,6 +447,15 @@ class HPrePlaybackService : MediaSessionService() {
             // Buffering flips this repeatedly during normal playback. Each write is a DataStore edit
             // plus an atomic file rename, so unthrottled writes here produce steady IO churn while
             // watching. Position/speed are captured by the other callbacks and by onDestroy.
+            if (playbackState == Player.STATE_READY &&
+                activeMetricsPlaybackGeneration == playbackSessionGeneration &&
+                metricsReadySessionGeneration != activeMetricsPlaybackGeneration
+            ) {
+                metricsReadySessionGeneration = activeMetricsPlaybackGeneration
+                activeMetricsSession?.let { session ->
+                    VideoOpenMetrics.Default.mark(session, VideoOpenEvent.PLAYER_READY)
+                }
+            }
             persistCurrentSnapshotThrottled()
         }
 
@@ -637,6 +663,9 @@ class HPrePlaybackService : MediaSessionService() {
         recoveryJob?.cancel()
         val currentToken = ++mediaOperationGeneration
         val currentSession = ++playbackSessionGeneration
+        activeMetricsSession = VideoOpenMetrics.Default.activeSession(key)
+        activeMetricsPlaybackGeneration = currentSession
+        activeMetricsMediaGeneration = currentToken
         if (!preserveSourceAttempts) attemptedSourceTypes.clear()
 
         currentKey = key

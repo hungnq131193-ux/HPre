@@ -55,13 +55,10 @@ open class HPreApplication : Application(), ImageLoaderFactory {
         container.applicationScope.launch {
             container.playbackPreferences.isBackgroundPlaybackEnabled.collect { bgEnabled ->
                 playbackUiCoordinator.setBackgroundPlaybackEnabled(bgEnabled)
-                val controller = container.createPlayerController()
-                if (controller is com.hpre.app.player.SessionPlayerController) {
-                    controller.updateLifecyclePolicy(
-                        backgroundEnabled = bgEnabled,
-                        pipActiveOrEntering = playbackUiCoordinator.state.value.isInPip
-                    )
-                }
+                container.updatePlayerLifecyclePolicy(
+                    backgroundEnabled = bgEnabled,
+                    pipActiveOrEntering = playbackUiCoordinator.state.value.isInPip
+                )
             }
         }
         container.applicationScope.launch {

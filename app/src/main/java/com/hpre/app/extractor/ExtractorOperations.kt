@@ -24,11 +24,12 @@ internal interface ExtractorOperations {
 
     fun search(query: String, filter: SearchFilter, pageToken: PageToken?): SearchPage
     fun suggestions(query: String): List<String>
-    fun video(key: ContentKey): VideoDetails
-    fun streamInfo(key: ContentKey): StreamInfo
+    fun videoBundle(key: ContentKey): ExtractedVideoBundle
+    fun video(key: ContentKey): VideoDetails = videoBundle(key).details
+    fun streamInfo(key: ContentKey): StreamInfo = videoBundle(key).streamInfo
     fun channel(key: ContentKey): ChannelDetails
     fun playlist(key: ContentKey): PlaylistDetails
-    fun related(key: ContentKey): List<VideoSummary>
+    fun related(key: ContentKey): List<VideoSummary> = videoBundle(key).related
     fun comments(key: ContentKey, pageToken: PageToken?): CommentPage
     fun trending(): List<VideoSummary>
 }

@@ -6,11 +6,15 @@ import com.hpre.app.model.ContentKey
 import com.hpre.app.model.PageToken
 import com.hpre.app.model.SearchFilter
 import com.hpre.app.model.VideoDetails
+import com.hpre.app.model.StreamInfo
+import com.hpre.app.model.VideoSummary
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.async
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.test.runCurrent
+import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
@@ -30,6 +34,52 @@ import java.util.concurrent.atomic.AtomicBoolean
 
 @OptIn(ExperimentalCoroutinesApi::class)
 class NewPipeVideoServiceTest {
+
+    @Test
+    fun video_stream_and_related_share_one_bundle_extraction() = runTest {
+        ExtractorBootstrap.init(OkHttpDownloader())
+        val key = ContentKey(0, "shared_bundle")
+        val details = VideoDetails(
+            key, "Details", "https://example.test/shared_bundle", null, null, null,
+            null, null, null, null, null, null, null
+        )
+        val streams = StreamInfo(key, "Streams")
+        val related = listOf(
+            VideoSummary(
+                ContentKey(0, "related"), "Related", "https://example.test/related",
+                null, null, null, null, null, null, null
+            )
+        )
+        val expected = ExtractedVideoBundle(details, streams, related)
+        val started = CountDownLatch(1)
+        val gate = CountDownLatch(1)
+        var extractions = 0
+        val operations = object : ExtractorOperations by DefaultExtractorOperations() {
+            override fun videoBundle(key: ContentKey): ExtractedVideoBundle {
+                extractions++
+                started.countDown()
+                assertTrue(gate.await(5, TimeUnit.SECONDS))
+                return expected
+            }
+        }
+        val service = NewPipeVideoService(
+            ioDispatcher = Dispatchers.IO,
+            operations = operations,
+            serviceScope = backgroundScope
+        )
+
+        val video = async { service.video(key) }
+        val stream = async { service.streamInfo(key) }
+        val relatedResult = async { service.related(key) }
+        runCurrent()
+        assertTrue(started.await(5, TimeUnit.SECONDS))
+        assertEquals(1, extractions)
+
+        gate.countDown()
+        assertEquals(AppResult.Success(details), video.await())
+        assertEquals(AppResult.Success(streams), stream.await())
+        assertEquals(AppResult.Success(related), relatedResult.await())
+    }
 
     @Test
     fun service_initializes_with_correct_service_id_and_capabilities() {
@@ -81,7 +131,7 @@ class NewPipeVideoServiceTest {
         val realDownloader = OkHttpDownloader(realClient)
 
         val realCallingOps = object : ExtractorOperations by DefaultExtractorOperations() {
-            override fun video(key: ContentKey): VideoDetails {
+            override fun videoBundle(key: ContentKey): ExtractedVideoBundle {
                 val req = Request.newBuilder().url("http://127.0.0.1:$serverPort/delayed").httpMethod("GET").build()
                 try {
                     realDownloader.execute(req)
@@ -91,7 +141,7 @@ class NewPipeVideoServiceTest {
                     }
                     throw e
                 }
-                return VideoDetails(
+                val details = VideoDetails(
                     key = key,
                     title = "Title",
                     canonicalUrl = "https://example.com",
@@ -108,6 +158,7 @@ class NewPipeVideoServiceTest {
                     isLive = false,
                     isShort = false
                 )
+                return ExtractedVideoBundle(details, StreamInfo(key, details.title), emptyList())
             }
         }
 
@@ -147,10 +198,7 @@ class NewPipeVideoServiceTest {
             override fun search(query: String, filter: SearchFilter, pageToken: PageToken?) =
                 throw ExtractorHttpException(404, ExtractorOperationContext.EXTRACTION_METADATA)
 
-            override fun video(key: ContentKey) =
-                throw ExtractorHttpException(404, ExtractorOperationContext.EXTRACTION_METADATA)
-
-            override fun streamInfo(key: ContentKey) =
+            override fun videoBundle(key: ContentKey): ExtractedVideoBundle =
                 throw ExtractorHttpException(404, ExtractorOperationContext.EXTRACTION_METADATA)
 
             override fun channel(key: ContentKey) =
@@ -299,7 +347,7 @@ class NewPipeVideoServiceTest {
         ExtractorBootstrap.init(OkHttpDownloader())
 
         val forbiddenOps = object : ExtractorOperations by DefaultExtractorOperations() {
-            override fun video(key: ContentKey): VideoDetails {
+            override fun videoBundle(key: ContentKey): ExtractedVideoBundle {
                 throw ExtractorHttpException(403, ExtractorOperationContext.EXTRACTION_METADATA)
             }
         }
@@ -322,11 +370,7 @@ class NewPipeVideoServiceTest {
         var operationsCalled = false
         val zeroCallingOps = object : ExtractorOperations by DefaultExtractorOperations() {
             override val serviceId: Int = 0
-            override fun video(key: ContentKey): VideoDetails {
-                operationsCalled = true
-                throw AssertionError("Operations must not be called on serviceId mismatch")
-            }
-            override fun streamInfo(key: ContentKey): com.hpre.app.model.StreamInfo {
+            override fun videoBundle(key: ContentKey): ExtractedVideoBundle {
                 operationsCalled = true
                 throw AssertionError("Operations must not be called on serviceId mismatch")
             }
@@ -335,10 +379,6 @@ class NewPipeVideoServiceTest {
                 throw AssertionError("Operations must not be called on serviceId mismatch")
             }
             override fun playlist(key: ContentKey): com.hpre.app.model.PlaylistDetails {
-                operationsCalled = true
-                throw AssertionError("Operations must not be called on serviceId mismatch")
-            }
-            override fun related(key: ContentKey): List<com.hpre.app.model.VideoSummary> {
                 operationsCalled = true
                 throw AssertionError("Operations must not be called on serviceId mismatch")
             }

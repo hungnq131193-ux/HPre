@@ -27,7 +27,8 @@ import org.schabi.newpipe.extractor.stream.StreamInfo as ExtractorStreamInfo
 
 internal class DefaultExtractorOperations(
     private val streamingService: StreamingService = ServiceList.YouTube,
-    private val gateway: SearchCommentsGateway = ProductionSearchCommentsGateway
+    private val gateway: SearchCommentsGateway = ProductionSearchCommentsGateway,
+    private val videoBundleLoader: ((StreamingService, ContentKey, Int) -> ExtractedVideoBundle)? = null
 ) : ExtractorOperations {
 
     override val serviceId: Int
@@ -74,30 +75,31 @@ internal class DefaultExtractorOperations(
         return suggestionExtractor.suggestionList(query).orEmpty()
     }
 
-    override fun video(key: ContentKey): VideoDetails {
-        val linkHandler = streamingService.streamLHFactory.fromId(key.nativeId)
-        val streamExtractor = streamingService.getStreamExtractor(linkHandler)
-        streamExtractor.fetchPage()
-        val streamInfo = ExtractorStreamInfo.getInfo(streamExtractor)
-        val details = NewPipeMappers.mapVideoDetails(streamInfo, serviceId)
-            ?: throw ExtractionException("Failed to map valid video details")
-        if (details.key != key) {
-            throw ExtractionException("Returned video key ${details.key} does not match requested key $key")
-        }
-        return details
+    override fun videoBundle(key: ContentKey): ExtractedVideoBundle {
+        return videoBundleLoader?.invoke(streamingService, key, serviceId)
+            ?: loadVideoBundle(streamingService, key, serviceId)
     }
 
-    override fun streamInfo(key: ContentKey): StreamInfo {
-        val linkHandler = streamingService.streamLHFactory.fromId(key.nativeId)
-        val streamExtractor = streamingService.getStreamExtractor(linkHandler)
+    private fun loadVideoBundle(
+        service: StreamingService,
+        key: ContentKey,
+        serviceId: Int
+    ): ExtractedVideoBundle {
+        val linkHandler = service.streamLHFactory.fromId(key.nativeId)
+        val streamExtractor = service.getStreamExtractor(linkHandler)
         streamExtractor.fetchPage()
         val info = ExtractorStreamInfo.getInfo(streamExtractor)
-        val details = NewPipeMappers.mapStreamInfo(info, serviceId)
+        val details = NewPipeMappers.mapVideoDetails(info, serviceId)
+            ?: throw ExtractionException("Failed to map valid video details")
+        val streams = NewPipeMappers.mapStreamInfo(info, serviceId)
             ?: throw ContentNotSupportedException("No usable playback streams or manifests found")
-        if (details.key != key) {
-            throw ExtractionException("Returned stream key ${details.key} does not match requested key $key")
+        if (details.key != key || streams.key != key) {
+            throw ExtractionException("Returned video key does not match requested key $key")
         }
-        return details
+        val related = info.relatedItems.orEmpty()
+            .filterIsInstance<org.schabi.newpipe.extractor.stream.StreamInfoItem>()
+            .mapNotNull { NewPipeMappers.mapStreamInfoItemToSummary(it, serviceId) }
+        return ExtractedVideoBundle(details, streams, related)
     }
 
     override fun channel(key: ContentKey): ChannelDetails {
@@ -133,16 +135,6 @@ internal class DefaultExtractorOperations(
             throw ExtractionException("Returned playlist key ${details.key} does not match requested key $key")
         }
         return details
-    }
-
-    override fun related(key: ContentKey): List<VideoSummary> {
-        val linkHandler = streamingService.streamLHFactory.fromId(key.nativeId)
-        val streamExtractor = streamingService.getStreamExtractor(linkHandler)
-        streamExtractor.fetchPage()
-        val info = ExtractorStreamInfo.getInfo(streamExtractor)
-        return info.relatedItems.orEmpty()
-            .filterIsInstance<org.schabi.newpipe.extractor.stream.StreamInfoItem>()
-            .mapNotNull { NewPipeMappers.mapStreamInfoItemToSummary(it, serviceId) }
     }
 
     override fun comments(key: ContentKey, pageToken: PageToken?): CommentPage {

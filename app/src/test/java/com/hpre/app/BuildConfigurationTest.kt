@@ -10,6 +10,11 @@ class BuildConfigurationTest {
         assertEquals("com.hpre.app", BuildConfig.APPLICATION_ID)
     }
 
+    @Test fun release_version_is_1_0_4_code_5() {
+        assertEquals("1.0.4", BuildConfig.VERSION_NAME)
+        assertEquals(5, BuildConfig.VERSION_CODE)
+    }
+
     @Test fun compose_host_is_edge_to_edge() {
         val root = generateSequence(File(".").canonicalFile) { it.parentFile }
             .first { File(it, "settings.gradle.kts").isFile }
