@@ -1,0 +1,35 @@
+name: Đề xuất tính năng
+description: Đề xuất cải tiến phù hợp với phạm vi của HPre
+title: "[Feature]: "
+labels:
+  - enhancement
+body:
+  - type: markdown
+    attributes:
+      value: Không đăng credential, token, cookie, signing material hoặc dữ liệu cá nhân.
+  - type: textarea
+    id: problem
+    attributes:
+      label: Vấn đề cần giải quyết
+      description: Mô tả nhu cầu thay vì chỉ nêu tên tính năng.
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Hành vi đề xuất
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Phương án khác đã cân nhắc
+    validations:
+      required: true
+  - type: textarea
+    id: scope
+    attributes:
+      label: Phạm vi và giới hạn
+      description: Nêu ảnh hưởng dự kiến tới giao diện, playback, dữ liệu hoặc quyền riêng tư.
+    validations:
+      required: true

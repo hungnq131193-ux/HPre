@@ -444,7 +444,7 @@ Record `PASS` only when current files, tracked files, staged files, and reachabl
 
 - [ ] **Step 1: Locate tooling and candidate keys narrowly**
 
-Search `C:\Users\HUNG\secure`, `C:\Users\HUNG\.gradle`, `C:\Users\HUNG\Desktop\Flowtube`, and filenames containing `hpre` under the user profile for `*.jks`/`*.keystore`. Do not recursively enumerate unrelated files or print file contents.
+Search `C:\Users\HUNG\secure`, `C:\Users\HUNG\.gradle`, the current Git repository root, and filenames containing `hpre` under the user profile for `*.jks`/`*.keystore`. Do not recursively enumerate unrelated files or print file contents.
 
 Locate `keytool.exe`, Java 17, Android SDK `apksigner.bat`, `aapt.exe`, and optionally `apkanalyzer.bat`. Verify versions explicitly.
 

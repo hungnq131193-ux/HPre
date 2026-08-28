@@ -1,0 +1,63 @@
+name: Báo lỗi
+description: Báo cáo hành vi không đúng của HPre
+title: "[Bug]: "
+labels:
+  - bug
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Cảm ơn bạn đã báo lỗi. Không đăng token, cookie, credential, signing key, dữ liệu cá nhân hoặc log chưa được xóa thông tin nhạy cảm.
+  - type: input
+    id: hpre-version
+    attributes:
+      label: Phiên bản HPre
+      placeholder: 1.0.0
+    validations:
+      required: true
+  - type: input
+    id: android-version
+    attributes:
+      label: Phiên bản Android
+      placeholder: Android 14
+    validations:
+      required: true
+  - type: input
+    id: device
+    attributes:
+      label: Thiết bị
+      placeholder: Hãng và model thiết bị
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Các bước tái hiện
+      description: Liệt kê từng bước ngắn gọn.
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Kết quả mong đợi
+    validations:
+      required: true
+  - type: textarea
+    id: actual
+    attributes:
+      label: Kết quả thực tế
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: Log đã được xóa thông tin nhạy cảm
+      description: Không bắt buộc. Không dán credential, token, cookie hoặc dữ liệu cá nhân.
+      render: shell
+  - type: checkboxes
+    id: safety
+    attributes:
+      label: Xác nhận an toàn
+      options:
+        - label: Tôi đã xóa secret, credential và dữ liệu cá nhân khỏi báo cáo.
+          required: true

@@ -23,7 +23,7 @@ inspect source and history
 
 ## 2. Confirmed Baseline
 
-- Project root: `C:\Users\HUNG\Desktop\Flowtube`
+- Project root: thư mục gốc của Git checkout hiện tại
 - Main module: `:app`
 - Public product name: `HPre`
 - Namespace/application ID: `com.hpre.app`
