@@ -16,13 +16,12 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.SideEffect
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.platform.LocalContext
 import com.hpre.app.core.designsystem.HPreTheme
 import com.hpre.app.navigation.RootScaffold
 import com.hpre.app.player.PlaybackStreamType
 import com.hpre.app.player.PlayerController
+import com.hpre.app.settings.AppLocaleProvider
 import com.hpre.app.ui.watch.PlayerSurface
-import java.util.Locale
 
 open class MainActivity : ComponentActivity() {
     private val app: HPreApplication
@@ -71,49 +70,40 @@ open class MainActivity : ComponentActivity() {
                 )
             }
 
-            HPreTheme(darkTheme = darkTheme) {
-                val context = LocalContext.current
-                
-                SideEffect {
-                    val locale = Locale(settings.language.code)
-                    Locale.setDefault(locale)
-                    val config = context.resources.configuration
-                    config.setLocale(locale)
-                    @Suppress("DEPRECATION")
-                    context.resources.updateConfiguration(config, context.resources.displayMetrics)
-                }
-                
-                val playbackUiState by app.playbackUiCoordinator.state.collectAsStateWithLifecycle()
-                val playbackState by playerController.state.collectAsStateWithLifecycle()
+            AppLocaleProvider(language = settings.language) {
+                HPreTheme(darkTheme = darkTheme) {
+                    val playbackUiState by app.playbackUiCoordinator.state.collectAsStateWithLifecycle()
+                    val playbackState by playerController.state.collectAsStateWithLifecycle()
 
-                androidx.compose.runtime.LaunchedEffect(playbackUiState.backgroundPlaybackEnabled, playbackUiState.isInPip) {
-                    val controller = playerController
-                    if (controller is com.hpre.app.player.SessionPlayerController) {
-                        controller.updateLifecyclePolicy(
-                            backgroundEnabled = playbackUiState.backgroundPlaybackEnabled,
-                            pipActiveOrEntering = playbackUiState.isInPip
-                        )
+                    androidx.compose.runtime.LaunchedEffect(playbackUiState.backgroundPlaybackEnabled, playbackUiState.isInPip) {
+                        val controller = playerController
+                        if (controller is com.hpre.app.player.SessionPlayerController) {
+                            controller.updateLifecyclePolicy(
+                                backgroundEnabled = playbackUiState.backgroundPlaybackEnabled,
+                                pipActiveOrEntering = playbackUiState.isInPip
+                            )
+                        }
                     }
-                }
-                androidx.compose.runtime.LaunchedEffect(
-                    playbackUiState.watchVisible,
-                    playbackUiState.pipEnabled,
-                    playbackState.key,
-                    playbackState.streamType,
-                    playbackState.isPlaying,
-                    playbackState.isReady
-                ) {
-                    updateAutoPipEligibility()
-                }
-                if (playbackUiState.isInPip) {
-                    PlayerSurface(
-                        playerController = playerController,
-                        coordinator = app.playbackUiCoordinator,
-                        owner = com.hpre.app.player.SurfaceOwner.SYSTEM_PIP,
-                        modifier = Modifier.fillMaxSize()
-                    )
-                } else {
-                    RootScaffold(container = app.container)
+                    androidx.compose.runtime.LaunchedEffect(
+                        playbackUiState.watchVisible,
+                        playbackUiState.pipEnabled,
+                        playbackState.key,
+                        playbackState.streamType,
+                        playbackState.isPlaying,
+                        playbackState.isReady
+                    ) {
+                        updateAutoPipEligibility()
+                    }
+                    if (playbackUiState.isInPip) {
+                        PlayerSurface(
+                            playerController = playerController,
+                            coordinator = app.playbackUiCoordinator,
+                            owner = com.hpre.app.player.SurfaceOwner.SYSTEM_PIP,
+                            modifier = Modifier.fillMaxSize()
+                        )
+                    } else {
+                        RootScaffold(container = app.container)
+                    }
                 }
             }
         }

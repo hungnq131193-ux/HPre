@@ -184,7 +184,7 @@ fun SearchScreen(
                 .fillMaxWidth()
                 .padding(bottom = 8.dp)
         ) {
-            items(SearchFilter.values()) { itemFilter ->
+            items(SearchFilter.values(), key = { it.name }) { itemFilter ->
                 FilterChip(
                     selected = (filter == itemFilter),
                     onClick = { viewModel.onFilterChanged(itemFilter) },
@@ -305,7 +305,7 @@ private fun SuggestionsList(
     onSuggestionClick: (String) -> Unit
 ) {
     LazyColumn(modifier = Modifier.fillMaxSize().testTag("suggestions_list")) {
-        items(suggestions) { suggestion ->
+        items(suggestions, key = { it }) { suggestion ->
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -362,7 +362,7 @@ private fun RecentQueriesList(
                 }
             }
         }
-        items(queries) { q ->
+        items(queries, key = { it }) { q ->
             Row(
                 modifier = Modifier
                     .fillMaxWidth()

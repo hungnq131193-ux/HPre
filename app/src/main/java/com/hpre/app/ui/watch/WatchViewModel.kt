@@ -335,6 +335,42 @@ class WatchViewModel(
                 val activePlayback = playbackState.value
                 val reuseActivePlayer = activePlayback.key == key && activePlayback.error == null
 
+                // Comments and (when they don't need details) related videos are independent of stream
+                // extraction, so they are dispatched before it rather than after. Stream extraction is
+                // the slowest step by far; waiting on it before even requesting these sections is what
+                // made the watch page look empty for seconds after opening a video.
+                if (watchRecommendationSource == null) {
+                    executeRelated(key, null, forceRefresh = forceRefresh, isRefresh = false)
+                }
+                loadComments(key, generation, null, append = false)
+
+                // Details resolve on their own child coroutine so the header and the
+                // recommendation-source related fetch are not gated behind stream extraction.
+                val detailsJob = launch {
+                    when (val detailsResult = detailsDeferred.await()) {
+                        is AppResult.Success -> {
+                            if (generation != currentGeneration || currentKey != key) return@launch
+                            _uiState.update {
+                                it.copy(isLoading = false, details = detailsResult.value, error = null)
+                            }
+                            watchStateCache?.put(key, WatchStateSnapshot(
+                                details = detailsResult.value,
+                                relatedVideos = null,
+                                comments = null
+                            ))
+                            if (watchRecommendationSource != null) {
+                                executeRelated(key, detailsResult.value, forceRefresh = forceRefresh, isRefresh = false)
+                            }
+                        }
+                        is AppResult.Failure -> {
+                            if (generation != currentGeneration || currentKey != key) return@launch
+                            _uiState.update {
+                                it.copy(isLoading = false, error = detailsResult.error)
+                            }
+                        }
+                    }
+                }
+
                 if (!reuseActivePlayer) {
                     val resumeDeferred = async { loadResumePosition(key) }
                     val streamResult = videoService.streamInfo(key)
@@ -346,6 +382,7 @@ class WatchViewModel(
 
                     if (streamResult is AppResult.Failure) {
                         resumeDeferred.cancel()
+                        detailsJob.cancel()
                         detailsDeferred.cancel()
                         _uiState.update { it.copy(isLoading = false, error = streamResult.error) }
                         return@launch
@@ -367,33 +404,7 @@ class WatchViewModel(
                     if (!preparedCurrentSession) return@launch
                 }
 
-                if (watchRecommendationSource == null) {
-                    executeRelated(key, null, forceRefresh = forceRefresh, isRefresh = false)
-                }
-                loadComments(key, generation, null, append = false)
-
-                when (val detailsResult = detailsDeferred.await()) {
-                    is AppResult.Success -> {
-                        if (generation != currentGeneration || currentKey != key) return@launch
-                        _uiState.update {
-                            it.copy(isLoading = false, details = detailsResult.value, error = null)
-                        }
-                        watchStateCache?.put(key, WatchStateSnapshot(
-                            details = detailsResult.value,
-                            relatedVideos = null,
-                            comments = null
-                        ))
-                        if (watchRecommendationSource != null) {
-                            executeRelated(key, detailsResult.value, forceRefresh = forceRefresh, isRefresh = false)
-                        }
-                    }
-                    is AppResult.Failure -> {
-                        if (generation != currentGeneration || currentKey != key) return@launch
-                        _uiState.update {
-                            it.copy(isLoading = false, error = detailsResult.error)
-                        }
-                    }
-                }
+                detailsJob.join()
             } catch (ce: CancellationException) {
                 throw ce
             } catch (e: Throwable) {
