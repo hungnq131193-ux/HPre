@@ -90,13 +90,12 @@ object RecommendationRanker {
             val eligibleRange = remaining.takeWhile {
                 it.isFallbackWatched == currentFallbackGroup
             }
-        val previousChannels = result.takeLast(3).map { normalize(it.channelName.orEmpty()) }
-        val nextIndex = if (
-            previousChannels.size == 3 &&
-            previousChannels[0].isNotBlank() &&
-            previousChannels[0] == previousChannels[1] &&
-            previousChannels[1] == previousChannels[2]
-        ) {
+            val previousChannels = result.takeLast(2).map { normalize(it.channelName.orEmpty()) }
+            val nextIndex = if (
+                previousChannels.size == 2 &&
+                previousChannels[0].isNotBlank() &&
+                previousChannels[0] == previousChannels[1]
+            ) {
                 eligibleRange.indexOfFirst {
                     normalize(it.video.channelName.orEmpty()) != previousChannels[0]
                 }.takeIf { it >= 0 } ?: 0

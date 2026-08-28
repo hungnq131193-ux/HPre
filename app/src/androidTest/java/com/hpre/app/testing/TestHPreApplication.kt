@@ -214,6 +214,9 @@ class TestHPreApplication : HPreApplication() {
             override suspend fun setTheme(theme: com.hpre.app.settings.AppTheme) {
                 _settingsFlow.value = _settingsFlow.value.copy(theme = theme)
             }
+            override suspend fun setLanguage(language: com.hpre.app.settings.AppLanguage) {
+                _settingsFlow.value = _settingsFlow.value.copy(language = language)
+            }
             override suspend fun setWifiQuality(quality: com.hpre.app.settings.QualityPreferenceSetting) {
                 _settingsFlow.value = _settingsFlow.value.copy(wifiQuality = quality)
             }

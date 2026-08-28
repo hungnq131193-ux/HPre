@@ -62,6 +62,10 @@ class SettingsViewModelTest {
             settingsFlow.value = settingsFlow.value.copy(theme = theme)
         }
 
+        override suspend fun setLanguage(language: AppLanguage) {
+            settingsFlow.value = settingsFlow.value.copy(language = language)
+        }
+
         override suspend fun setWifiQuality(quality: QualityPreferenceSetting) {
             settingsFlow.value = settingsFlow.value.copy(wifiQuality = quality)
         }

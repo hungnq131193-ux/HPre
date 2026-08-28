@@ -195,6 +195,9 @@ class LibraryScreenTest {
         override suspend fun setTheme(theme: AppTheme) {
             settingsFlow.value = settingsFlow.value.copy(theme = theme)
         }
+        override suspend fun setLanguage(language: com.hpre.app.settings.AppLanguage) {
+            settingsFlow.value = settingsFlow.value.copy(language = language)
+        }
         override suspend fun setWifiQuality(quality: QualityPreferenceSetting) {
             settingsFlow.value = settingsFlow.value.copy(wifiQuality = quality)
         }
