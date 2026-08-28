@@ -18,6 +18,44 @@ class SessionPlayerProtocolTest {
     private val testKey = ContentKey(0, "proto_test_123")
 
     @Test
+    fun late_controller_connection_restores_ready_state_and_clears_loading() {
+        val loading = PlaybackState(isLoading = true, isBuffering = true)
+
+        val restored = restoreConnectedPlaybackState(
+            current = loading,
+            playbackState = androidx.media3.common.Player.STATE_READY,
+            isPlaying = true,
+            playWhenReady = true,
+            durationMs = 120_000L,
+            positionMs = 5_000L,
+            playbackSpeed = 1f
+        )
+
+        assertTrue(restored.isReady)
+        assertTrue(restored.isPlaying)
+        assertFalse(restored.isLoading)
+        assertFalse(restored.isBuffering)
+        assertFalse(restored.isEnded)
+    }
+
+    @Test
+    fun idle_controller_connection_does_not_start_loading_without_pending_work() {
+        val restored = restoreConnectedPlaybackState(
+            current = PlaybackState(),
+            playbackState = androidx.media3.common.Player.STATE_IDLE,
+            isPlaying = false,
+            playWhenReady = false,
+            durationMs = 0L,
+            positionMs = 0L,
+            playbackSpeed = 1f
+        )
+
+        assertFalse(restored.isLoading)
+        assertFalse(restored.isBuffering)
+        assertFalse(restored.isReady)
+    }
+
+    @Test
     fun adaptive_quality_selection_resolves_to_auto_cap_while_progressive_stays_fixed() {
         val option = QualityOption(720, "720p", true, "mp4")
         assertEquals(

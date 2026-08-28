@@ -284,7 +284,8 @@ fun HPreNavHost(
                         historyRepository = container.historyRepository,
                         subscriptionRepository = container.subscriptionRepository,
                         playlistRepository = container.playlistRepository,
-                        watchRecommendationSource = container.recommendationRepository
+                        watchRecommendationSource = container.recommendationRepository,
+                        watchStateCache = container.watchStateCache
                     )
                 )
                 val playbackUiState by effectiveCoordinator.state.collectAsStateWithLifecycle()

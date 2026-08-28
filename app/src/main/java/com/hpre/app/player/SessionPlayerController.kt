@@ -31,6 +31,26 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.util.concurrent.ExecutionException
 
+internal fun restoreConnectedPlaybackState(
+    current: PlaybackState,
+    playbackState: Int,
+    isPlaying: Boolean,
+    playWhenReady: Boolean,
+    durationMs: Long,
+    positionMs: Long,
+    playbackSpeed: Float
+): PlaybackState = current.copy(
+    isPlaying = isPlaying,
+    playWhenReady = playWhenReady,
+    isReady = playbackState == Player.STATE_READY,
+    isLoading = current.isLoading && playbackState == Player.STATE_IDLE,
+    isBuffering = playbackState == Player.STATE_BUFFERING,
+    isEnded = playbackState == Player.STATE_ENDED,
+    durationMs = durationMs.coerceAtLeast(0L),
+    currentPositionMs = positionMs.coerceAtLeast(0L),
+    playbackSpeed = playbackSpeed.takeIf { it > 0f } ?: current.playbackSpeed
+)
+
 @OptIn(UnstableApi::class)
 class SessionPlayerController(
     private val context: Context,
@@ -270,14 +290,17 @@ class SessionPlayerController(
                     val pos = controller.currentPosition.coerceAtLeast(0L)
                     val metadata = PlaybackMediaMetadata.from(controller.currentMediaItem)
                     _state.update {
-                        it.copy(
+                        restoreConnectedPlaybackState(
+                            current = it.copy(
                             key = metadata?.key ?: it.key,
-                            title = metadata?.title ?: it.title,
+                                title = metadata?.title ?: it.title
+                            ),
+                            playbackState = controller.playbackState,
                             isPlaying = controller.isPlaying,
                             playWhenReady = controller.playWhenReady,
                             durationMs = duration,
-                            currentPositionMs = pos,
-                            playbackSpeed = if (controller.playbackParameters.speed > 0f) controller.playbackParameters.speed else it.playbackSpeed
+                            positionMs = pos,
+                            playbackSpeed = controller.playbackParameters.speed
                         )
                     }
                     if (controller.isPlaying) {

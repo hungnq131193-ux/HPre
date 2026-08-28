@@ -23,6 +23,7 @@ import com.hpre.app.player.StreamRecoveryCoordinator
 import com.hpre.app.repository.CatalogRepository
 import com.hpre.app.repository.RecommendationRepository
 import com.hpre.app.repository.VideoService
+import com.hpre.app.repository.WatchStateCache
 import com.hpre.app.ui.watch.DefaultFullscreenHostHandler
 import com.hpre.app.ui.watch.FullscreenHostHandlerFactory
 import com.hpre.app.settings.playbackDataStore
@@ -60,6 +61,7 @@ interface AppContainer {
     val mediaSourceFactory: MediaSourceFactory
     val playbackPreferences: com.hpre.app.settings.PlaybackPreferences
     val settingsRepository: com.hpre.app.settings.SettingsRepository
+    val watchStateCache: WatchStateCache
     fun createPlayerController(): PlayerController
 }
 
@@ -154,6 +156,10 @@ class DefaultAppContainer(
 
     override val settingsRepository: com.hpre.app.settings.SettingsRepository by lazy {
         com.hpre.app.settings.DataStoreSettingsRepository(appContext.playbackDataStore)
+    }
+
+    override val watchStateCache: WatchStateCache by lazy {
+        WatchStateCache(ttlMs = 300_000L, maxEntries = 10)
     }
 
     private val sessionPlayerController = AppScopedPlayerControllerProvider {

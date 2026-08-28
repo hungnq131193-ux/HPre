@@ -199,6 +199,7 @@ class TestHPreApplication : HPreApplication() {
         override val playbackPreferences: com.hpre.app.settings.PlaybackPreferences by lazy {
             settingsRepository
         }
+        override val watchStateCache = com.hpre.app.repository.WatchStateCache()
         override val settingsRepository: com.hpre.app.settings.SettingsRepository = object : com.hpre.app.settings.SettingsRepository {
             private val _flow = kotlinx.coroutines.flow.MutableStateFlow(true)
             private val _pipFlow = kotlinx.coroutines.flow.MutableStateFlow(true)
