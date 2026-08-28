@@ -1,15 +1,36 @@
+# Android Studio and Gradle
 *.iml
 .gradle/
-/local.properties
-/.idea/
-.DS_Store
-/build/
-/captures/
+.idea/
+.kotlin/
+local.properties
+.android/
+captures/
+
+# Build output
+build/
+*/build/
 .externalNativeBuild/
 .cxx/
-local.properties
-app/build/
-build/
-.android/
+
+# Signing and local credentials
+*.jks
+*.keystore
+keystore.properties
+signing.properties
+.env
+.env.*
+google-services.json
+
+# Release artifacts and logs
+*.apk
+*.aab
+*.log
+
+# OS metadata
+.DS_Store
+Thumbs.db
+
+# Local agent/worktree state
 .superpowers/
 .worktrees/

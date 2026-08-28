@@ -1,9 +1,27 @@
+import org.gradle.api.provider.Provider
+import org.gradle.api.GradleException
+
 plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.kotlin.android)
     alias(libs.plugins.compose.compiler)
     alias(libs.plugins.ksp)
 }
+
+fun signingValue(propertyName: String, environmentName: String): Provider<String> =
+    providers.gradleProperty(propertyName)
+        .orElse(providers.environmentVariable(environmentName))
+
+val releaseStoreFile = signingValue("hpreSigning.storeFile", "HPRE_SIGNING_STORE_FILE")
+val releaseStorePassword = signingValue(
+    "hpreSigning.storePassword",
+    "HPRE_SIGNING_STORE_PASSWORD"
+)
+val releaseKeyAlias = signingValue("hpreSigning.keyAlias", "HPRE_SIGNING_KEY_ALIAS")
+val releaseKeyPassword = signingValue(
+    "hpreSigning.keyPassword",
+    "HPRE_SIGNING_KEY_PASSWORD"
+)
 
 android {
     namespace = "com.hpre.app"
@@ -32,10 +50,19 @@ android {
         }
     }
 
+    signingConfigs {
+        create("release") {
+            storeFile = releaseStoreFile.orNull?.let(::file)
+            storePassword = releaseStorePassword.orNull
+            keyAlias = releaseKeyAlias.orNull
+            keyPassword = releaseKeyPassword.orNull
+        }
+    }
+
     buildTypes {
         release {
             isMinifyEnabled = true
-            signingConfig = signingConfigs.getByName("debug")
+            signingConfig = signingConfigs.getByName("release")
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"
@@ -63,6 +90,38 @@ android {
 
     testOptions {
         unitTests.isReturnDefaultValues = true
+    }
+}
+
+val validateHpreReleaseSigning by tasks.registering {
+    group = "verification"
+    description = "Validates that HPre release signing credentials are configured."
+
+    doLast {
+        val missing = buildList {
+            if (releaseStoreFile.orNull.isNullOrBlank()) add("store file")
+            if (releaseStorePassword.orNull.isNullOrBlank()) add("store password")
+            if (releaseKeyAlias.orNull.isNullOrBlank()) add("key alias")
+            if (releaseKeyPassword.orNull.isNullOrBlank()) add("key password")
+        }
+
+        if (missing.isNotEmpty()) {
+            throw GradleException(
+                "HPre release signing is incomplete: missing ${missing.joinToString()}. " +
+                    "Configure hpreSigning.* Gradle properties or HPRE_SIGNING_* environment variables."
+            )
+        }
+
+        val keystore = file(releaseStoreFile.get())
+        if (!keystore.isFile) {
+            throw GradleException("HPre release keystore does not exist at the configured path.")
+        }
+    }
+}
+
+tasks.configureEach {
+    if (name == "preReleaseBuild") {
+        dependsOn(validateHpreReleaseSigning)
     }
 }
 
