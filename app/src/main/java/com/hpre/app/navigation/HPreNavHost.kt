@@ -190,12 +190,21 @@ fun HPreNavHost(
         }
 
         composable(Screen.Settings.route) {
+            val uriHandler = androidx.compose.ui.platform.LocalUriHandler.current
             val settingsViewModel: com.hpre.app.settings.SettingsViewModel = viewModel(
-                factory = com.hpre.app.settings.SettingsViewModel.provideFactory(container.settingsRepository)
+                factory = com.hpre.app.settings.SettingsViewModel.provideFactory(
+                    settingsRepository = container.settingsRepository,
+                    appUpdateChecker = container.appUpdateChecker,
+                    installedVersion = com.hpre.app.BuildConfig.VERSION_NAME
+                )
             )
             com.hpre.app.settings.SettingsScreen(
                 viewModel = settingsViewModel,
-                onNavigateBack = { navController.popBackStack() }
+                onNavigateBack = { navController.popBackStack() },
+                onOpenReleasePage = { page ->
+                    runCatching { uriHandler.openUri(page.url) }
+                        .onFailure { settingsViewModel.reportReleasePageOpenFailure() }
+                }
             )
         }
 

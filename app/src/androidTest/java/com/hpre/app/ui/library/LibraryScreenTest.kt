@@ -6,6 +6,7 @@ import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performTextInput
+import androidx.compose.ui.test.performScrollTo
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import com.hpre.app.core.designsystem.HPreTheme
 import com.hpre.app.core.error.AppResult
@@ -25,6 +26,9 @@ import com.hpre.app.settings.QualityPreferenceSetting
 import com.hpre.app.settings.SettingsRepository
 import com.hpre.app.settings.SettingsScreen
 import com.hpre.app.settings.SettingsViewModel
+import com.hpre.app.update.AppUpdateChecker
+import com.hpre.app.update.SemanticVersion
+import com.hpre.app.update.UpdateCheckResult
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import org.junit.Assert.assertEquals
@@ -322,18 +326,31 @@ class LibraryScreenTest {
     @Test
     fun settings_screen_toggles_and_choices_persist_state() {
         val settingsRepo = FakeSettingsRepo()
-        val viewModel = SettingsViewModel(settingsRepo)
+        var updateCheckCalls = 0
+        val updateChecker = AppUpdateChecker {
+            updateCheckCalls++
+            UpdateCheckResult.UpToDate(SemanticVersion(1, 0, 0))
+        }
+        val viewModel = SettingsViewModel(settingsRepo, updateChecker, "1.0.0")
 
         composeRule.setContent {
             HPreTheme {
                 SettingsScreen(
                     viewModel = viewModel,
-                    onNavigateBack = {}
+                    onNavigateBack = {},
+                    onOpenReleasePage = {}
                 )
             }
         }
 
         composeRule.onNodeWithTag("settings_screen").assertIsDisplayed()
+        composeRule.onNodeWithTag("setting_check_update_item").performScrollTo().assertIsDisplayed()
+        composeRule.onNodeWithText("Phiên bản hiện tại: 1.0.0").assertIsDisplayed()
+        assertEquals(0, updateCheckCalls)
+
+        composeRule.onNodeWithTag("setting_check_update_item").performClick()
+        composeRule.waitUntil(timeoutMillis = 5_000) { updateCheckCalls == 1 }
+        composeRule.onNodeWithText("Bạn đang dùng phiên bản mới nhất.").assertIsDisplayed()
 
         // Toggle background playback
         composeRule.onNodeWithTag("setting_background_playback_switch").performClick()

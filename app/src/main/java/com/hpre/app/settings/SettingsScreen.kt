@@ -16,6 +16,7 @@ import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -38,15 +39,18 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.hpre.app.R
+import com.hpre.app.update.OfficialReleasePage
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun SettingsScreen(
     viewModel: SettingsViewModel,
     onNavigateBack: () -> Unit,
+    onOpenReleasePage: (OfficialReleasePage) -> Unit,
     modifier: Modifier = Modifier
 ) {
     val settings by viewModel.settingsState.collectAsStateWithLifecycle()
+    val updateState by viewModel.updateState.collectAsStateWithLifecycle()
 
     var showThemeDialog by remember { mutableStateOf(false) }
     var showWifiQualityDialog by remember { mutableStateOf(false) }
@@ -160,6 +164,93 @@ fun SettingsScreen(
                 tag = "setting_history_switch",
                 onCheckedChange = { viewModel.setHistory(it) }
             )
+
+            HorizontalDivider()
+
+            SettingsSectionHeader(
+                title = stringResource(R.string.settings_updates),
+                modifier = Modifier.testTag("settings_update_section")
+            )
+
+            Text(
+                text = stringResource(
+                    R.string.settings_current_version,
+                    viewModel.installedVersion
+                ),
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)
+            )
+
+            SettingsClickableItem(
+                title = stringResource(R.string.settings_check_updates),
+                subtitle = when (updateState) {
+                    UpdateUiState.Checking -> stringResource(R.string.settings_update_checking)
+                    else -> stringResource(R.string.settings_check_updates_summary)
+                },
+                tag = "setting_check_update_item",
+                onClick = viewModel::checkForUpdates
+            )
+
+            when (val state = updateState) {
+                UpdateUiState.Idle -> Unit
+                UpdateUiState.Checking -> CircularProgressIndicator(
+                    modifier = Modifier
+                        .padding(16.dp)
+                        .testTag("settings_update_progress")
+                )
+                is UpdateUiState.UpToDate -> Text(
+                    text = stringResource(R.string.settings_update_current),
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier
+                        .padding(horizontal = 16.dp, vertical = 8.dp)
+                        .testTag("settings_update_current")
+                )
+                is UpdateUiState.UpdateAvailable -> Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 16.dp, vertical = 8.dp)
+                        .testTag("settings_update_available")
+                ) {
+                    Text(
+                        text = stringResource(
+                            R.string.settings_update_available,
+                            state.latestVersion
+                        ),
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.primary
+                    )
+                    TextButton(
+                        onClick = { onOpenReleasePage(state.releasePage) },
+                        modifier = Modifier.testTag("settings_open_release_button")
+                    ) {
+                        Text(stringResource(R.string.settings_open_release))
+                    }
+                    if (state.openError) {
+                        Text(
+                            text = stringResource(R.string.settings_open_release_error),
+                            color = MaterialTheme.colorScheme.error,
+                            style = MaterialTheme.typography.bodySmall
+                        )
+                    }
+                }
+                is UpdateUiState.Error -> Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 16.dp, vertical = 8.dp)
+                        .testTag("settings_update_error")
+                ) {
+                    Text(
+                        text = stringResource(R.string.settings_update_error),
+                        color = MaterialTheme.colorScheme.error,
+                        style = MaterialTheme.typography.bodyMedium
+                    )
+                    TextButton(onClick = viewModel::checkForUpdates) {
+                        Text(stringResource(R.string.action_retry))
+                    }
+                }
+            }
         }
     }
 
@@ -226,13 +317,16 @@ fun SettingsScreen(
 }
 
 @Composable
-private fun SettingsSectionHeader(title: String) {
+private fun SettingsSectionHeader(
+    title: String,
+    modifier: Modifier = Modifier
+) {
     Text(
         text = title,
         style = MaterialTheme.typography.labelLarge,
         color = MaterialTheme.colorScheme.primary,
         fontWeight = FontWeight.Bold,
-        modifier = Modifier.padding(start = 16.dp, end = 16.dp, top = 16.dp, bottom = 8.dp)
+        modifier = modifier.padding(start = 16.dp, end = 16.dp, top = 16.dp, bottom = 8.dp)
     )
 }
 

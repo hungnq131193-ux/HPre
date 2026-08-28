@@ -129,6 +129,16 @@
     <string name="settings_history_privacy">Lịch sử và quyền riêng tư</string>
     <string name="settings_record_history">Lưu lịch sử</string>
     <string name="settings_record_history_summary">Lưu video đã xem và tìm kiếm trên thiết bị này</string>
+    <string name="settings_updates">Cập nhật ứng dụng</string>
+    <string name="settings_current_version">Phiên bản hiện tại: %1$s</string>
+    <string name="settings_check_updates">Kiểm tra cập nhật</string>
+    <string name="settings_check_updates_summary">Kiểm tra bản phát hành ổn định mới trên GitHub</string>
+    <string name="settings_update_checking">Đang kiểm tra…</string>
+    <string name="settings_update_current">Bạn đang dùng phiên bản mới nhất.</string>
+    <string name="settings_update_available">Có phiên bản mới: %1$s</string>
+    <string name="settings_open_release">Xem bản phát hành</string>
+    <string name="settings_update_error">Không thể kiểm tra cập nhật. Hãy thử lại.</string>
+    <string name="settings_open_release_error">Không thể mở trang phát hành.</string>
     <string name="settings_choose_speed">Chọn tốc độ phát mặc định</string>
     <string name="quality_high">1080p (Cao)</string>
     <string name="quality_medium">720p (Trung bình)</string>
