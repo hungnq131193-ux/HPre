@@ -28,6 +28,8 @@ import com.hpre.app.HPreApplication
 import com.hpre.app.MainActivity
 import com.hpre.app.core.error.AppError
 import com.hpre.app.core.error.AppResult
+import com.hpre.app.core.performance.VideoOpenEvent
+import com.hpre.app.core.performance.VideoOpenMetrics
 import com.hpre.app.model.ContentKey
 import com.hpre.app.model.StreamInfo
 import com.hpre.app.model.VideoSummary
@@ -144,6 +146,8 @@ class HPrePlaybackService : MediaSessionService() {
     private val audioDecoderInitCounters = mutableMapOf<Long, Int>()
     private val videoDecoderInitCounters = mutableMapOf<Long, Int>()
     private var activeAnalyticsListener: AnalyticsListener? = null
+    private var metricsReadySessionGeneration: Long = -1L
+    private var metricsFirstFrameMediaGeneration: Long = -1L
 
     override fun onCreate() {
         super.onCreate()
@@ -282,6 +286,14 @@ class HPrePlaybackService : MediaSessionService() {
             ) {
                 if (isReleased) return
                 renderedFirstFrameCounters[boundToken] = (renderedFirstFrameCounters[boundToken] ?: 0) + 1
+                if (boundToken == mediaOperationGeneration && metricsFirstFrameMediaGeneration != boundToken) {
+                    metricsFirstFrameMediaGeneration = boundToken
+                    currentKey?.let { key ->
+                        VideoOpenMetrics.Default.activeSession(key)?.let { session ->
+                            VideoOpenMetrics.Default.finish(session, VideoOpenEvent.FIRST_FRAME)
+                        }
+                    }
+                }
             }
 
             override fun onAudioDecoderInitialized(
@@ -430,6 +442,16 @@ class HPrePlaybackService : MediaSessionService() {
             // Buffering flips this repeatedly during normal playback. Each write is a DataStore edit
             // plus an atomic file rename, so unthrottled writes here produce steady IO churn while
             // watching. Position/speed are captured by the other callbacks and by onDestroy.
+            if (playbackState == Player.STATE_READY &&
+                metricsReadySessionGeneration != playbackSessionGeneration
+            ) {
+                metricsReadySessionGeneration = playbackSessionGeneration
+                currentKey?.let { key ->
+                    VideoOpenMetrics.Default.activeSession(key)?.let { session ->
+                        VideoOpenMetrics.Default.mark(session, VideoOpenEvent.PLAYER_READY)
+                    }
+                }
+            }
             persistCurrentSnapshotThrottled()
         }
 

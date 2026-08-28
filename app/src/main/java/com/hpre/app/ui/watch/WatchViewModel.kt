@@ -10,6 +10,8 @@ import androidx.lifecycle.viewmodel.CreationExtras
 import androidx.savedstate.SavedStateRegistryOwner
 import com.hpre.app.core.error.AppError
 import com.hpre.app.core.error.AppResult
+import com.hpre.app.core.performance.VideoOpenEvent
+import com.hpre.app.core.performance.VideoOpenMetrics
 import com.hpre.app.model.ContentKey
 import com.hpre.app.model.CommentPage
 import com.hpre.app.model.PageToken
@@ -120,7 +122,8 @@ class WatchViewModel(
     private val playlistRepository: com.hpre.app.repository.PlaylistRepository? = null,
     private val watchRecommendationSource: WatchRecommendationSource? = null,
     private val watchStateCache: WatchStateCache? = null,
-    private val ioDispatcher: CoroutineDispatcher = Dispatchers.IO
+    private val ioDispatcher: CoroutineDispatcher = Dispatchers.IO,
+    private val videoOpenMetrics: VideoOpenMetrics = VideoOpenMetrics.Default
 ) : ViewModel() {
 
     companion object {
@@ -259,6 +262,7 @@ class WatchViewModel(
         }
 
         val cachedSnapshot = if (!forceRefresh) watchStateCache?.get(key) else null
+        val metricsSession = videoOpenMetrics.start(key)
         if (cachedSnapshot != null) {
             val generation = synchronized(sessionGuard) {
                 loadJob?.cancel()
@@ -282,6 +286,7 @@ class WatchViewModel(
             cachedSnapshot.relatedVideos?.let { videos ->
                 _relatedState.value = RefreshableAsyncState.content(videos)
             }
+            videoOpenMetrics.mark(metricsSession, VideoOpenEvent.DETAILS_READY)
 
             cachedSnapshot.comments?.let { page ->
                 _commentsState.value = if (page.comments.isEmpty()) AsyncState.Empty else AsyncState.Content(page)
@@ -294,6 +299,8 @@ class WatchViewModel(
                     val resumeDeferred = async { loadResumePosition(key) }
                     val streamResult = videoService.streamInfo(key)
                     if (generation == currentGeneration && currentKey == key && streamResult is AppResult.Success) {
+                        videoOpenMetrics.mark(metricsSession, VideoOpenEvent.STREAM_INFO_READY)
+                        videoOpenMetrics.mark(metricsSession, VideoOpenEvent.PLAYER_PREPARE)
                         playerController.prepare(
                             key,
                             streamResult.value,
@@ -356,6 +363,7 @@ class WatchViewModel(
                             _uiState.update {
                                 it.copy(isLoading = false, details = detailsResult.value, error = null)
                             }
+                            videoOpenMetrics.mark(metricsSession, VideoOpenEvent.DETAILS_READY)
                             watchStateCache?.put(key, WatchStateSnapshot(
                                 details = detailsResult.value,
                                 relatedVideos = null,
@@ -393,11 +401,13 @@ class WatchViewModel(
                         return@launch
                     }
 
+                    videoOpenMetrics.mark(metricsSession, VideoOpenEvent.STREAM_INFO_READY)
                     val resumePositionMs = resumeDeferred.await()
                     val preparedCurrentSession = synchronized(sessionGuard) {
                         if (generation != currentGeneration || currentKey != key) {
                             false
                         } else {
+                            videoOpenMetrics.mark(metricsSession, VideoOpenEvent.PLAYER_PREPARE)
                             playerController.prepare(
                                 key,
                                 (streamResult as AppResult.Success).value,

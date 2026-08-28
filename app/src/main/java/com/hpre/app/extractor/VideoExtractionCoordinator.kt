@@ -1,5 +1,6 @@
 package com.hpre.app.extractor
 
+import com.hpre.app.BuildConfig
 import com.hpre.app.core.error.AppError
 import com.hpre.app.core.error.AppResult
 import com.hpre.app.model.ContentKey
@@ -40,12 +41,21 @@ internal class VideoExtractionCoordinator(
         ): Boolean = size > maxEntries
     }
     private val inFlight = mutableMapOf<ContentKey, InFlight>()
+    private val extractionCounts = object : LinkedHashMap<ContentKey, Int>(maxEntries, 0.75f, true) {
+        override fun removeEldestEntry(
+            eldest: MutableMap.MutableEntry<ContentKey, Int>?
+        ): Boolean = size > maxEntries
+    }
 
     internal val cacheSizeForTest: Int
         get() = kotlinx.coroutines.runBlocking { mutex.withLock { cache.size } }
 
     internal val inFlightCountForTest: Int
         get() = kotlinx.coroutines.runBlocking { mutex.withLock { inFlight.size } }
+
+    internal fun extractionCountForTest(key: ContentKey): Int = kotlinx.coroutines.runBlocking {
+        mutex.withLock { extractionCounts[key] ?: 0 }
+    }
 
     suspend fun execute(
         key: ContentKey,
@@ -67,6 +77,9 @@ internal class VideoExtractionCoordinator(
                 existing.subscribers++
                 request = existing
             } else {
+                if (BuildConfig.DEBUG) {
+                    extractionCounts[key] = (extractionCounts[key] ?: 0) + 1
+                }
                 val result = CompletableDeferred<AppResult<ExtractedVideoBundle>>()
                 val holder = arrayOfNulls<InFlight>(1)
                 val callerContext = coroutineContext.minusKey(Job)

@@ -111,4 +111,15 @@ class VideoExtractionCoordinatorTest {
         }
         assertEquals(16, coordinator.cacheSizeForTest)
     }
+
+    @Test fun extraction_count_increases_only_for_real_upstream_work() = runTest {
+        val coordinator = VideoExtractionCoordinator(this)
+        val key = ContentKey(0, "counted")
+
+        repeat(3) {
+            coordinator.execute(key) { AppResult.Success(bundle(key)) }
+        }
+
+        assertEquals(1, coordinator.extractionCountForTest(key))
+    }
 }
