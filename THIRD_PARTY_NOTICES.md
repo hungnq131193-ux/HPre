@@ -12,6 +12,7 @@ HPre sử dụng các dự án mã nguồn mở dưới đây. Danh sách này p
 | OkHttp | 4.12.0 | https://github.com/square/okhttp | Apache-2.0 |
 | Coil | 2.7.0 | https://github.com/coil-kt/coil | Apache-2.0 |
 | Kotlin Coroutines | 1.10.1 | https://github.com/Kotlin/kotlinx.coroutines | Apache-2.0 |
+| Moshi | 1.15.2 | https://github.com/square/moshi | Apache-2.0 |
 | JUnit 4 | 4.13.2 | https://github.com/junit-team/junit4 | EPL-1.0 |
 
 NewPipeExtractor được phân phối cùng APK và mang giấy phép GPL-3.0-or-later. Vì vậy source tương ứng của mỗi bản HPre được phát hành nằm tại tag Git cùng phiên bản.

@@ -159,6 +159,7 @@ dependencies {
     implementation(libs.okhttp)
     implementation(libs.coil.compose)
     implementation(libs.kotlinx.coroutines.android)
+    implementation(libs.moshi)
 
     // Extractor (Only accessed via extractor adapter in Task 3)
     implementation(libs.newpipe.extractor)

@@ -29,6 +29,10 @@ import com.hpre.app.ui.watch.FullscreenHostHandlerFactory
 import com.hpre.app.settings.playbackDataStore
 import com.hpre.app.ui.home.CatalogTopicFeedSource
 import com.hpre.app.ui.home.TopicFeedSource
+import com.hpre.app.update.AppUpdateChecker
+import com.hpre.app.update.GitHubReleaseUpdateChecker
+import com.hpre.app.update.UpdateCheckResult
+import com.hpre.app.update.UpdateUnavailableReason
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -62,6 +66,10 @@ interface AppContainer {
     val playbackPreferences: com.hpre.app.settings.PlaybackPreferences
     val settingsRepository: com.hpre.app.settings.SettingsRepository
     val watchStateCache: WatchStateCache
+    val appUpdateChecker: AppUpdateChecker
+        get() = AppUpdateChecker {
+            UpdateCheckResult.Unavailable(UpdateUnavailableReason.NETWORK)
+        }
     fun createPlayerController(): PlayerController
 }
 
@@ -160,6 +168,10 @@ class DefaultAppContainer(
 
     override val watchStateCache: WatchStateCache by lazy {
         WatchStateCache(ttlMs = 300_000L, maxEntries = 10)
+    }
+
+    override val appUpdateChecker: AppUpdateChecker by lazy {
+        GitHubReleaseUpdateChecker(okHttpClient)
     }
 
     private val sessionPlayerController = AppScopedPlayerControllerProvider {
