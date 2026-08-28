@@ -113,6 +113,8 @@
     <string name="settings_theme_light">Sáng</string>
     <string name="settings_theme_dark">Tối</string>
     <string name="settings_choose_theme">Chọn chủ đề</string>
+    <string name="settings_language">Ngôn ngữ</string>
+    <string name="settings_choose_language">Chọn ngôn ngữ</string>
     <string name="settings_playback">Phát video</string>
     <string name="settings_background_playback">Phát trong nền</string>
     <string name="settings_background_playback_summary">Tiếp tục phát âm thanh khi ứng dụng chạy nền</string>

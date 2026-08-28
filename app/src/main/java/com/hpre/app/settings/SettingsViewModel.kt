@@ -49,6 +49,12 @@ class SettingsViewModel(
         }
     }
 
+    fun setLanguage(language: AppLanguage) {
+        viewModelScope.launch {
+            settingsRepository.setLanguage(language)
+        }
+    }
+
     fun setBackgroundPlayback(enabled: Boolean) {
         viewModelScope.launch {
             settingsRepository.setBackgroundPlaybackEnabled(enabled)

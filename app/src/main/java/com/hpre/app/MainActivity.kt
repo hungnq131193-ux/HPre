@@ -16,11 +16,13 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.SideEffect
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import com.hpre.app.core.designsystem.HPreTheme
 import com.hpre.app.navigation.RootScaffold
 import com.hpre.app.player.PlaybackStreamType
 import com.hpre.app.player.PlayerController
 import com.hpre.app.ui.watch.PlayerSurface
+import java.util.Locale
 
 open class MainActivity : ComponentActivity() {
     private val app: HPreApplication
@@ -70,6 +72,17 @@ open class MainActivity : ComponentActivity() {
             }
 
             HPreTheme(darkTheme = darkTheme) {
+                val context = LocalContext.current
+                
+                SideEffect {
+                    val locale = Locale(settings.language.code)
+                    Locale.setDefault(locale)
+                    val config = context.resources.configuration
+                    config.setLocale(locale)
+                    @Suppress("DEPRECATION")
+                    context.resources.updateConfiguration(config, context.resources.displayMetrics)
+                }
+                
                 val playbackUiState by app.playbackUiCoordinator.state.collectAsStateWithLifecycle()
                 val playbackState by playerController.state.collectAsStateWithLifecycle()
 

@@ -896,7 +896,7 @@ class SessionPlayerController(
                         }
                     }
                 }
-                delay(500)
+                delay(1000)
             }
         }
     }

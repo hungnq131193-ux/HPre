@@ -12,6 +12,7 @@ import kotlinx.coroutines.flow.map
 interface SettingsRepository : PlaybackPreferences {
     val settings: Flow<AppSettings>
     suspend fun setTheme(theme: AppTheme)
+    suspend fun setLanguage(language: AppLanguage)
     suspend fun setWifiQuality(quality: QualityPreferenceSetting)
     suspend fun setMobileQuality(quality: QualityPreferenceSetting)
     suspend fun setDefaultPlaybackSpeed(speed: Float)
@@ -24,6 +25,7 @@ class DataStoreSettingsRepository(
 
     companion object {
         val KEY_THEME = stringPreferencesKey("app_theme")
+        val KEY_LANGUAGE = stringPreferencesKey("app_language")
         val KEY_BACKGROUND_PLAYBACK = DataStorePlaybackPreferences.KEY_BACKGROUND_PLAYBACK
         val KEY_PIP_ENABLED = DataStorePlaybackPreferences.KEY_PIP_ENABLED
         val KEY_HISTORY_ENABLED = DataStorePlaybackPreferences.KEY_HISTORY_ENABLED
@@ -38,6 +40,7 @@ class DataStoreSettingsRepository(
         const val DEFAULT_SPEED = 1.0f
         const val DEFAULT_AUTOPLAY = true
         val DEFAULT_THEME = AppTheme.DARK
+        val DEFAULT_LANGUAGE = AppLanguage.VIETNAMESE
     }
 
     override val settings: Flow<AppSettings> = dataStore.data.map { preferences ->
@@ -49,6 +52,15 @@ class DataStoreSettingsRepository(
                 DEFAULT_THEME
             }
         } ?: DEFAULT_THEME
+
+        val languageStr = preferences[KEY_LANGUAGE]
+        val language = languageStr?.let {
+            try {
+                AppLanguage.valueOf(it)
+            } catch (_: IllegalArgumentException) {
+                DEFAULT_LANGUAGE
+            }
+        } ?: DEFAULT_LANGUAGE
 
         val wifiQualityStr = preferences[KEY_WIFI_QUALITY]
         val wifiQuality = wifiQualityStr?.let {
@@ -70,6 +82,7 @@ class DataStoreSettingsRepository(
 
         AppSettings(
             theme = theme,
+            language = language,
             backgroundPlaybackEnabled = preferences[KEY_BACKGROUND_PLAYBACK] ?: DEFAULT_BACKGROUND_PLAYBACK,
             pipEnabled = preferences[KEY_PIP_ENABLED] ?: DEFAULT_PIP_ENABLED,
             historyEnabled = preferences[KEY_HISTORY_ENABLED] ?: DEFAULT_HISTORY_ENABLED,
@@ -95,6 +108,12 @@ class DataStoreSettingsRepository(
     override suspend fun setTheme(theme: AppTheme) {
         dataStore.edit { preferences ->
             preferences[KEY_THEME] = theme.name
+        }
+    }
+
+    override suspend fun setLanguage(language: AppLanguage) {
+        dataStore.edit { preferences ->
+            preferences[KEY_LANGUAGE] = language.name
         }
     }
 

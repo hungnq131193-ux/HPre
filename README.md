@@ -18,6 +18,7 @@ HPre là ứng dụng khách video độc lập dành cho Android. Ứng dụng 
 - Xem bình luận và nội dung liên quan.
 - Lưu cục bộ lịch sử xem, danh sách phát và kênh theo dõi.
 - Giao diện theo hệ thống, sáng hoặc tối.
+- Hỗ trợ tiếng Việt và tiếng Anh.
 - Kiểm tra cập nhật thủ công trong Cài đặt và mở trang GitHub Release chính thức.
 
 ## Screenshots

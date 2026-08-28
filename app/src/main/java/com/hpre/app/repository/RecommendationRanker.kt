@@ -90,12 +90,13 @@ object RecommendationRanker {
             val eligibleRange = remaining.takeWhile {
                 it.isFallbackWatched == currentFallbackGroup
             }
-            val previousChannels = result.takeLast(2).map { normalize(it.channelName.orEmpty()) }
-            val nextIndex = if (
-                previousChannels.size == 2 &&
-                previousChannels[0].isNotBlank() &&
-                previousChannels[0] == previousChannels[1]
-            ) {
+        val previousChannels = result.takeLast(3).map { normalize(it.channelName.orEmpty()) }
+        val nextIndex = if (
+            previousChannels.size == 3 &&
+            previousChannels[0].isNotBlank() &&
+            previousChannels[0] == previousChannels[1] &&
+            previousChannels[1] == previousChannels[2]
+        ) {
                 eligibleRange.indexOfFirst {
                     normalize(it.video.channelName.orEmpty()) != previousChannels[0]
                 }.takeIf { it >= 0 } ?: 0
@@ -116,9 +117,9 @@ object RecommendationRanker {
         }
         val ageDays = ((nowEpochSeconds - publishedEpochSeconds).coerceAtLeast(0L) / 86_400L)
         return when {
-            ageDays <= 7 -> 4
-            ageDays <= 30 -> 3
-            ageDays <= 180 -> 2
+            ageDays <= 7 -> 8
+            ageDays <= 30 -> 5
+            ageDays <= 180 -> 3
             ageDays <= 365 -> 1
             else -> 0
         }
@@ -131,6 +132,6 @@ object RecommendationRanker {
         val isFallbackWatched: Boolean
     )
 
-    private const val RELATED_SCORE = 100
-    private const val CURRENT_CHANNEL_SCORE = 20
+    private const val RELATED_SCORE = 150
+    private const val CURRENT_CHANNEL_SCORE = 40
 }

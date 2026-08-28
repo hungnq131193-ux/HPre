@@ -53,6 +53,7 @@ fun SettingsScreen(
     val updateState by viewModel.updateState.collectAsStateWithLifecycle()
 
     var showThemeDialog by remember { mutableStateOf(false) }
+    var showLanguageDialog by remember { mutableStateOf(false) }
     var showWifiQualityDialog by remember { mutableStateOf(false) }
     var showMobileQualityDialog by remember { mutableStateOf(false) }
     var showSpeedDialog by remember { mutableStateOf(false) }
@@ -95,6 +96,16 @@ fun SettingsScreen(
                 },
                 tag = "setting_theme_item",
                 onClick = { showThemeDialog = true }
+            )
+
+            SettingsClickableItem(
+                title = stringResource(R.string.settings_language),
+                subtitle = when (settings.language) {
+                    AppLanguage.VIETNAMESE -> "Tiếng Việt"
+                    AppLanguage.ENGLISH -> "English"
+                },
+                tag = "setting_language_item",
+                onClick = { showLanguageDialog = true }
             )
 
             HorizontalDivider()
@@ -269,6 +280,23 @@ fun SettingsScreen(
                 showThemeDialog = false
             },
             onDismiss = { showThemeDialog = false }
+        )
+    }
+
+    if (showLanguageDialog) {
+        SingleChoiceDialog(
+            title = stringResource(R.string.settings_choose_language),
+            options = listOf(
+                AppLanguage.VIETNAMESE to "Tiếng Việt",
+                AppLanguage.ENGLISH to "English"
+            ),
+            selectedOption = settings.language,
+            tagPrefix = "language_option",
+            onOptionSelected = {
+                viewModel.setLanguage(it)
+                showLanguageDialog = false
+            },
+            onDismiss = { showLanguageDialog = false }
         )
     }
 

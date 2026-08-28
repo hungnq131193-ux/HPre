@@ -6,6 +6,11 @@ enum class AppTheme {
     DARK
 }
 
+enum class AppLanguage(val code: String) {
+    VIETNAMESE("vi"),
+    ENGLISH("en")
+}
+
 enum class QualityPreferenceSetting(val label: String, val maxResolution: Int?) {
     AUTO("Auto", null),
     HIGH_1080P("1080p (High)", 1080),
@@ -15,6 +20,7 @@ enum class QualityPreferenceSetting(val label: String, val maxResolution: Int?) 
 
 data class AppSettings(
     val theme: AppTheme = AppTheme.DARK,
+    val language: AppLanguage = AppLanguage.VIETNAMESE,
     val backgroundPlaybackEnabled: Boolean = true,
     val pipEnabled: Boolean = true,
     val historyEnabled: Boolean = true,
