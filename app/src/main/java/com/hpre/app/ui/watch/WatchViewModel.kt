@@ -281,29 +281,40 @@ class WatchViewModel(
 
             cachedSnapshot.relatedVideos?.let { videos ->
                 _relatedState.value = RefreshableAsyncState.content(videos)
-            } ?: run {
-                if (watchRecommendationSource == null) {
-                    executeRelated(key, null, forceRefresh = false, isRefresh = false)
-                } else {
-                    executeRelated(key, cachedSnapshot.details, forceRefresh = false, isRefresh = false)
-                }
             }
 
             cachedSnapshot.comments?.let { page ->
                 _commentsState.value = if (page.comments.isEmpty()) AsyncState.Empty else AsyncState.Content(page)
-            } ?: run {
-                loadComments(key, generation, null, append = false)
             }
 
             val activePlayback = playbackState.value
             val reuseActivePlayer = activePlayback.key == key && activePlayback.error == null
             if (!reuseActivePlayer) {
                 viewModelScope.launch(ioDispatcher) {
-                    val resumePositionMs = loadResumePosition(key)
+                    val resumeDeferred = async { loadResumePosition(key) }
                     val streamResult = videoService.streamInfo(key)
                     if (generation == currentGeneration && currentKey == key && streamResult is AppResult.Success) {
-                        playerController.prepare(key, streamResult.value, startPositionMs = resumePositionMs)
+                        playerController.prepare(
+                            key,
+                            streamResult.value,
+                            startPositionMs = resumeDeferred.await()
+                        )
+                        if (cachedSnapshot.relatedVideos == null) {
+                            executeRelated(key, cachedSnapshot.details, forceRefresh = false, isRefresh = false)
+                        }
+                        if (cachedSnapshot.comments == null) {
+                            loadComments(key, generation, null, append = false)
+                        }
+                    } else {
+                        resumeDeferred.cancel()
                     }
+                }
+            } else {
+                if (cachedSnapshot.relatedVideos == null) {
+                    executeRelated(key, cachedSnapshot.details, forceRefresh = false, isRefresh = false)
+                }
+                if (cachedSnapshot.comments == null) {
+                    loadComments(key, generation, null, append = false)
                 }
             }
             return
@@ -334,15 +345,7 @@ class WatchViewModel(
                 }
                 val activePlayback = playbackState.value
                 val reuseActivePlayer = activePlayback.key == key && activePlayback.error == null
-
-                // Comments and (when they don't need details) related videos are independent of stream
-                // extraction, so they are dispatched before it rather than after. Stream extraction is
-                // the slowest step by far; waiting on it before even requesting these sections is what
-                // made the watch page look empty for seconds after opening a video.
-                if (watchRecommendationSource == null) {
-                    executeRelated(key, null, forceRefresh = forceRefresh, isRefresh = false)
-                }
-                loadComments(key, generation, null, append = false)
+                val prepareGate = kotlinx.coroutines.CompletableDeferred<Unit>()
 
                 // Details resolve on their own child coroutine so the header and the
                 // recommendation-source related fetch are not gated behind stream extraction.
@@ -359,6 +362,8 @@ class WatchViewModel(
                                 comments = null
                             ))
                             if (watchRecommendationSource != null) {
+                                prepareGate.await()
+                                if (generation != currentGeneration || currentKey != key) return@launch
                                 executeRelated(key, detailsResult.value, forceRefresh = forceRefresh, isRefresh = false)
                             }
                         }
@@ -403,6 +408,12 @@ class WatchViewModel(
                     }
                     if (!preparedCurrentSession) return@launch
                 }
+
+                prepareGate.complete(Unit)
+                if (watchRecommendationSource == null) {
+                    executeRelated(key, null, forceRefresh = forceRefresh, isRefresh = false)
+                }
+                loadComments(key, generation, null, append = false)
 
                 detailsJob.join()
             } catch (ce: CancellationException) {

@@ -76,6 +76,7 @@ class WatchViewModelTest {
         var selectedSpeed: Float? = null
         var selectedQualityOption: QualityOption? = null
         var attachedViewCount = 0
+        var onPrepare: (() -> Unit)? = null
 
         override fun attachSurface(playerView: androidx.media3.ui.PlayerView) {
             attachedViewCount++
@@ -96,6 +97,7 @@ class WatchViewModelTest {
             playWhenReady: Boolean,
             initialQuality: QualityOption?
         ) {
+            onPrepare?.invoke()
             prepareCount++
             preparedKey = key
             preparedStreamInfo = streamInfo
@@ -151,6 +153,100 @@ class WatchViewModelTest {
         fun setPlayerErrorForTest(error: AppError) {
             _state.value = _state.value.copy(error = error, isPlaying = false, isLoading = false)
         }
+    }
+
+    @Test
+    fun related_and_comments_start_only_after_player_prepare() = runTest(testDispatcher) {
+        val events = mutableListOf<String>()
+        val streamGate = CompletableDeferred<AppResult<StreamInfo>>()
+        val service = FakeVideoService(
+            supportsComments = true,
+            videoHandler = {
+                events += "details"
+                AppResult.Success(testDetails(it))
+            },
+            streamInfoHandler = {
+                events += "stream"
+                streamGate.await()
+            },
+            relatedHandler = {
+                events += "related"
+                AppResult.Success(emptyList())
+            },
+            commentsHandler = { _, _ ->
+                events += "comments"
+                AppResult.Success(CommentPage(emptyList()))
+            }
+        )
+        val player = FakePlayerController().apply { onPrepare = { events += "prepare" } }
+        val model = WatchViewModel(
+            videoService = service,
+            playerController = player,
+            savedStateHandle = androidx.lifecycle.SavedStateHandle(),
+            ioDispatcher = testDispatcher
+        )
+
+        model.load(testKey)
+        runCurrent()
+
+        assertTrue("stream must start immediately", "stream" in events)
+        assertFalse("related must not compete before prepare: $events", "related" in events)
+        assertFalse("comments must not compete before prepare: $events", "comments" in events)
+
+        streamGate.complete(AppResult.Success(testStreamInfo(testKey)))
+        advanceUntilIdle()
+
+        assertTrue(events.indexOf("prepare") < events.indexOf("related"))
+        assertTrue(events.indexOf("prepare") < events.indexOf("comments"))
+    }
+
+    @Test
+    fun cached_details_render_immediately_while_resume_and_stream_start_concurrently() = runTest(testDispatcher) {
+        val resumeGate = CompletableDeferred<AppResult<com.hpre.app.repository.WatchHistoryItem?>>()
+        var resumeStarted = false
+        var streamStarted = false
+        val history = object : com.hpre.app.repository.HistoryRepository {
+            override fun observeHistory() = kotlinx.coroutines.flow.emptyFlow<List<com.hpre.app.repository.WatchHistoryItem>>()
+            override suspend fun getHistoryItem(key: ContentKey): AppResult<com.hpre.app.repository.WatchHistoryItem?> {
+                resumeStarted = true
+                return resumeGate.await()
+            }
+            override suspend fun recordHistory(summary: VideoSummary, positionMs: Long, watchedTimestamp: Long) = AppResult.Success(Unit)
+            override suspend fun deleteHistoryItem(key: ContentKey) = AppResult.Success(Unit)
+            override suspend fun clearHistory() = AppResult.Success(Unit)
+        }
+        val service = FakeVideoService(
+            supportsComments = false,
+            streamInfoHandler = {
+                streamStarted = true
+                AppResult.Success(testStreamInfo(it))
+            },
+            relatedHandler = { AppResult.Success(emptyList()) }
+        )
+        val cache = com.hpre.app.repository.WatchStateCache().apply {
+            put(testKey, com.hpre.app.repository.WatchStateSnapshot(testDetails(testKey), null, null))
+        }
+        val player = FakePlayerController()
+        val model = WatchViewModel(
+            videoService = service,
+            playerController = player,
+            savedStateHandle = androidx.lifecycle.SavedStateHandle(),
+            historyRepository = history,
+            watchStateCache = cache,
+            ioDispatcher = testDispatcher
+        )
+
+        model.load(testKey)
+        runCurrent()
+
+        assertEquals(testDetails(testKey), model.uiState.value.details)
+        assertFalse(model.uiState.value.isLoading)
+        assertTrue(resumeStarted)
+        assertTrue("stream must not wait for resume lookup", streamStarted)
+
+        resumeGate.complete(AppResult.Success(null))
+        advanceUntilIdle()
+        assertEquals(1, player.prepareCount)
     }
 
     @Before
