@@ -129,7 +129,7 @@ fun RootScaffold(
             .distinctUntilChanged()
     }
     val hasActiveMedia by activeMediaFlow.collectAsStateWithLifecycle(
-        initialValue = container.playbackState.value.key != null
+        initialValue = false
     )
     // Non-null exactly when media is active, so the mini player never triggers construction.
     val activePlayerController = if (hasActiveMedia) container.peekPlayerController() else null

@@ -103,13 +103,12 @@ open class MainActivity : ComponentActivity() {
                             }
                             .distinctUntilChanged()
                     }
-                    val initialPlaybackState = app.container.playbackState.value
                     val autoPipPlayback by autoPipPlaybackFlow.collectAsStateWithLifecycle(
                         initialValue = AutoPipPlaybackSnapshot(
-                            key = initialPlaybackState.key,
-                            streamType = initialPlaybackState.streamType,
-                            isPlaying = initialPlaybackState.isPlaying,
-                            isReady = initialPlaybackState.isReady
+                            key = null,
+                            streamType = null,
+                            isPlaying = false,
+                            isReady = false
                         )
                     )
 
