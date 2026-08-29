@@ -266,7 +266,7 @@ fun WatchScreen(
     playbackUiCoordinator: com.hpre.app.player.PlaybackUiCoordinator? = null
 ) {
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
-    val playbackState by viewModel.playbackState.collectAsStateWithLifecycle()
+    val playbackState by viewModel.structuralPlaybackState.collectAsStateWithLifecycle()
     val relatedState by viewModel.relatedState.collectAsStateWithLifecycle()
     val commentsState by viewModel.commentsState.collectAsStateWithLifecycle()
     val context = LocalContext.current
@@ -348,8 +348,9 @@ fun WatchScreen(
                 modifier = Modifier.fillMaxSize()
             )
 
-            PlayerControlsOverlay(
-                playbackState = playbackState,
+            WatchPlayerControls(
+                structuralState = playbackState,
+                progress = viewModel.playbackProgress,
                 isFullscreen = true,
                 onPlayPause = { viewModel.playPause() },
                 onSeekBy = { delta -> viewModel.seekBy(delta) },
@@ -387,8 +388,9 @@ fun WatchScreen(
                         modifier = Modifier.fillMaxSize()
                     )
 
-                    PlayerControlsOverlay(
-                        playbackState = playbackState,
+                    WatchPlayerControls(
+                        structuralState = playbackState,
+                        progress = viewModel.playbackProgress,
                         isFullscreen = false,
                         onPlayPause = { viewModel.playPause() },
                         onSeekBy = { delta -> viewModel.seekBy(delta) },
@@ -445,6 +447,40 @@ fun WatchScreen(
                 }
         }
     }
+}
+
+@Composable
+private fun WatchPlayerControls(
+    structuralState: com.hpre.app.player.PlaybackState,
+    progress: kotlinx.coroutines.flow.StateFlow<com.hpre.app.player.PlaybackProgress>,
+    isFullscreen: Boolean,
+    onPlayPause: () -> Unit,
+    onSeekBy: (Long) -> Unit,
+    onSeekTo: (Long) -> Unit,
+    onSpeedSelected: (Float) -> Unit,
+    onQualitySelected: (com.hpre.app.player.QualityOption) -> Unit,
+    onToggleFullscreen: () -> Unit,
+    onMinimizeToHome: () -> Unit,
+    minimizeEnabled: Boolean,
+    isInPip: Boolean
+) {
+    val playbackProgress by progress.collectAsStateWithLifecycle()
+    PlayerControlsOverlay(
+        playbackState = structuralState.copy(
+            currentPositionMs = playbackProgress.positionMs,
+            durationMs = playbackProgress.durationMs
+        ),
+        isFullscreen = isFullscreen,
+        onPlayPause = onPlayPause,
+        onSeekBy = onSeekBy,
+        onSeekTo = onSeekTo,
+        onSpeedSelected = onSpeedSelected,
+        onQualitySelected = onQualitySelected,
+        onToggleFullscreen = onToggleFullscreen,
+        onMinimizeToHome = onMinimizeToHome,
+        minimizeEnabled = minimizeEnabled,
+        isInPip = isInPip
+    )
 }
 
 const val WATCH_KEY_TITLE = "section:watch_title"

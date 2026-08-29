@@ -274,7 +274,7 @@ class SnapshotWriter(
             inMemorySnapshot = snapshot
             try {
                 storageDir?.mkdirs()
-                val file = legacySnapshotFile
+                val file = legacySnapshotFile.takeIf { dataStore == null }
                 if (file != null) {
                     val qualityPart = if (snapshot.selectedQuality != null) {
                         val q = snapshot.selectedQuality
@@ -337,7 +337,7 @@ class SnapshotWriter(
             // If storageDir exists, write atomic fallback/datastore-compatible file representation
             try {
                 storageDir?.mkdirs()
-                val file = legacySnapshotFile
+                val file = legacySnapshotFile.takeIf { dataStore == null }
                 if (file != null) {
                     val qualityPart = if (snapshotToWrite.selectedQuality != null) {
                         val q = snapshotToWrite.selectedQuality

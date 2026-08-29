@@ -50,6 +50,9 @@ object PlaybackPolicy {
         return backgroundEnabled || enteringPip || isChangingConfigurations
     }
 
+    fun shouldTrackUiProgress(isLifecycleStarted: Boolean, isInPip: Boolean): Boolean =
+        isLifecycleStarted || isInPip
+
     /**
      * Keep video decoding only while pixels can be visible. Audio continues in the background when
      * enabled, while PiP and configuration changes retain the video renderer without interruption.

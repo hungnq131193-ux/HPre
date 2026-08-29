@@ -12,12 +12,16 @@ internal class PlaybackHistoryScheduler(
     private val onWrite: () -> Unit
 ) {
     private var job: Job? = null
+    private var wasPlaying = false
 
     fun update(isPlaying: Boolean) {
         if (!isPlaying) {
+            if (wasPlaying) onWrite()
+            wasPlaying = false
             cancelJob()
             return
         }
+        wasPlaying = true
         if (job?.isActive == true) return
         job = scope.launch {
             while (isActive) {
@@ -27,7 +31,11 @@ internal class PlaybackHistoryScheduler(
         }
     }
 
-    fun stop() = cancelJob()
+    fun stop() {
+        if (wasPlaying) onWrite()
+        wasPlaying = false
+        cancelJob()
+    }
 
     private fun cancelJob() {
         job?.cancel()
@@ -35,6 +43,6 @@ internal class PlaybackHistoryScheduler(
     }
 
     companion object {
-        const val HISTORY_WRITE_INTERVAL_MS = 10_000L
+        const val HISTORY_WRITE_INTERVAL_MS = 30_000L
     }
 }

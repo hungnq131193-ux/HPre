@@ -53,15 +53,35 @@ internal fun restoreConnectedPlaybackState(
 )
 
 @OptIn(UnstableApi::class)
-class SessionPlayerController(
+class SessionPlayerController internal constructor(
     private val context: Context,
     val mediaSourceFactory: MediaSourceCreator? = null,
     val recoveryCoordinator: StreamRecoveryCoordinator? = null,
     val snapshotStore: PlaybackSnapshotStore = PlaybackSnapshotStore(context),
     private val mainDispatcher: CoroutineDispatcher = Dispatchers.Main,
     private val ioDispatcher: CoroutineDispatcher = Dispatchers.IO,
-    private val externalScope: CoroutineScope? = null
+    private val externalScope: CoroutineScope? = null,
+    internal val connectionCoordinator: ConnectionLifecycleCoordinator? = null
 ) : PlayerController, PlayerIntegrationProbe {
+
+    constructor(
+        context: Context,
+        mediaSourceFactory: MediaSourceCreator? = null,
+        recoveryCoordinator: StreamRecoveryCoordinator? = null,
+        snapshotStore: PlaybackSnapshotStore = PlaybackSnapshotStore(context),
+        mainDispatcher: CoroutineDispatcher = Dispatchers.Main,
+        ioDispatcher: CoroutineDispatcher = Dispatchers.IO,
+        externalScope: CoroutineScope? = null
+    ) : this(
+        context = context,
+        mediaSourceFactory = mediaSourceFactory,
+        recoveryCoordinator = recoveryCoordinator,
+        snapshotStore = snapshotStore,
+        mainDispatcher = mainDispatcher,
+        ioDispatcher = ioDispatcher,
+        externalScope = externalScope,
+        connectionCoordinator = null
+    )
 
     private val scope = externalScope ?: CoroutineScope(mainDispatcher + Job())
     private var controllerFuture: ListenableFuture<MediaController>? = null
@@ -72,6 +92,7 @@ class SessionPlayerController(
 
     private var currentSurfaceView: PlayerView? = null
     private var progressJob: Job? = null
+    private var reconnectJob: Job? = null
     private var isReleased: Boolean = false
     private var backgroundPlaybackEnabled: Boolean = true
     private var enteringPip: Boolean = false
@@ -80,6 +101,11 @@ class SessionPlayerController(
     private var isReconnecting: Boolean = false
     private var connectionAttemptGeneration: Long = 0L
     private var activeConnectionGeneration: Long = 0L
+
+    internal val activeAttemptGen: Long get() = connectionAttemptGeneration
+    internal val activeConnGen: Long get() = activeConnectionGeneration
+    internal val isReconnectingState: Boolean get() = isReconnecting
+    internal val currentRetryCount: Int get() = connectRetryCount
 
     private var currentStreamInfo: StreamInfo? = null
     private var currentKey: ContentKey? = null
@@ -246,14 +272,22 @@ class SessionPlayerController(
         connectController()
     }
 
+    internal interface ConnectionLifecycleCoordinator {
+        fun createControllerFuture(
+            context: Context,
+            listener: MediaController.Listener
+        ): ListenableFuture<MediaController>
+
+        fun onFutureCompletedOrCancelled(future: ListenableFuture<MediaController>) {}
+        fun onPrepareDelivered(pending: PendingPrepare) {}
+        fun onPlayerViewDetached(playerView: PlayerView) {}
+    }
+
     private fun connectController() {
         if (isReleased) return
         val attemptToken = ++connectionAttemptGeneration
         scope.launch(mainDispatcher) {
-            val sessionToken = SessionToken(
-                context.applicationContext,
-                ComponentName(context.applicationContext, HPrePlaybackService::class.java)
-            )
+            if (isReleased || attemptToken != connectionAttemptGeneration) return@launch
             var capturedController: MediaController? = null
             val controllerListener = object : MediaController.Listener {
                 override fun onDisconnected(controller: MediaController) {
@@ -263,11 +297,24 @@ class SessionPlayerController(
                     }
                 }
             }
-            val future = MediaController.Builder(context.applicationContext, sessionToken)
-                .setListener(controllerListener)
-                .buildAsync()
+            val future = if (connectionCoordinator != null) {
+                connectionCoordinator.createControllerFuture(context.applicationContext, controllerListener)
+            } else {
+                val sessionToken = SessionToken(
+                    context.applicationContext,
+                    ComponentName(context.applicationContext, HPrePlaybackService::class.java)
+                )
+                MediaController.Builder(context.applicationContext, sessionToken)
+                    .setListener(controllerListener)
+                    .buildAsync()
+            }
+            if (isReleased || attemptToken != connectionAttemptGeneration) {
+                MediaController.releaseFuture(future)
+                return@launch
+            }
             controllerFuture = future
             future.addListener({
+                connectionCoordinator?.onFutureCompletedOrCancelled(future)
                 try {
                     val controller = future.get()
                     capturedController = controller
@@ -277,6 +324,8 @@ class SessionPlayerController(
                     }
                     connectRetryCount = 0
                     isReconnecting = false
+                    reconnectJob?.cancel()
+                    reconnectJob = null
                     mediaController = controller
                     activeConnectionGeneration = attemptToken
                     controller.addListener(playerListener)
@@ -318,13 +367,20 @@ class SessionPlayerController(
                         policyArgs
                     )
                     pendingCommands.takePrepare()?.let(::sendPrepare)
+                } catch (_: java.util.concurrent.CancellationException) {
+                    if (attemptToken == connectionAttemptGeneration) {
+                        controllerFuture = null
+                        handleConnectFailure()
+                    }
                 } catch (_: ExecutionException) {
                     if (attemptToken == connectionAttemptGeneration) {
+                        controllerFuture = null
                         handleConnectFailure()
                     }
                 } catch (_: InterruptedException) {
                     Thread.currentThread().interrupt()
                     if (attemptToken == connectionAttemptGeneration) {
+                        controllerFuture = null
                         handleConnectFailure()
                     }
                 }
@@ -347,7 +403,7 @@ class SessionPlayerController(
         }
         connectionAttemptGeneration++
         activeConnectionGeneration = 0L
-        isReconnecting = true
+        isReconnecting = false
         currentSurfaceView?.player = null
         mediaController?.removeListener(playerListener)
         mediaController = null
@@ -357,6 +413,7 @@ class SessionPlayerController(
         // Preserve current state for replay
         val currentK = _state.value.key
         val currentInfo = currentStreamInfo
+        var hasWork = false
         if (currentK != null && currentInfo != null) {
             val pending = PendingPrepare(
                 key = currentK,
@@ -366,36 +423,51 @@ class SessionPlayerController(
                 playbackSpeed = _state.value.playbackSpeed
             )
             pendingCommands.setPrepare(pending)
+            hasWork = true
+        } else if (pendingCommands.takePrepare()?.also(pendingCommands::setPrepare) != null) {
+            hasWork = true
         }
 
-        // Bounded reconnect attempt
-        triggerBoundedReconnect()
+        // Bounded reconnect attempt only if we have pending or active playback to restore
+        if (hasWork) {
+            isReconnecting = true
+            triggerBoundedReconnect()
+        }
     }
 
     private fun triggerBoundedReconnect() {
         if (isReleased) return
+        reconnectJob?.cancel()
         if (connectRetryCount < 3) {
             connectRetryCount++
-            scope.launch(mainDispatcher) {
+            reconnectJob = scope.launch(mainDispatcher) {
                 delay(500L * connectRetryCount)
                 if (!isReleased && mediaController == null) {
                     connectController()
                 }
             }
+        } else {
+            isReconnecting = false
+            reconnectJob = null
         }
     }
 
     private fun handleConnectFailure() {
         if (isReleased) return
         _state.update { it.copy(isLoading = false, error = AppError.NetworkError) }
+        isReconnecting = true
+        reconnectJob?.cancel()
         if (connectRetryCount < 3) {
             connectRetryCount++
-            scope.launch(mainDispatcher) {
+            reconnectJob = scope.launch(mainDispatcher) {
                 delay(500L * connectRetryCount)
                 if (!isReleased && mediaController == null) {
                     connectController()
                 }
             }
+        } else {
+            isReconnecting = false
+            reconnectJob = null
         }
     }
 
@@ -476,7 +548,8 @@ class SessionPlayerController(
     override fun onLifecycleStart() {
         enteringPip = false
         isLifecycleStarted = true
-        applyVideoTrackPolicy()
+        if (_state.value.isPlaying) startProgressTracker()
+        scope.launch(mainDispatcher) { applyVideoTrackPolicy() }
     }
 
     override fun onLifecycleStop() {
@@ -484,7 +557,7 @@ class SessionPlayerController(
     }
 
     fun onLifecycleStop(isChangingConfigurations: Boolean, isInPip: Boolean = false) {
-        enteringPip = enteringPip || isInPip
+        enteringPip = isInPip
         val continueBg = PlaybackPolicy.shouldContinueInBackground(
             backgroundEnabled = backgroundPlaybackEnabled,
             enteringPip = enteringPip,
@@ -498,7 +571,12 @@ class SessionPlayerController(
             if (!isChangingConfigurations) {
                 isLifecycleStarted = false
             }
-            applyVideoTrackPolicy(isChangingConfigurations = isChangingConfigurations)
+            if (!PlaybackPolicy.shouldTrackUiProgress(isLifecycleStarted, enteringPip)) {
+                stopProgressTracker()
+            }
+            scope.launch(mainDispatcher) {
+                applyVideoTrackPolicy(isChangingConfigurations = isChangingConfigurations)
+            }
         }
     }
 
@@ -509,6 +587,11 @@ class SessionPlayerController(
     ) {
         backgroundPlaybackEnabled = backgroundEnabled
         enteringPip = pipActiveOrEntering
+        if (PlaybackPolicy.shouldTrackUiProgress(isLifecycleStarted, enteringPip)) {
+            if (_state.value.isPlaying) startProgressTracker()
+        } else {
+            stopProgressTracker()
+        }
         scope.launch(mainDispatcher) {
             val controller = mediaController ?: return@launch
             applyVideoTrackPolicy(controller, isChangingConfigurations)
@@ -598,23 +681,12 @@ class SessionPlayerController(
         }
 
         val pending = PendingPrepare(key, effectiveStartPositionMs, playWhenReady, initialQuality, clampedSpeed)
-        val snap = PlaybackSnapshot(
-            key = key,
-            positionMs = effectiveStartPositionMs,
-            playWhenReady = playWhenReady,
-            selectedQuality = initialQuality?.takeIf { option -> available.contains(option) },
-            playbackSpeed = clampedSpeed,
-            qualityPolicy = initialQuality?.let(UserQualityPolicy::Fixed) ?: existingPolicy
-        )
-        val token = snapshotStore.enqueueSave()
-        snapshotStore.executeSave(
-            snap,
-            token,
-            preserveSameKeyPosition = !streamInfo.isLive
-        )
         scope.launch(mainDispatcher) {
             if (mediaController == null) {
                 pendingCommands.setPrepare(pending)
+                if (controllerFuture == null && !isReconnecting) {
+                    connectController()
+                }
             } else {
                 sendPrepare(pending)
             }
@@ -626,6 +698,7 @@ class SessionPlayerController(
             pendingCommands.setPrepare(pending)
             return
         }
+        connectionCoordinator?.onPrepareDelivered(pending)
         val prepareGen = ++localMediaGen
         val handoffToken = currentStreamInfo?.takeIf { it.key == pending.key }?.let {
             PlaybackStreamHandoff.put(it, requestGen = prepareGen)
@@ -759,21 +832,6 @@ class SessionPlayerController(
         scope.launch(mainDispatcher) {
             mediaController?.playbackParameters = PlaybackParameters(clamped)
             _state.update { it.copy(playbackSpeed = clamped) }
-            val currentK = _state.value.key
-            if (currentK != null) {
-                val currentPos = mediaController?.currentPosition?.coerceAtLeast(0L) ?: _state.value.currentPositionMs
-                val pwr = mediaController?.playWhenReady ?: _state.value.playWhenReady
-                val snap = PlaybackSnapshot(
-                    key = currentK,
-                    positionMs = currentPos,
-                    playWhenReady = pwr,
-                    selectedQuality = _state.value.selectedQuality,
-                    playbackSpeed = clamped,
-                    qualityPolicy = _state.value.qualityPolicy
-                )
-                val token = snapshotStore.enqueueSave()
-                snapshotStore.executeSave(snap, token)
-            }
         }
     }
 
@@ -889,19 +947,44 @@ class SessionPlayerController(
     }
 
     override fun clearMedia() {
+        stopProgressTracker()
+        reconnectJob?.cancel()
+        reconnectJob = null
+        isReconnecting = false
+        connectRetryCount = 0
+        connectionAttemptGeneration++
+        activeConnectionGeneration = 0L
+
         snapshotStore.clear()
         pendingCommands.clearPrepare()
         currentKey = null
         currentStreamInfo = null
         _state.value = PlaybackState()
+
+        val surfaceView = currentSurfaceView
+        currentSurfaceView = null
+
+        val controller = mediaController
+        val future = controllerFuture
+        mediaController = null
+        controllerFuture = null
+
         scope.launch(mainDispatcher) {
-            val controller = mediaController
+            surfaceView?.let { pv ->
+                pv.player = null
+                connectionCoordinator?.onPlayerViewDetached(pv)
+            }
+            controller?.removeListener(playerListener)
+            future?.let { MediaController.releaseFuture(it) }
             if (controller != null) {
-                val future = controller.sendCustomCommand(
+                val commandFuture = controller.sendCustomCommand(
                     SessionCommand(HPrePlaybackService.CUSTOM_COMMAND_CLEAR_MEDIA, Bundle.EMPTY),
                     Bundle.EMPTY
                 )
-                observeCommandResult(future)
+                commandFuture.addListener({
+                    snapshotStore.clear()
+                    controller.release()
+                }, { runnable -> scope.launch(mainDispatcher) { runnable.run() } })
             }
         }
     }
@@ -910,22 +993,46 @@ class SessionPlayerController(
         if (isReleased) return
         isReleased = true
         stopProgressTracker()
+        reconnectJob?.cancel()
+        reconnectJob = null
+        isReconnecting = false
+        connectRetryCount = 0
+        connectionAttemptGeneration++
+        activeConnectionGeneration = 0L
+
+        val surfaceView = currentSurfaceView
+        currentSurfaceView = null
+
+        val controller = mediaController
+        val future = controllerFuture
+        mediaController = null
+        controllerFuture = null
+
         // Observer-only semantics: clean up local listeners and controller binding,
         // but do NOT cancel externalScope jobs or destroy background playback service
         scope.launch(mainDispatcher) {
-            currentSurfaceView?.player = null
-            mediaController?.removeListener(playerListener)
-            controllerFuture?.let { MediaController.releaseFuture(it) }
-            mediaController = null
-            controllerFuture = null
-            currentSurfaceView = null
+            surfaceView?.let { pv ->
+                pv.player = null
+                connectionCoordinator?.onPlayerViewDetached(pv)
+            }
+            controller?.removeListener(playerListener)
+            future?.let { MediaController.releaseFuture(it) }
+            controller?.release()
         }
     }
 
     private fun startProgressTracker() {
         stopProgressTracker()
-        if (isReleased) return
+        if (isReleased || !PlaybackPolicy.shouldTrackUiProgress(isLifecycleStarted, enteringPip)) return
         progressJob = scope.launch(mainDispatcher) {
+            mediaController?.let { controller ->
+                _state.update {
+                    it.copy(
+                        currentPositionMs = controller.currentPosition.coerceAtLeast(0L),
+                        durationMs = controller.duration.coerceAtLeast(0L)
+                    )
+                }
+            }
             while (isActive) {
                 mediaController?.let { controller ->
                     if (controller.isPlaying) {

@@ -98,6 +98,21 @@ data class PlaybackState(
     val retrySnapshot: RetrySnapshot? = null
 )
 
+data class PlaybackProgress(
+    val positionMs: Long = 0L,
+    val durationMs: Long = 0L
+)
+
+fun PlaybackState.toStructuralState(): PlaybackState = copy(
+    currentPositionMs = 0L,
+    durationMs = 0L
+)
+
+fun PlaybackState.toProgress(): PlaybackProgress = PlaybackProgress(
+    positionMs = currentPositionMs,
+    durationMs = durationMs
+)
+
 /**
  * Controller-owned integration/testing snapshot returning actual player facts.
  * Runs on the main dispatcher and captures confirmed player state and media operation generation.

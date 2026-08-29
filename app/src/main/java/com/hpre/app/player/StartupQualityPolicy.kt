@@ -1,5 +1,55 @@
 package com.hpre.app.player
 
+import kotlinx.coroutines.CompletableDeferred
+
+internal class PlaybackReadinessTracker {
+    @Volatile
+    private var activeSessionGeneration: Long = -1L
+    @Volatile
+    private var activeMediaId: String? = null
+    @Volatile
+    private var readyDeferred: CompletableDeferred<Boolean>? = null
+
+    @Synchronized
+    fun registerSession(sessionGen: Long, mediaId: String? = null): CompletableDeferred<Boolean> {
+        readyDeferred?.complete(false)
+        activeSessionGeneration = sessionGen
+        activeMediaId = mediaId
+        val deferred = CompletableDeferred<Boolean>()
+        readyDeferred = deferred
+        return deferred
+    }
+
+    @Synchronized
+    fun onPlaybackStateChanged(sessionGen: Long, currentMediaId: String? = null, playbackState: Int) {
+        val active = activeMediaId
+        if (sessionGen == activeSessionGeneration && active != null && currentMediaId != null && active == currentMediaId) {
+            if (playbackState == androidx.media3.common.Player.STATE_READY) {
+                readyDeferred?.complete(true)
+            }
+        }
+    }
+
+    @Synchronized
+    fun onError(sessionGen: Long, currentMediaId: String? = null) {
+        val active = activeMediaId
+        if (sessionGen == activeSessionGeneration && active != null && currentMediaId != null && active == currentMediaId) {
+            readyDeferred?.complete(false)
+        }
+    }
+
+    @Synchronized
+    fun cancel(sessionGen: Long? = null) {
+        if (sessionGen == null || sessionGen == activeSessionGeneration) {
+            readyDeferred?.complete(false)
+            if (sessionGen == activeSessionGeneration) {
+                activeSessionGeneration = -1L
+                activeMediaId = null
+            }
+        }
+    }
+}
+
 /**
  * Startup quality policy: begin playback at the smallest usable rendition so the first frame and the
  * surrounding page (recommendations, comments) appear quickly, then raise the ceiling once playback
@@ -26,9 +76,6 @@ object StartupQualityPolicy {
 
     /** Give up waiting for playback to reach READY after this long; the plan is then abandoned. */
     const val READY_TIMEOUT_MS: Long = 20_000L
-
-    /** Polling interval while waiting for the player to reach READY. */
-    const val READY_POLL_INTERVAL_MS: Long = 200L
 
     private val ADAPTIVE_LADDER = listOf(480, 720, 1080)
 

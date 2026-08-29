@@ -1,6 +1,8 @@
 package com.hpre.app
 
 import android.app.Application
+import android.app.ActivityManager
+import android.content.Context
 import coil.ImageLoader
 import coil.ImageLoaderFactory
 import coil.disk.DiskCache
@@ -13,6 +15,12 @@ import com.hpre.app.extractor.ExtractorBootstrap
 import com.hpre.app.extractor.OkHttpDownloader
 import kotlinx.coroutines.launch
 import okhttp3.OkHttpClient
+
+internal fun imageMemoryCacheBytes(isLowRam: Boolean, memoryClassMb: Int): Long {
+    val mib = 1024L * 1024L
+    if (isLowRam) return 16L * mib
+    return (memoryClassMb.toLong() * mib / 8L).coerceIn(16L * mib, 32L * mib)
+}
 
 open class HPreApplication : Application(), ImageLoaderFactory {
     val playbackUiCoordinator = com.hpre.app.player.PlaybackUiCoordinator()
@@ -79,8 +87,14 @@ open class HPreApplication : Application(), ImageLoaderFactory {
     override fun newImageLoader(): ImageLoader = ImageLoader.Builder(this)
         .okHttpClient { appClient }
         .memoryCache {
+            val activityManager = getSystemService(Context.ACTIVITY_SERVICE) as ActivityManager
             MemoryCache.Builder(this)
-                .maxSizePercent(0.20)
+                .maxSizeBytes(
+                    imageMemoryCacheBytes(
+                        isLowRam = activityManager.isLowRamDevice,
+                        memoryClassMb = activityManager.memoryClass
+                    ).toInt()
+                )
                 .build()
         }
         .diskCache {
