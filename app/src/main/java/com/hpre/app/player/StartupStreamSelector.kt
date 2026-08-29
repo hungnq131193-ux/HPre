@@ -62,14 +62,7 @@ object StartupStreamSelector {
         return automatic
     }
 
-    /**
-     * Lowest progressive rendition (falling back to merged video+audio) at or above
-     * [StartupQualityPolicy.FAST_START_MIN_HEIGHT]. When every rendition sits below that floor, the
-     * best available one is used instead so quality never drops below what the source offers.
-     *
-     * Returns null when no non-adaptive video rendition can be resolved, letting the caller fall
-     * through to the regular cascade.
-     */
+    /** Lowest non-adaptive video rendition, prioritizing time to first frame. */
     private fun lowestStartupStream(info: StreamInfo): AppResult<SelectedStreams>? {
         val available = StreamSelector.getAvailableQualities(info)
 
@@ -77,11 +70,7 @@ object StartupStreamSelector {
             val candidates = available.filter { it.streamType == streamType && it.height > 0 }
             if (candidates.isEmpty()) continue
 
-            val option = candidates
-                .filter { it.height >= StartupQualityPolicy.FAST_START_MIN_HEIGHT }
-                .minByOrNull { it.height }
-                ?: candidates.maxByOrNull { it.height }
-                ?: continue
+            val option = candidates.minByOrNull { it.height } ?: continue
 
             val result = StreamSelector.selectStream(info, QualityPreference.SpecificOption(option))
             if (result is AppResult.Success) return result

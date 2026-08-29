@@ -36,6 +36,7 @@ interface PlayerController {
     fun setPlaybackSpeed(speed: Float)
     fun selectQuality(quality: QualityOption)
     fun setQualityPolicy(policy: UserQualityPolicy) = Unit
+    fun clearMedia() = Unit
     fun release()
 }
 

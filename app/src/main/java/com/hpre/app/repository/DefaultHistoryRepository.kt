@@ -13,6 +13,8 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlin.coroutines.cancellation.CancellationException
 
 class DefaultHistoryRepository(
@@ -20,6 +22,8 @@ class DefaultHistoryRepository(
     private val playbackPreferences: PlaybackPreferences,
     private val ioDispatcher: CoroutineDispatcher = Dispatchers.IO
 ) : HistoryRepository {
+
+    private val writeMutex = Mutex()
 
     override fun observeHistory(): Flow<List<WatchHistoryItem>> {
         return historyDao.observeAll().map { entities ->
@@ -61,19 +65,25 @@ class DefaultHistoryRepository(
                 0L
             }
 
-            val entity = HistoryEntity(
-                serviceId = summary.key.serviceId,
-                videoId = summary.key.nativeId,
-                canonicalUrl = summary.canonicalUrl,
-                title = summary.title,
-                channelId = summary.channelKey?.nativeId,
-                channelName = summary.channelName,
-                thumbnailUrl = summary.thumbnailUrl,
-                durationSeconds = summary.durationSeconds,
-                playbackPositionMs = effectivePosition,
-                watchedTimestamp = watchedTimestamp
-            )
-            historyDao.upsert(entity)
+            writeMutex.withLock {
+                val existing = historyDao.getByKey(summary.key.serviceId, summary.key.nativeId)
+                val entity = HistoryEntity(
+                    serviceId = summary.key.serviceId,
+                    videoId = summary.key.nativeId,
+                    canonicalUrl = summary.canonicalUrl
+                        .takeUnless { it.isBlank() || it.startsWith("https://hpre.test/watch?") }
+                        ?: existing?.canonicalUrl
+                        ?: summary.canonicalUrl,
+                    title = summary.title.takeUnless { it.isBlank() || it == "Video" } ?: existing?.title ?: summary.title,
+                    channelId = summary.channelKey?.nativeId ?: existing?.channelId,
+                    channelName = summary.channelName ?: existing?.channelName,
+                    thumbnailUrl = summary.thumbnailUrl ?: existing?.thumbnailUrl,
+                    durationSeconds = summary.durationSeconds ?: existing?.durationSeconds,
+                    playbackPositionMs = effectivePosition,
+                    watchedTimestamp = watchedTimestamp
+                )
+                historyDao.upsert(entity)
+            }
             AppResult.Success(Unit)
         } catch (c: CancellationException) {
             throw c

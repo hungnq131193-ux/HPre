@@ -15,12 +15,6 @@ object StartupQualityPolicy {
 
     const val UNLIMITED_HEIGHT: Int = Int.MAX_VALUE
 
-    /**
-     * Progressive/merged startup floor. Playback begins at the lowest rendition at or above this
-     * height; anything lower is usually too degraded to be worth the saved bytes.
-     */
-    const val FAST_START_MIN_HEIGHT: Int = 240
-
     /** Height cap applied to adaptive sources for the first seconds of playback. */
     const val FAST_START_ADAPTIVE_CAP: Int = 360
 
@@ -43,6 +37,15 @@ object StartupQualityPolicy {
      */
     fun adaptiveStartCap(policyMaxHeight: Int?): Int =
         minOf(FAST_START_ADAPTIVE_CAP, policyMaxHeight ?: UNLIMITED_HEIGHT)
+
+    fun constraintsAfterManualSelection(
+        currentCapHeight: Int?,
+        currentlyForcingLowestBitrate: Boolean
+    ): FastStartConstraints {
+        @Suppress("UNUSED_VARIABLE")
+        val previousConstraints = currentCapHeight to currentlyForcingLowestBitrate
+        return FastStartConstraints(capHeight = null, forceLowestBitrate = false)
+    }
 
     /**
      * Ascending height caps to apply after [startCap], ending at [targetHeight].
@@ -81,11 +84,12 @@ object StartupQualityPolicy {
         PlaybackStreamType.HLS, PlaybackStreamType.DASH -> {
             val startCap = adaptiveStartCap(policyMaxHeight)
             val steps = adaptiveSteps(startCap, policyMaxHeight ?: UNLIMITED_HEIGHT)
-            if (steps.isEmpty()) null else FastStartPlan(
+            FastStartPlan(
                 isAdaptive = true,
                 startCapHeight = startCap,
                 heightSteps = steps,
-                escalationOption = null
+                escalationOption = null,
+                forceLowestBitrate = true
             )
         }
 
@@ -101,13 +105,19 @@ object StartupQualityPolicy {
                 isAdaptive = false,
                 startCapHeight = null,
                 heightSteps = listOf(target.height),
-                escalationOption = target
+                escalationOption = target,
+                forceLowestBitrate = false
             )
         }
 
         PlaybackStreamType.AUDIO_ONLY -> null
     }
 }
+
+data class FastStartConstraints(
+    val capHeight: Int?,
+    val forceLowestBitrate: Boolean
+)
 
 /**
  * A resolved startup escalation plan bound to one playback session.
@@ -117,6 +127,7 @@ data class FastStartPlan(
     val startCapHeight: Int?,
     val heightSteps: List<Int>,
     val escalationOption: QualityOption?,
+    val forceLowestBitrate: Boolean,
     val key: com.hpre.app.model.ContentKey? = null,
     val sessionGeneration: Long = 0L
 )

@@ -132,6 +132,7 @@ class HPrePlaybackService : MediaSessionService() {
      * rendition. Cleared as [StartupQualityPolicy] escalates.
      */
     private var fastStartCapHeight: Int? = null
+    private var fastStartForceLowestBitrate = false
     private var fastStartJob: Job? = null
 
     private var userRequestedPlay: Boolean = true
@@ -488,6 +489,7 @@ class HPrePlaybackService : MediaSessionService() {
         val player = exoPlayer ?: return
         val builder = player.trackSelectionParameters.buildUpon()
         val startupCap = fastStartCapHeight ?: Int.MAX_VALUE
+        builder.setForceLowestBitrate(fastStartForceLowestBitrate)
         when (policy) {
             is UserQualityPolicy.Auto -> {
                 val maxHeight = minOf(policy.maxHeight ?: Int.MAX_VALUE, startupCap)
@@ -505,7 +507,12 @@ class HPrePlaybackService : MediaSessionService() {
     private fun cancelFastStartEscalation() {
         fastStartJob?.cancel()
         fastStartJob = null
-        fastStartCapHeight = null
+        val constraints = StartupQualityPolicy.constraintsAfterManualSelection(
+            currentCapHeight = fastStartCapHeight,
+            currentlyForcingLowestBitrate = fastStartForceLowestBitrate
+        )
+        fastStartCapHeight = constraints.capHeight
+        fastStartForceLowestBitrate = constraints.forceLowestBitrate
     }
 
     /**
@@ -534,10 +541,12 @@ class HPrePlaybackService : MediaSessionService() {
         )
         if (plan == null) {
             fastStartCapHeight = null
+            fastStartForceLowestBitrate = false
             return
         }
 
         fastStartCapHeight = plan.startCapHeight
+        fastStartForceLowestBitrate = plan.forceLowestBitrate
         if (plan.isAdaptive) {
             // Re-apply so the startup cap takes effect on the freshly prepared source.
             applyQualityPolicy(currentQualityPolicy)
@@ -549,6 +558,7 @@ class HPrePlaybackService : MediaSessionService() {
                 if (isReleased || playbackSessionGeneration != sessionGeneration) return@launch
                 // Never leave a startup cap behind if playback never got going.
                 fastStartCapHeight = null
+                fastStartForceLowestBitrate = false
                 applyQualityPolicy(currentQualityPolicy)
                 return@launch
             }
@@ -557,10 +567,12 @@ class HPrePlaybackService : MediaSessionService() {
                 for (step in plan.heightSteps) {
                     kotlinx.coroutines.delay(StartupQualityPolicy.ESCALATION_STEP_DELAY_MS)
                     if (isReleased || currentKey != key || playbackSessionGeneration != sessionGeneration) return@launch
+                    fastStartForceLowestBitrate = false
                     fastStartCapHeight = step.takeIf { it != StartupQualityPolicy.UNLIMITED_HEIGHT }
                     applyQualityPolicy(currentQualityPolicy)
                 }
                 fastStartCapHeight = null
+                fastStartForceLowestBitrate = false
                 applyQualityPolicy(currentQualityPolicy)
             } else {
                 kotlinx.coroutines.delay(StartupQualityPolicy.ESCALATION_STEP_DELAY_MS)
@@ -569,6 +581,7 @@ class HPrePlaybackService : MediaSessionService() {
                 if (currentSelectedQuality?.height != startHeight) return@launch
                 val target = plan.escalationOption ?: return@launch
                 fastStartCapHeight = null
+                fastStartForceLowestBitrate = false
                 selectQualityInternal(target, fromFastStart = true)
             }
         }
@@ -742,6 +755,18 @@ class HPrePlaybackService : MediaSessionService() {
                         PlaybackStreamType.AUDIO_ONLY -> null
                     }
 
+                    // Install the startup constraints before Media3 selects or starts loading a
+                    // track for the new source. The escalation coroutine waits for READY.
+                    if (explicitPreference == null) {
+                        scheduleFastStartEscalation(
+                            key = key,
+                            streamType = selected.streamType,
+                            startHeight = selected.videoStream?.height ?: 0,
+                            available = available,
+                            sessionGeneration = currentSession
+                        )
+                    }
+
                     exoPlayer?.let { player ->
                         registerAnalyticsListener(player, currentToken)
                         player.setMediaSource(mediaSource)
@@ -756,17 +781,6 @@ class HPrePlaybackService : MediaSessionService() {
                     }
                     persistCurrentSnapshot()
 
-                    // Fast start only applies when the startup selector chose the stream. An explicit
-                    // quality (manual pick, restored snapshot, error fallback) is honoured as-is.
-                    if (explicitPreference == null) {
-                        scheduleFastStartEscalation(
-                            key = key,
-                            streamType = selected.streamType,
-                            startHeight = selected.videoStream?.height ?: 0,
-                            available = available,
-                            sessionGeneration = currentSession
-                        )
-                    }
                 }
                 is AppResult.Failure -> {
                     lastReportedAppError = selectionAndSource.error
@@ -787,7 +801,10 @@ class HPrePlaybackService : MediaSessionService() {
         // Complete any previously active quality future with invalid/cancelled state
         cancelActiveQuality()
         // A hand-picked quality supersedes any pending startup escalation.
-        if (!fromFastStart) cancelFastStartEscalation()
+        if (!fromFastStart) {
+            cancelFastStartEscalation()
+            applyQualityPolicy(currentQualityPolicy)
+        }
         activeQualityFuture = completion
 
         if (isReleased) {
@@ -1183,6 +1200,7 @@ class HPrePlaybackService : MediaSessionService() {
                             ?: return Futures.immediateFuture(SessionResult(SessionError.ERROR_BAD_VALUE))
                         UserQualityPolicy.Fixed(option)
                     }
+                    cancelFastStartEscalation()
                     applyQualityPolicy(policy)
                     persistCurrentSnapshot()
                     return Futures.immediateFuture(SessionResult(SessionResult.RESULT_SUCCESS))

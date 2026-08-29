@@ -850,8 +850,12 @@ class SessionPlayerController(
         }
     }
 
-    fun clearMedia() {
+    override fun clearMedia() {
         snapshotStore.clear()
+        pendingCommands.clearPrepare()
+        currentKey = null
+        currentStreamInfo = null
+        _state.value = PlaybackState()
         scope.launch(mainDispatcher) {
             val controller = mediaController
             if (controller != null) {
@@ -861,7 +865,6 @@ class SessionPlayerController(
                 )
                 observeCommandResult(future)
             }
-            _state.update { PlaybackState() }
         }
     }
 

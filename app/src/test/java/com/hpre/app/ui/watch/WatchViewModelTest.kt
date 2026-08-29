@@ -76,6 +76,7 @@ class WatchViewModelTest {
         var selectedSpeed: Float? = null
         var selectedQualityOption: QualityOption? = null
         var attachedViewCount = 0
+        var clearMediaCount = 0
         var onPrepare: (() -> Unit)? = null
 
         override fun attachSurface(playerView: androidx.media3.ui.PlayerView) {
@@ -147,6 +148,11 @@ class WatchViewModelTest {
 
         override fun release() {
             isReleased = true
+            _state.value = PlaybackState()
+        }
+
+        override fun clearMedia() {
+            clearMediaCount++
             _state.value = PlaybackState()
         }
 
@@ -352,6 +358,33 @@ class WatchViewModelTest {
         advanceUntilIdle()
     }
 
+    @Test
+    fun new_key_clears_old_media_before_new_stream_is_ready() = runTest(testDispatcher) {
+        val keyA = ContentKey(0, "old_video")
+        val keyB = ContentKey(0, "new_video")
+        val streamB = CompletableDeferred<AppResult<StreamInfo>>()
+        val player = FakePlayerController().apply {
+            _state.value = PlaybackState(key = keyA, isReady = true, isPlaying = true)
+        }
+        val model = WatchViewModel(
+            videoService = FakeVideoService(
+                videoHandler = { AppResult.Success(testDetails(it)) },
+                streamInfoHandler = { streamB.await() }
+            ),
+            playerController = player,
+            savedStateHandle = androidx.lifecycle.SavedStateHandle(),
+            ioDispatcher = testDispatcher
+        )
+
+        model.load(keyB)
+        runCurrent()
+
+        assertEquals(1, player.clearMediaCount)
+        assertNull(player.state.value.key)
+        streamB.complete(AppResult.Success(testStreamInfo(keyB)))
+        advanceUntilIdle()
+    }
+
     @Before
     fun setUp() {
         Dispatchers.setMain(testDispatcher)
@@ -412,6 +445,38 @@ class WatchViewModelTest {
         assertNotNull(state.details)
         assertEquals("Test Video Details", state.details?.title)
         assertEquals(testKey, fakePlayer.preparedKey)
+    }
+
+    @Test
+    fun loaded_details_are_recorded_with_thumbnail_metadata() = runTest(testDispatcher) {
+        var recordedSummary: VideoSummary? = null
+        val history = object : com.hpre.app.repository.HistoryRepository {
+            override fun observeHistory() = kotlinx.coroutines.flow.emptyFlow<List<com.hpre.app.repository.WatchHistoryItem>>()
+            override suspend fun getHistoryItem(key: ContentKey) = AppResult.Success(null)
+            override suspend fun recordHistory(summary: VideoSummary, positionMs: Long, watchedTimestamp: Long): AppResult<Unit> {
+                recordedSummary = summary
+                return AppResult.Success(Unit)
+            }
+            override suspend fun deleteHistoryItem(key: ContentKey) = AppResult.Success(Unit)
+            override suspend fun clearHistory() = AppResult.Success(Unit)
+        }
+        val service = FakeVideoService(
+            videoHandler = { AppResult.Success(testDetails(it)) },
+            streamInfoHandler = { AppResult.Success(testStreamInfo(it)) }
+        )
+        val model = WatchViewModel(
+            videoService = service,
+            playerController = FakePlayerController(),
+            savedStateHandle = androidx.lifecycle.SavedStateHandle(),
+            historyRepository = history,
+            ioDispatcher = testDispatcher
+        )
+
+        model.load(testKey)
+        advanceUntilIdle()
+
+        assertEquals(testDetails(testKey).thumbnailUrl, recordedSummary?.thumbnailUrl)
+        assertEquals(testDetails(testKey).channelName, recordedSummary?.channelName)
     }
 
     @Test
