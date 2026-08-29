@@ -73,6 +73,16 @@ class StartupStreamSelectorTest {
     }
 
     @Test
+    fun fast_start_uses_the_lowest_progressive_even_below_240p() {
+        val result = StartupStreamSelector.select(
+            StreamInfo(key, "Test", videoStreams = listOf(progressive(360), progressive(144)))
+        ) as AppResult.Success<SelectedStreams>
+
+        assertEquals(PlaybackStreamType.PROGRESSIVE, result.value.streamType)
+        assertEquals(144, result.value.videoStream?.height)
+    }
+
+    @Test
     fun startup_uses_higher_progressive_when_it_is_the_only_progressive_stream() {
         val result = StartupStreamSelector.select(
             StreamInfo(key, "Test", videoStreams = listOf(progressive(1080)))

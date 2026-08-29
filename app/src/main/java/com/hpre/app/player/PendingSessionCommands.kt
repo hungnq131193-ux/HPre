@@ -24,4 +24,9 @@ internal class PendingSessionCommands {
         prepare = null
         return value
     }
+
+    @Synchronized
+    fun clearPrepare() {
+        prepare = null
+    }
 }

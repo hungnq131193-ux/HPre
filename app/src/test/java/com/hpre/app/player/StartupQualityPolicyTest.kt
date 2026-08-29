@@ -42,7 +42,7 @@ class StartupQualityPolicyTest {
     // --- Startup selection: begin at the smallest usable rendition ---
 
     @Test
-    fun startup_picks_lowest_progressive_at_or_above_floor() {
+    fun startup_picks_lowest_progressive() {
         val result = StartupStreamSelector.select(
             StreamInfo(
                 key,
@@ -56,7 +56,7 @@ class StartupQualityPolicyTest {
     }
 
     @Test
-    fun startup_skips_renditions_below_the_quality_floor() {
+    fun startup_includes_renditions_below_240p() {
         val result = StartupStreamSelector.select(
             StreamInfo(
                 key,
@@ -65,17 +65,16 @@ class StartupQualityPolicyTest {
             )
         ) as AppResult.Success<SelectedStreams>
 
-        // 144p is below FAST_START_MIN_HEIGHT, so 360p is the startup pick.
-        assertEquals(360, result.value.videoStream?.height)
+        assertEquals(144, result.value.videoStream?.height)
     }
 
     @Test
-    fun startup_uses_best_available_when_every_rendition_is_below_the_floor() {
+    fun startup_uses_lowest_available_when_every_rendition_is_below_240p() {
         val result = StartupStreamSelector.select(
             StreamInfo(key, "Test", videoStreams = listOf(progressive(144), progressive(180)))
         ) as AppResult.Success<SelectedStreams>
 
-        assertEquals(180, result.value.videoStream?.height)
+        assertEquals(144, result.value.videoStream?.height)
     }
 
     @Test
@@ -135,6 +134,43 @@ class StartupQualityPolicyTest {
             StartupQualityPolicy.FAST_START_ADAPTIVE_CAP,
             StartupQualityPolicy.adaptiveStartCap(policyMaxHeight = 1080)
         )
+    }
+
+    @Test
+    fun adaptive_fast_start_forces_the_lowest_bitrate_until_escalation() {
+        val plan = StartupQualityPolicy.planFor(
+            streamType = PlaybackStreamType.HLS,
+            startHeight = 0,
+            available = emptyList(),
+            policyMaxHeight = null
+        )
+
+        assertEquals(true, plan?.forceLowestBitrate)
+    }
+
+    @Test
+    fun adaptive_fast_start_still_forces_lowest_when_policy_cap_needs_no_height_steps() {
+        val plan = StartupQualityPolicy.planFor(
+            streamType = PlaybackStreamType.HLS,
+            startHeight = 0,
+            available = emptyList(),
+            policyMaxHeight = 240
+        )
+
+        assertNotNull(plan)
+        assertEquals(true, plan?.forceLowestBitrate)
+        assertTrue(plan?.heightSteps?.isEmpty() == true)
+    }
+
+    @Test
+    fun manual_quality_selection_clears_all_fast_start_constraints() {
+        val constraints = StartupQualityPolicy.constraintsAfterManualSelection(
+            currentCapHeight = 360,
+            currentlyForcingLowestBitrate = true
+        )
+
+        assertNull(constraints.capHeight)
+        assertEquals(false, constraints.forceLowestBitrate)
     }
 
     @Test
@@ -296,7 +332,7 @@ class StartupQualityPolicyTest {
     }
 
     @Test
-    fun plan_is_absent_for_audio_only_and_for_capped_adaptive() {
+    fun plan_is_absent_for_audio_only_but_retained_for_capped_adaptive() {
         assertNull(
             StartupQualityPolicy.planFor(
                 streamType = PlaybackStreamType.AUDIO_ONLY,
@@ -305,8 +341,8 @@ class StartupQualityPolicyTest {
                 policyMaxHeight = null
             )
         )
-        // A ceiling at or below the startup cap leaves no room to climb.
-        assertNull(
+        // There is no height step, but the plan still pins startup to the lowest rendition.
+        assertNotNull(
             StartupQualityPolicy.planFor(
                 streamType = PlaybackStreamType.DASH,
                 startHeight = 0,

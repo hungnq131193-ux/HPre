@@ -261,6 +261,10 @@ class WatchViewModel(
             return
         }
 
+        if (playbackState.value.key?.let { it != key } == true) {
+            playerController.clearMedia()
+        }
+
         val cachedSnapshot = if (!forceRefresh) watchStateCache?.get(key) else null
         val metricsSession = videoOpenMetrics.start(key)
         if (cachedSnapshot != null) {
@@ -391,6 +395,7 @@ class WatchViewModel(
                             _uiState.update {
                                 it.copy(isLoading = false, details = detailsResult.value, error = null)
                             }
+                            recordDetailsInHistory(detailsResult.value)
                             videoOpenMetrics.mark(metricsSession, VideoOpenEvent.DETAILS_READY)
                             watchStateCache?.put(key, WatchStateSnapshot(
                                 details = detailsResult.value,
@@ -466,6 +471,25 @@ class WatchViewModel(
                 }
             }
         }
+    }
+
+    private suspend fun recordDetailsInHistory(details: VideoDetails) {
+        val repository = historyRepository ?: return
+        val summary = VideoSummary(
+            key = details.key,
+            title = details.title,
+            canonicalUrl = details.canonicalUrl,
+            channelKey = details.channelKey,
+            channelName = details.channelName,
+            channelAvatarUrl = details.channelAvatarUrl,
+            thumbnailUrl = details.thumbnailUrl,
+            durationSeconds = details.durationSeconds,
+            viewCount = details.viewCount,
+            publishedTimestamp = details.publishedTimestamp,
+            isLive = details.isLive,
+            isShort = details.isShort
+        )
+        repository.recordHistory(summary, playbackState.value.currentPositionMs)
     }
 
     fun retryRelated() {

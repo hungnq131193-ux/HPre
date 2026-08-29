@@ -143,6 +143,68 @@ class HistoryRepositoryTest {
     }
 
     @Test
+    fun progress_update_without_metadata_preserves_existing_thumbnail_and_channel() = runTest {
+        val dao = FakeHistoryDao()
+        val repo = DefaultHistoryRepository(
+            dao,
+            FakePlaybackPreferences(),
+            StandardTestDispatcher(testScheduler)
+        )
+        repo.recordHistory(summary, positionMs = 1_000L, watchedTimestamp = 1_000L)
+
+        repo.recordHistory(
+            summary.copy(
+                title = "Video",
+                canonicalUrl = "https://hpre.test/watch?v=vid1",
+                channelKey = null,
+                channelName = null,
+                thumbnailUrl = null,
+                durationSeconds = null
+            ),
+            positionMs = 20_000L,
+            watchedTimestamp = 2_000L
+        )
+
+        val item = (repo.getHistoryItem(summary.key) as AppResult.Success).value
+        assertEquals(summary.thumbnailUrl, item?.thumbnailUrl)
+        assertEquals(summary.channelName, item?.channelName)
+        assertEquals(summary.title, item?.title)
+        assertEquals(summary.canonicalUrl, item?.canonicalUrl)
+        assertEquals(20_000L, item?.playbackPositionMs)
+    }
+
+    @Test
+    fun concurrent_progress_update_cannot_overwrite_metadata_write() = runTest {
+        val dao = FakeHistoryDao()
+        val gate = CompletableDeferred<Unit>()
+        dao.upsertGate = gate
+        val repo = DefaultHistoryRepository(
+            dao,
+            FakePlaybackPreferences(),
+            StandardTestDispatcher(testScheduler)
+        )
+        val sparse = summary.copy(
+            title = "Video",
+            channelKey = null,
+            channelName = null,
+            thumbnailUrl = null,
+            durationSeconds = null
+        )
+
+        val metadataWrite = launch { repo.recordHistory(summary, 1_000L, 1_000L) }
+        testScheduler.runCurrent()
+        val progressWrite = launch { repo.recordHistory(sparse, 2_000L, 2_000L) }
+        testScheduler.runCurrent()
+        gate.complete(Unit)
+        metadataWrite.join()
+        progressWrite.join()
+
+        val item = (repo.getHistoryItem(summary.key) as AppResult.Success).value
+        assertEquals(summary.thumbnailUrl, item?.thumbnailUrl)
+        assertEquals(summary.channelName, item?.channelName)
+    }
+
+    @Test
     fun recordHistory_enforces_95_percent_completion_policy_under_equal_and_over_threshold() = runTest {
         val dao = FakeHistoryDao()
         val prefs = FakePlaybackPreferences(initialHistoryEnabled = true)

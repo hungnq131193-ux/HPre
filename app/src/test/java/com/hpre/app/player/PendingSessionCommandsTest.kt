@@ -41,5 +41,15 @@ class PendingSessionCommandsTest {
         assertEquals(10_000L, finalPrepare?.positionMs)
         assertNull(commands.takePrepare())
     }
+
+    @Test
+    fun clear_discards_prepare_waiting_for_connection() {
+        val commands = PendingSessionCommands()
+        commands.setPrepare(PendingPrepare(ContentKey(0, "stale_video"), 1_000L, true))
+
+        commands.clearPrepare()
+
+        assertNull(commands.takePrepare())
+    }
 }
 
