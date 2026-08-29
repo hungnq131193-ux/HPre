@@ -975,7 +975,6 @@ class SessionPlayerController internal constructor(
                 connectionCoordinator?.onPlayerViewDetached(pv)
             }
             controller?.removeListener(playerListener)
-            future?.let { MediaController.releaseFuture(it) }
             if (controller != null) {
                 val commandFuture = controller.sendCustomCommand(
                     SessionCommand(HPrePlaybackService.CUSTOM_COMMAND_CLEAR_MEDIA, Bundle.EMPTY),
@@ -983,8 +982,11 @@ class SessionPlayerController internal constructor(
                 )
                 commandFuture.addListener({
                     snapshotStore.clear()
+                    future?.let { MediaController.releaseFuture(it) }
                     controller.release()
                 }, { runnable -> scope.launch(mainDispatcher) { runnable.run() } })
+            } else {
+                future?.let { MediaController.releaseFuture(it) }
             }
         }
     }

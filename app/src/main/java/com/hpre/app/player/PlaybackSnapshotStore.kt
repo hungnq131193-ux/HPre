@@ -20,6 +20,8 @@ import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.flow.firstOrNull
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.withContext
 import java.io.File
 import java.io.IOException
 import java.util.concurrent.locks.ReentrantLock
@@ -297,19 +299,16 @@ class SnapshotWriter(
                 throw ce
             } catch (_: Exception) {}
 
-            if (dataStore != null) {
-                ioScope.launch {
-                    try {
-                        dataStore.edit { prefs ->
-                            lock.withLock {
-                                if (targetGen == snapshotVersion) {
-                                    writeToPreferences(prefs, snapshot, targetGen)
-                                }
-                            }
+        }
+        val store = dataStore ?: return
+        runBlocking {
+            withContext(Dispatchers.IO) {
+                store.edit { prefs ->
+                    lock.withLock {
+                        if (targetGen == snapshotVersion) {
+                            writeToPreferences(prefs, snapshot, targetGen)
                         }
-                    } catch (ce: kotlinx.coroutines.CancellationException) {
-                        throw ce
-                    } catch (_: Exception) {}
+                    }
                 }
             }
         }
