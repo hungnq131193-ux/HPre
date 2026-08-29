@@ -99,6 +99,46 @@ class AppContainerSeamTest {
         }
     }
 
+    /**
+     * Cold start regression guard: opening the app on Home must not build ExoPlayer.
+     *
+     * Observing [AppContainer.playbackState] and calling [AppContainer.peekPlayerController] are the
+     * only playback touch points on the Home path (MainActivity + RootScaffold), so neither may
+     * construct the controller.
+     */
+    @Test
+    fun observing_playback_state_does_not_construct_the_player() {
+        val testDispatcher = StandardTestDispatcher()
+        Dispatchers.setMain(testDispatcher)
+        try {
+            val fakeContext = object : android.content.ContextWrapper(null) {
+                override fun getApplicationContext(): android.content.Context = this
+            }
+            val container = DefaultAppContainer(fakeContext)
+
+            assertNull("player must not exist before a video is opened", container.peekPlayerController())
+            assertEquals(
+                "state observed before playback must be the default empty state",
+                com.hpre.app.player.PlaybackState(),
+                container.playbackState.value
+            )
+            assertNull("reading playbackState must not construct the player", container.peekPlayerController())
+
+            // Lifecycle policy updates arrive on every onStart/PiP change and must stay side-effect free.
+            container.updatePlayerLifecyclePolicy(backgroundEnabled = true, pipActiveOrEntering = false)
+            assertNull(
+                "updating lifecycle policy must not construct the player",
+                container.peekPlayerController()
+            )
+
+            // Opening a video is the only trigger.
+            val controller = container.createPlayerController()
+            org.junit.Assert.assertSame(controller, container.peekPlayerController())
+        } finally {
+            Dispatchers.resetMain()
+        }
+    }
+
     @Test
     fun default_app_container_returns_one_global_session_controller() {
         var factoryCalls = 0

@@ -21,6 +21,7 @@ import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.material3.pulltorefresh.rememberPullToRefreshState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
@@ -28,9 +29,10 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.hpre.app.model.ContentKey
 import com.hpre.app.R
+import com.hpre.app.ui.common.DelayedLinearLoadingIndicator
+import com.hpre.app.ui.common.DelayedLoadingPane
 import com.hpre.app.ui.common.EmptyPane
 import com.hpre.app.ui.common.ErrorPane
-import com.hpre.app.ui.common.LoadingPane
 import com.hpre.app.ui.common.VideoCard
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -71,7 +73,9 @@ fun HomeScreen(
         Box(modifier = Modifier.weight(1f).fillMaxWidth()) {
             when (val state = uiState) {
             is HomeUiState.Loading -> {
-                LoadingPane(testTag = "home_loading")
+                // Only reachable when there is genuinely nothing to show (first ever load), and even
+                // then the spinner waits so a fast response never flashes one.
+                DelayedLoadingPane(testTag = "home_loading")
             }
             is HomeUiState.Empty -> {
                 EmptyPane(message = stringResource(R.string.home_empty), testTag = "home_empty")
@@ -104,6 +108,15 @@ fun HomeScreen(
                                 onClick = onVideoClick
                             )
                         }
+                    }
+
+                    // Switching chips keeps the previous list on screen; this thin bar is the only
+                    // signal that new content is on the way, instead of blanking the feed.
+                    if (state.content.isLoadingSelection) {
+                        DelayedLinearLoadingIndicator(
+                            testTag = "home_selection_loading",
+                            modifier = Modifier.fillMaxWidth().align(Alignment.TopCenter)
+                        )
                     }
                 }
             }

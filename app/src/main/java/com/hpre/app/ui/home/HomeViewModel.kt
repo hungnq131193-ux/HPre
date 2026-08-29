@@ -8,6 +8,7 @@ import com.hpre.app.core.error.AppResult
 import com.hpre.app.model.VideoSummary
 import com.hpre.app.repository.HomeRecommendationSource
 import com.hpre.app.repository.RecommendationRequest
+import com.hpre.app.repository.TtlLruCache
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -17,7 +18,15 @@ import kotlinx.coroutines.launch
 data class HomeContent(
     val videos: List<VideoSummary>,
     val isRefreshing: Boolean = false,
-    val refreshError: AppError? = null
+    val refreshError: AppError? = null,
+    /**
+     * A load for a different chip is in flight while these videos stay on screen.
+     *
+     * Distinct from [isRefreshing], which drives the pull-to-refresh indicator. This one is for the
+     * quieter case of switching chips: the previous list stays visible so content never disappears,
+     * and the screen shows a subtle inline indicator instead of replacing everything with a spinner.
+     */
+    val isLoadingSelection: Boolean = false
 )
 
 sealed interface HomeUiState {
@@ -51,6 +60,18 @@ class HomeViewModel(
     private var activeLoadJob: Job? = null
     private var loadGeneration: Long = 0L
 
+    /**
+     * Last successful feed per chip, so returning to a chip renders instantly.
+     *
+     * Keyed by chip query (null for "Tất cả"). Sized to hold every default chip, because the common
+     * pattern is bouncing between two or three of them; TTL is short enough that a chip left alone
+     * for minutes revalidates instead of showing yesterday's feed.
+     */
+    private val chipCache = TtlLruCache<String, List<VideoSummary>>(
+        ttlMs = CHIP_CACHE_TTL_MS,
+        maxEntries = CHIP_CACHE_MAX_ENTRIES
+    )
+
     init {
         load(forceRefresh = false)
     }
@@ -58,10 +79,32 @@ class HomeViewModel(
     fun load(forceRefresh: Boolean = false) {
         activeLoadJob?.cancel()
         val generation = ++loadGeneration
-        _uiState.value = HomeUiState.Loading
+        val selectedChip = _chipsState.value.chips[_chipsState.value.selectedIndex]
+        val cacheKey = selectedChip.query ?: ALL_CHIP_CACHE_KEY
+
+        // Cached feed for this chip goes on screen before the request starts. A forced refresh skips
+        // the cache because the user explicitly asked for new content.
+        val cached = if (forceRefresh) null else chipCache.getStale(cacheKey)
+        if (cached != null && cached.value.isNotEmpty()) {
+            _uiState.value = HomeUiState.Content(
+                HomeContent(videos = cached.value, isLoadingSelection = cached.isStale)
+            )
+            // Fresh cache is good enough on its own; no request, no spinner.
+            if (!cached.isStale) return
+        } else {
+            // Keep whatever is on screen and mark it as being replaced, so switching chips never
+            // blanks the list. Only a genuinely empty screen falls back to full-screen loading.
+            val current = (_uiState.value as? HomeUiState.Content)?.content
+            _uiState.value = if (current != null && current.videos.isNotEmpty()) {
+                HomeUiState.Content(
+                    current.copy(isLoadingSelection = true, isRefreshing = false, refreshError = null)
+                )
+            } else {
+                HomeUiState.Loading
+            }
+        }
 
         activeLoadJob = viewModelScope.launch {
-            val selectedChip = _chipsState.value.chips[_chipsState.value.selectedIndex]
             val result = try {
                 selectedChip.query?.let { query ->
                     topicFeedSource.videos(query, RecommendationRequest(forceRefresh = forceRefresh))
@@ -75,13 +118,28 @@ class HomeViewModel(
                 when (result) {
                     is AppResult.Success -> {
                         if (result.value.isEmpty()) {
+                            chipCache.remove(cacheKey)
                             _uiState.value = HomeUiState.Empty
                         } else {
+                            chipCache.put(cacheKey, result.value)
                             _uiState.value = HomeUiState.Content(HomeContent(result.value))
                         }
                     }
                     is AppResult.Failure -> {
-                        _uiState.value = HomeUiState.Error(result.error)
+                        // Stale content beats an error screen: keep the list and surface the failure
+                        // inline. Only report a hard error when there is nothing to show.
+                        val visible = (_uiState.value as? HomeUiState.Content)?.content
+                        _uiState.value = if (visible != null && visible.videos.isNotEmpty()) {
+                            HomeUiState.Content(
+                                visible.copy(
+                                    isLoadingSelection = false,
+                                    isRefreshing = false,
+                                    refreshError = result.error
+                                )
+                            )
+                        } else {
+                            HomeUiState.Error(result.error)
+                        }
                     }
                 }
             }
@@ -105,6 +163,7 @@ class HomeViewModel(
 
         activeLoadJob = viewModelScope.launch {
             val selectedChip = _chipsState.value.chips[_chipsState.value.selectedIndex]
+            val cacheKey = selectedChip.query ?: ALL_CHIP_CACHE_KEY
             val result = try {
                 selectedChip.query?.let { query ->
                     topicFeedSource.videos(
@@ -130,8 +189,12 @@ class HomeViewModel(
                 when (result) {
                     is AppResult.Success -> {
                         if (result.value.isEmpty()) {
+                            chipCache.remove(cacheKey)
                             _uiState.value = HomeUiState.Empty
                         } else {
+                            // Overwrite the cache so leaving and returning to this chip shows what
+                            // the user just pulled, not the pre-refresh list.
+                            chipCache.put(cacheKey, result.value)
                             _uiState.value = HomeUiState.Content(
                                 HomeContent(videos = result.value, isRefreshing = false, refreshError = null)
                             )
@@ -159,6 +222,18 @@ class HomeViewModel(
     }
 
     companion object {
+        /** Cache key for the "Tất cả" chip, which has no query of its own. */
+        private const val ALL_CHIP_CACHE_KEY = "__all__"
+
+        /**
+         * Long enough to make chip switching feel instant within a browsing session, short enough
+         * that a feed reopened later still revalidates.
+         */
+        private const val CHIP_CACHE_TTL_MS = 180_000L
+
+        /** Holds every default chip so a full sweep through them never evicts an earlier one. */
+        private const val CHIP_CACHE_MAX_ENTRIES = 8
+
         val DEFAULT_CHIPS = listOf(
             HomeChip("Tất cả", null),
             HomeChip("Âm nhạc", "âm nhạc"),

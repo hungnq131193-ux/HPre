@@ -80,7 +80,8 @@ import com.hpre.app.model.SearchFilter
 import com.hpre.app.model.SearchResultItem
 import com.hpre.app.ui.common.EmptyPane
 import com.hpre.app.ui.common.ErrorPane
-import com.hpre.app.ui.common.LoadingPane
+import com.hpre.app.ui.common.DelayedLinearLoadingIndicator
+import com.hpre.app.ui.common.DelayedLoadingPane
 import com.hpre.app.ui.common.VideoCard
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -234,7 +235,9 @@ fun SearchScreen(
                     }
                 }
                 is SearchUiState.Loading -> {
-                    LoadingPane(testTag = "search_loading")
+                    // Only reached with an empty result area, and even then the spinner waits so a
+                    // fast search never flashes one.
+                    DelayedLoadingPane(testTag = "search_loading")
                 }
                 is SearchUiState.Empty -> {
                     EmptyPane(
@@ -261,6 +264,15 @@ fun SearchScreen(
                         onChannelClick = onChannelClick,
                         onPlaylistClick = onPlaylistClick
                     )
+
+                    // Previous results stay readable while a newer query runs; this bar is the only
+                    // hint that they are about to be replaced.
+                    if (state.isSearching) {
+                        DelayedLinearLoadingIndicator(
+                            testTag = "search_in_progress",
+                            modifier = Modifier.fillMaxWidth().align(Alignment.TopCenter)
+                        )
+                    }
                 }
             }
         }

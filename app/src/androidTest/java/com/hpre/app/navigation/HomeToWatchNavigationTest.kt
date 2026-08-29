@@ -306,7 +306,10 @@ class HomeToWatchNavigationTest {
                 .fetchSemanticsNodes().isNotEmpty()
         }
         composeTestRule.onNodeWithTag("home_filter_chip_1").performClick()
-        composeTestRule.onNodeWithTag("home_loading").assertIsDisplayed()
+        // Switching chips keeps the previous feed on screen instead of replacing it with a
+        // full-screen spinner, so content never disappears mid-navigation.
+        composeTestRule.onNodeWithTag("video_card_all").assertIsDisplayed()
+        composeTestRule.onNodeWithTag("home_loading").assertDoesNotExist()
         composeTestRule.onNodeWithTag("home_filter_chips").assertIsDisplayed()
         composeTestRule.onNodeWithTag("home_filter_chip_7").performScrollTo().assertIsDisplayed()
 

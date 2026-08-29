@@ -118,18 +118,19 @@ fun RootScaffold(
         }
     }
 
-    val playerController = remember(container) { container.createPlayerController() }
-    val playbackState by playerController.state.collectAsStateWithLifecycle()
+    // Observing the container's mirrored state keeps cold start free of ExoPlayer: the scaffold only
+    // needs to know whether media exists, which is false until the user opens a video.
+    val playbackState by container.playbackState.collectAsStateWithLifecycle()
     val hasActiveMedia = playbackState.key != null
+    // Non-null exactly when media is active, so the mini player never triggers construction.
+    val activePlayerController = if (hasActiveMedia) container.peekPlayerController() else null
 
     val playbackUiState by effectiveCoordinator.state.collectAsStateWithLifecycle()
-    androidx.compose.runtime.LaunchedEffect(playbackUiState.backgroundPlaybackEnabled, playbackUiState.isInPip, playerController) {
-        if (playerController is SessionPlayerController) {
-            playerController.updateLifecyclePolicy(
-                backgroundEnabled = playbackUiState.backgroundPlaybackEnabled,
-                pipActiveOrEntering = playbackUiState.isInPip
-            )
-        }
+    androidx.compose.runtime.LaunchedEffect(playbackUiState.backgroundPlaybackEnabled, playbackUiState.isInPip) {
+        container.updatePlayerLifecyclePolicy(
+            backgroundEnabled = playbackUiState.backgroundPlaybackEnabled,
+            pipActiveOrEntering = playbackUiState.isInPip
+        )
     }
 
     Scaffold(
@@ -184,9 +185,9 @@ fun RootScaffold(
         },
         bottomBar = {
             Column(modifier = Modifier.fillMaxWidth()) {
-                if (!isWatchScreen && hasActiveMedia) {
+                if (!isWatchScreen && activePlayerController != null) {
                     MiniPlayer(
-                        playerController = playerController,
+                        playerController = activePlayerController,
                         coordinator = effectiveCoordinator,
                         // The navigation bar below already consumes the system inset. Without it
                         // (search, channel, history, ...) the mini player would sit underneath the
@@ -200,10 +201,10 @@ fun RootScaffold(
                             navController.navigate(Screen.Watch.createRoute(key))
                         },
                         onDismiss = {
-                            if (playerController is SessionPlayerController) {
-                                playerController.clearMedia()
+                            if (activePlayerController is SessionPlayerController) {
+                                activePlayerController.clearMedia()
                             } else {
-                                playerController.pause()
+                                activePlayerController.pause()
                             }
                         }
                     )
