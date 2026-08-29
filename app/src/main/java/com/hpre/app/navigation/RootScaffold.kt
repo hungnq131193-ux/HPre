@@ -55,6 +55,8 @@ import com.hpre.app.di.AppContainer
 import com.hpre.app.R
 import com.hpre.app.player.SessionPlayerController
 import com.hpre.app.ui.player.MiniPlayer
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.map
 
 private sealed class BottomNavItem(
     val route: String,
@@ -118,10 +120,17 @@ fun RootScaffold(
         }
     }
 
-    // Observing the container's mirrored state keeps cold start free of ExoPlayer: the scaffold only
-    // needs to know whether media exists, which is false until the user opens a video.
-    val playbackState by container.playbackState.collectAsStateWithLifecycle()
-    val hasActiveMedia = playbackState.key != null
+    // RootScaffold only needs media presence to decide whether the mini player exists. Project the
+    // fast-changing PlaybackState down to a distinct boolean so position/buffering/quality updates do
+    // not recompose the whole app scaffold while a video is playing.
+    val activeMediaFlow = remember(container) {
+        container.playbackState
+            .map { state -> state.key != null }
+            .distinctUntilChanged()
+    }
+    val hasActiveMedia by activeMediaFlow.collectAsStateWithLifecycle(
+        initialValue = container.playbackState.value.key != null
+    )
     // Non-null exactly when media is active, so the mini player never triggers construction.
     val activePlayerController = if (hasActiveMedia) container.peekPlayerController() else null
 
