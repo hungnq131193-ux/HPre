@@ -4,6 +4,7 @@ import android.content.ComponentName
 import android.content.Context
 import android.os.Bundle
 import androidx.annotation.OptIn
+import androidx.media3.common.C
 import androidx.media3.common.PlaybackParameters
 import androidx.media3.common.Player
 import androidx.media3.common.util.UnstableApi
@@ -74,6 +75,7 @@ class SessionPlayerController(
     private var isReleased: Boolean = false
     private var backgroundPlaybackEnabled: Boolean = true
     private var enteringPip: Boolean = false
+    private var isLifecycleStarted: Boolean = true
     private var connectRetryCount: Int = 0
     private var isReconnecting: Boolean = false
     private var connectionAttemptGeneration: Long = 0L
@@ -306,6 +308,7 @@ class SessionPlayerController(
                     if (controller.isPlaying) {
                         startProgressTracker()
                     }
+                    applyVideoTrackPolicy(controller)
                     val policyArgs = Bundle().apply {
                         putBoolean(HPrePlaybackService.EXTRA_BACKGROUND_ENABLED, backgroundPlaybackEnabled)
                         putBoolean(HPrePlaybackService.EXTRA_PIP_ACTIVE_OR_ENTERING, enteringPip)
@@ -472,6 +475,8 @@ class SessionPlayerController(
 
     override fun onLifecycleStart() {
         enteringPip = false
+        isLifecycleStarted = true
+        applyVideoTrackPolicy()
     }
 
     override fun onLifecycleStop() {
@@ -479,14 +484,21 @@ class SessionPlayerController(
     }
 
     fun onLifecycleStop(isChangingConfigurations: Boolean, isInPip: Boolean = false) {
+        enteringPip = enteringPip || isInPip
         val continueBg = PlaybackPolicy.shouldContinueInBackground(
             backgroundEnabled = backgroundPlaybackEnabled,
-            enteringPip = enteringPip || isInPip,
+            enteringPip = enteringPip,
             isChangingConfigurations = isChangingConfigurations
         )
         if (!continueBg) {
+            isLifecycleStarted = false
             pause()
             clearMedia()
+        } else {
+            if (!isChangingConfigurations) {
+                isLifecycleStarted = false
+            }
+            applyVideoTrackPolicy(isChangingConfigurations = isChangingConfigurations)
         }
     }
 
@@ -499,6 +511,7 @@ class SessionPlayerController(
         enteringPip = pipActiveOrEntering
         scope.launch(mainDispatcher) {
             val controller = mediaController ?: return@launch
+            applyVideoTrackPolicy(controller, isChangingConfigurations)
             val args = Bundle().apply {
                 putBoolean(HPrePlaybackService.EXTRA_BACKGROUND_ENABLED, backgroundEnabled)
                 putBoolean(HPrePlaybackService.EXTRA_PIP_ACTIVE_OR_ENTERING, pipActiveOrEntering)
@@ -508,6 +521,23 @@ class SessionPlayerController(
                 args
             )
         }
+    }
+
+    private fun applyVideoTrackPolicy(
+        controller: MediaController? = mediaController,
+        isChangingConfigurations: Boolean = false
+    ) {
+        val activeController = controller ?: return
+        if (!activeController.isCommandAvailable(Player.COMMAND_SET_TRACK_SELECTION_PARAMETERS)) return
+        val shouldEnableVideo = PlaybackPolicy.shouldEnableVideoTrack(
+            lifecycleStarted = isLifecycleStarted,
+            pipActiveOrEntering = enteringPip,
+            isChangingConfigurations = isChangingConfigurations
+        )
+        activeController.trackSelectionParameters = activeController.trackSelectionParameters
+            .buildUpon()
+            .setTrackTypeDisabled(C.TRACK_TYPE_VIDEO, !shouldEnableVideo)
+            .build()
     }
 
     override fun prepare(
@@ -531,6 +561,10 @@ class SessionPlayerController(
         if (isReleased) return
         currentKey = key
         currentStreamInfo = streamInfo
+        val effectiveStartPositionMs = PlaybackPolicy.resolveStartPosition(
+            isLive = streamInfo.isLive,
+            requestedPositionMs = startPositionMs
+        )
 
         val available = StreamSelector.getAvailableQualities(streamInfo)
         val initialSelection = if (initialQuality != null) {
@@ -557,23 +591,27 @@ class SessionPlayerController(
                 selectedQuality = initialQuality?.takeIf { option -> available.contains(option) },
                 qualityPolicy = initialQuality?.let(UserQualityPolicy::Fixed) ?: existingPolicy,
                 streamType = initialStreamType,
-                currentPositionMs = startPositionMs.coerceAtLeast(0L),
+                currentPositionMs = effectiveStartPositionMs,
                 playWhenReady = playWhenReady,
                 playbackSpeed = clampedSpeed
             )
         }
 
-        val pending = PendingPrepare(key, startPositionMs, playWhenReady, initialQuality, clampedSpeed)
+        val pending = PendingPrepare(key, effectiveStartPositionMs, playWhenReady, initialQuality, clampedSpeed)
         val snap = PlaybackSnapshot(
             key = key,
-            positionMs = startPositionMs.coerceAtLeast(0L),
+            positionMs = effectiveStartPositionMs,
             playWhenReady = playWhenReady,
             selectedQuality = initialQuality?.takeIf { option -> available.contains(option) },
             playbackSpeed = clampedSpeed,
             qualityPolicy = initialQuality?.let(UserQualityPolicy::Fixed) ?: existingPolicy
         )
         val token = snapshotStore.enqueueSave()
-        snapshotStore.executeSave(snap, token, preserveSameKeyPosition = true)
+        snapshotStore.executeSave(
+            snap,
+            token,
+            preserveSameKeyPosition = !streamInfo.isLive
+        )
         scope.launch(mainDispatcher) {
             if (mediaController == null) {
                 pendingCommands.setPrepare(pending)

@@ -199,7 +199,7 @@ class DefaultAppContainer(
     }
 
     override val watchStateCache: WatchStateCache by lazy {
-        WatchStateCache(ttlMs = 300_000L, maxEntries = 10)
+        WatchStateCache(ttlMs = 300_000L, maxEntries = 5)
     }
 
     override val appUpdateChecker: AppUpdateChecker by lazy {

@@ -143,6 +143,26 @@ class HistoryRepositoryTest {
     }
 
     @Test
+    fun recordHistory_keeps_live_item_but_never_offers_stale_resume_position() = runTest {
+        val dao = FakeHistoryDao()
+        val repo = DefaultHistoryRepository(
+            dao,
+            FakePlaybackPreferences(initialHistoryEnabled = true),
+            StandardTestDispatcher(testScheduler)
+        )
+
+        repo.recordHistory(
+            summary.copy(isLive = true, durationSeconds = null),
+            positionMs = 50_000L,
+            watchedTimestamp = 1_000L
+        )
+
+        val item = (repo.getHistoryItem(summary.key) as AppResult.Success).value
+        assertNotNull(item)
+        assertEquals(0L, item?.playbackPositionMs)
+    }
+
+    @Test
     fun progress_update_without_metadata_preserves_existing_thumbnail_and_channel() = runTest {
         val dao = FakeHistoryDao()
         val repo = DefaultHistoryRepository(

@@ -6,12 +6,32 @@ import androidx.media3.datasource.DataSource
 import androidx.media3.exoplayer.source.MediaSource
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
+import org.junit.Assert.assertSame
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import java.lang.reflect.Proxy
+import java.util.concurrent.TimeUnit
+import okhttp3.OkHttpClient
 
 @OptIn(UnstableApi::class)
 class MediaSourceFactoryTest {
+
+    @Test
+    fun playback_client_removes_total_timeout_but_reuses_shared_network_resources() {
+        val baseClient = OkHttpClient.Builder()
+            .connectTimeout(13, TimeUnit.SECONDS)
+            .readTimeout(19, TimeUnit.SECONDS)
+            .callTimeout(30, TimeUnit.SECONDS)
+            .build()
+
+        val playbackClient = playbackHttpClient(baseClient)
+
+        assertEquals(0, playbackClient.callTimeoutMillis)
+        assertEquals(baseClient.connectTimeoutMillis, playbackClient.connectTimeoutMillis)
+        assertEquals(baseClient.readTimeoutMillis, playbackClient.readTimeoutMillis)
+        assertSame(baseClient.connectionPool, playbackClient.connectionPool)
+        assertSame(baseClient.dispatcher, playbackClient.dispatcher)
+    }
 
     private val testKey = com.hpre.app.model.ContentKey(0, "test_item")
 
@@ -279,5 +299,4 @@ class MediaSourceFactoryTest {
         factory.createMediaSource(selected)
     }
 }
-
 

@@ -80,7 +80,7 @@ open class HPreApplication : Application(), ImageLoaderFactory {
         .okHttpClient { appClient }
         .memoryCache {
             MemoryCache.Builder(this)
-                .maxSizePercent(0.25)
+                .maxSizePercent(0.20)
                 .build()
         }
         .diskCache {

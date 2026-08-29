@@ -8,6 +8,13 @@ import org.junit.Test
 
 class PlaybackPolicyTest {
     @Test
+    fun live_starts_at_live_edge_while_vod_preserves_requested_position() {
+        assertEquals(0L, PlaybackPolicy.resolveStartPosition(isLive = true, requestedPositionMs = 42_000L))
+        assertEquals(42_000L, PlaybackPolicy.resolveStartPosition(isLive = false, requestedPositionMs = 42_000L))
+        assertEquals(0L, PlaybackPolicy.resolveStartPosition(isLive = false, requestedPositionMs = -1L))
+    }
+
+    @Test
     fun prepare_snapshot_preserves_positive_position_only_for_same_video() {
         val key = ContentKey(0, "same")
         val existing = PlaybackSnapshot(key, 42_000L, playWhenReady = true)
@@ -26,6 +33,35 @@ class PlaybackPolicyTest {
         assertTrue(PlaybackPolicy.shouldContinueInBackground(backgroundEnabled = true, enteringPip = false))
         assertTrue(PlaybackPolicy.shouldContinueInBackground(backgroundEnabled = false, enteringPip = true))
         assertFalse(PlaybackPolicy.shouldContinueInBackground(backgroundEnabled = false, enteringPip = false))
+    }
+
+    @Test
+    fun video_track_is_disabled_only_for_true_audio_background_playback() {
+        assertTrue(
+            PlaybackPolicy.shouldEnableVideoTrack(
+                lifecycleStarted = true,
+                pipActiveOrEntering = false
+            )
+        )
+        assertTrue(
+            PlaybackPolicy.shouldEnableVideoTrack(
+                lifecycleStarted = false,
+                pipActiveOrEntering = true
+            )
+        )
+        assertTrue(
+            PlaybackPolicy.shouldEnableVideoTrack(
+                lifecycleStarted = false,
+                pipActiveOrEntering = false,
+                isChangingConfigurations = true
+            )
+        )
+        assertFalse(
+            PlaybackPolicy.shouldEnableVideoTrack(
+                lifecycleStarted = false,
+                pipActiveOrEntering = false
+            )
+        )
     }
 
     @Test
@@ -149,5 +185,4 @@ class PlaybackPolicyTest {
         assertFalse(PlaybackPolicy.canEnterPip(PlaybackPolicy.calculatePipEligibility(isPipSupported = true, uiState = disabledPipUi, playbackState = baseState)))
     }
 }
-
 

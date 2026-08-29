@@ -10,9 +10,9 @@ class BuildConfigurationTest {
         assertEquals("com.hpre.app", BuildConfig.APPLICATION_ID)
     }
 
-    @Test fun release_version_is_1_0_7_code_8() {
-        assertEquals("1.0.7", BuildConfig.VERSION_NAME)
-        assertEquals(8, BuildConfig.VERSION_CODE)
+    @Test fun release_version_is_1_0_8_code_9() {
+        assertEquals("1.0.8", BuildConfig.VERSION_NAME)
+        assertEquals(9, BuildConfig.VERSION_CODE)
     }
 
     @Test fun compose_host_is_edge_to_edge() {

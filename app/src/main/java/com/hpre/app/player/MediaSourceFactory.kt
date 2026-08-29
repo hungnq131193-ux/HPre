@@ -16,6 +16,7 @@ import androidx.media3.exoplayer.source.MergingMediaSource
 import androidx.media3.exoplayer.source.ProgressiveMediaSource
 import com.hpre.app.model.SubtitleStream
 import okhttp3.OkHttpClient
+import java.util.concurrent.TimeUnit
 
 fun interface MediaSourceCreator {
     fun createMediaSource(selected: SelectedStreams): MediaSource
@@ -32,6 +33,15 @@ data class PlayerHttpConfig(
     }
 }
 
+/**
+ * Media requests can legitimately stay open for the whole playback session. Preserve the shared
+ * dispatcher, connection pool, and connect/read timeouts, but remove the app-wide total call limit.
+ */
+internal fun playbackHttpClient(baseClient: OkHttpClient): OkHttpClient =
+    baseClient.newBuilder()
+        .callTimeout(0, TimeUnit.MILLISECONDS)
+        .build()
+
 @OptIn(UnstableApi::class)
 class MediaSourceFactory(
     private val dataSourceFactory: DataSource.Factory,
@@ -45,7 +55,7 @@ class MediaSourceFactory(
     ) : this(
         dataSourceFactory = DefaultDataSource.Factory(
             context,
-            OkHttpDataSource.Factory(okHttpClient).setUserAgent(httpConfig.userAgent)
+            OkHttpDataSource.Factory(playbackHttpClient(okHttpClient)).setUserAgent(httpConfig.userAgent)
         )
     )
 

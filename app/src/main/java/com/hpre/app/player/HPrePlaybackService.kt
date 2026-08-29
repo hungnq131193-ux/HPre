@@ -13,6 +13,7 @@ import androidx.media3.common.PlaybackException
 import androidx.media3.common.Player
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.datasource.HttpDataSource
+import androidx.media3.exoplayer.DefaultLoadControl
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.trackselection.DefaultTrackSelector
 import androidx.media3.exoplayer.analytics.AnalyticsListener
@@ -78,6 +79,12 @@ class HPrePlaybackService : MediaSessionService() {
         const val EXTRA_POLICY_AUTO = "extra_policy_auto"
         const val EXTRA_POLICY_MAX_HEIGHT = "extra_policy_max_height"
         const val EXTRA_POLICY_MAX_BITRATE = "extra_policy_max_bitrate"
+
+        private const val MIN_PLAYBACK_BUFFER_MS = 20_000
+        private const val MAX_PLAYBACK_BUFFER_MS = 50_000
+        private const val BUFFER_FOR_PLAYBACK_MS = 2_500
+        private const val BUFFER_AFTER_REBUFFER_MS = 5_000
+        private const val ANALYTICS_COUNTER_GENERATIONS = 8L
 
         // Probe snapshot response extras
         const val EXTRA_PROBE_MEDIA_GEN = "extra_probe_media_gen"
@@ -183,8 +190,17 @@ class HPrePlaybackService : MediaSessionService() {
 
         val selector = DefaultTrackSelector(this)
         trackSelector = selector
+        val loadControl = DefaultLoadControl.Builder()
+            .setBufferDurationsMs(
+                MIN_PLAYBACK_BUFFER_MS,
+                MAX_PLAYBACK_BUFFER_MS,
+                BUFFER_FOR_PLAYBACK_MS,
+                BUFFER_AFTER_REBUFFER_MS
+            )
+            .build()
         val player = ExoPlayer.Builder(this)
             .setTrackSelector(selector)
+            .setLoadControl(loadControl)
             .setAudioAttributes(audioAttributes, true)
             .setHandleAudioBecomingNoisy(true)
             .build()
@@ -282,6 +298,10 @@ class HPrePlaybackService : MediaSessionService() {
 
     private fun registerAnalyticsListener(player: ExoPlayer, token: Long) {
         activeAnalyticsListener?.let { player.removeAnalyticsListener(it) }
+        val oldestRetainedToken = (token - ANALYTICS_COUNTER_GENERATIONS + 1L).coerceAtLeast(0L)
+        renderedFirstFrameCounters.keys.removeAll { it < oldestRetainedToken }
+        audioDecoderInitCounters.keys.removeAll { it < oldestRetainedToken }
+        videoDecoderInitCounters.keys.removeAll { it < oldestRetainedToken }
         val listener = object : AnalyticsListener {
             private val boundToken = token
             override fun onRenderedFirstFrame(
@@ -670,6 +690,11 @@ class HPrePlaybackService : MediaSessionService() {
     ) {
         if (isReleased) return
 
+        val effectiveStartPositionMs = PlaybackPolicy.resolveStartPosition(
+            isLive = streamInfo.isLive,
+            requestedPositionMs = startPositionMs
+        )
+
         cancelActiveQuality()
         cancelFastStartEscalation()
         mediaOpJob?.cancel()
@@ -770,8 +795,8 @@ class HPrePlaybackService : MediaSessionService() {
                     exoPlayer?.let { player ->
                         registerAnalyticsListener(player, currentToken)
                         player.setMediaSource(mediaSource)
-                        if (startPositionMs > 0L) {
-                            player.seekTo(startPositionMs)
+                        if (effectiveStartPositionMs > 0L) {
+                            player.seekTo(effectiveStartPositionMs)
                         }
                         player.playWhenReady = playWhenReady
                         player.playbackParameters = androidx.media3.common.PlaybackParameters(
@@ -834,6 +859,10 @@ class HPrePlaybackService : MediaSessionService() {
             }
             currentQualityPolicy = UserQualityPolicy.Fixed(matched)
             val currentPos = player.currentPosition
+            val effectiveSwitchPositionMs = PlaybackPolicy.resolveStartPosition(
+                isLive = streamInfo.isLive,
+                requestedPositionMs = currentPos
+            )
             val wasPlaying = player.isPlaying || player.playWhenReady
 
             val pref = QualityPreference.SpecificOption(matched)
@@ -893,7 +922,9 @@ class HPrePlaybackService : MediaSessionService() {
 
                     registerAnalyticsListener(player, currentToken)
                     player.setMediaSource(mediaSource)
-                    player.seekTo(currentPos)
+                    if (effectiveSwitchPositionMs > 0L) {
+                        player.seekTo(effectiveSwitchPositionMs)
+                    }
                     player.playWhenReady = wasPlaying
                     player.prepare()
                     persistCurrentSnapshot()
@@ -944,7 +975,8 @@ class HPrePlaybackService : MediaSessionService() {
                     thumbnailUrl = null,
                     durationSeconds = if (player.duration > 0) player.duration / 1000L else null,
                     viewCount = null,
-                    publishedTimestamp = null
+                    publishedTimestamp = null,
+                    isLive = streamInfo?.isLive == true
                 )
                 serviceScope.launch(Dispatchers.IO) {
                     historyRepo.recordHistory(summary, pos)

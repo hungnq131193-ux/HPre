@@ -117,7 +117,10 @@ class StreamRecoveryCoordinator(
                         key = key,
                         sessionGen = sessionGen,
                         streamInfo = freshInfo,
-                        resumePositionMs = positionMs.coerceAtLeast(0L),
+                        resumePositionMs = PlaybackPolicy.resolveStartPosition(
+                            isLive = freshInfo.isLive,
+                            requestedPositionMs = positionMs
+                        ),
                         resumeWhenReady = wasPlaying,
                         selectedQuality = matchedQuality
                     )
@@ -137,4 +140,3 @@ class StreamRecoveryCoordinator(
         refreshAttemptsForSession = 0
     }
 }
-

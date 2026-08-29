@@ -59,7 +59,9 @@ class DefaultHistoryRepository(
                 return@withContext AppResult.Success(Unit)
             }
 
-            val effectivePosition = if (HistoryRepository.shouldOfferResume(positionMs, summary.durationSeconds)) {
+            val effectivePosition = if (
+                !summary.isLive && HistoryRepository.shouldOfferResume(positionMs, summary.durationSeconds)
+            ) {
                 positionMs
             } else {
                 0L
