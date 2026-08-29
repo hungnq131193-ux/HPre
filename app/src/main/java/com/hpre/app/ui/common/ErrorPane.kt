@@ -9,9 +9,15 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
@@ -21,6 +27,7 @@ import androidx.compose.ui.unit.dp
 import com.hpre.app.core.error.AppError
 import com.hpre.app.core.error.RetryPolicy
 import com.hpre.app.R
+import kotlinx.coroutines.delay
 
 sealed interface AsyncState<out T> {
     data object Loading : AsyncState<Nothing>
@@ -41,6 +48,64 @@ fun LoadingPane(
         contentAlignment = Alignment.Center
     ) {
         CircularProgressIndicator()
+    }
+}
+
+/**
+ * Delay before a spinner is allowed to appear.
+ *
+ * Requests served from cache or a warm connection finish in roughly 50-150ms. Rendering a spinner
+ * for that long and immediately removing it reads as a flash of noise, which feels slower than
+ * showing nothing. Waiting this long means fast responses never draw a spinner at all, while genuinely
+ * slow ones still get feedback well inside the ~1s threshold where users start doubting the tap
+ * registered.
+ */
+const val LOADING_INDICATOR_DELAY_MS = 180L
+
+/**
+ * Thin progress bar that appears only once loading has lasted [delayMs].
+ *
+ * For revalidation that happens behind content the user can already see, where a full-screen spinner
+ * would be a regression.
+ */
+@Composable
+fun DelayedLinearLoadingIndicator(
+    modifier: Modifier = Modifier,
+    testTag: String = "linear_loading_indicator",
+    delayMs: Long = LOADING_INDICATOR_DELAY_MS
+) {
+    var visible by remember { mutableStateOf(false) }
+    LaunchedEffect(delayMs) {
+        delay(delayMs)
+        visible = true
+    }
+    if (visible) {
+        LinearProgressIndicator(modifier = modifier.testTag(testTag))
+    }
+}
+
+/**
+ * A [LoadingPane] that only materialises once loading has lasted [delayMs].
+ *
+ * Composing this instead of branching on a boolean keeps the delay out of the ViewModels: state can
+ * flip to loading immediately and truthfully, and the UI decides whether that is worth showing.
+ */
+@Composable
+fun DelayedLoadingPane(
+    modifier: Modifier = Modifier,
+    testTag: String = "loading_pane",
+    delayMs: Long = LOADING_INDICATOR_DELAY_MS
+) {
+    var visible by remember { mutableStateOf(false) }
+    LaunchedEffect(delayMs) {
+        delay(delayMs)
+        visible = true
+    }
+    if (visible) {
+        LoadingPane(modifier = modifier, testTag = testTag)
+    } else {
+        // Occupy the same space so the layout does not jump when the spinner appears.
+        Box(modifier = modifier.fillMaxSize().testTag("${testTag}_pending"))
     }
 }
 

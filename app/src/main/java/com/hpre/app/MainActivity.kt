@@ -27,20 +27,24 @@ open class MainActivity : ComponentActivity() {
     private val app: HPreApplication
         get() = application as HPreApplication
 
-    private val playerController: PlayerController
-        get() = app.container.createPlayerController()
+    /**
+     * The player, only if something already built it. Never constructs it.
+     *
+     * Cold start on Home must not create ExoPlayer, so every lifecycle callback here treats a null
+     * controller as "nothing is playing" and does nothing.
+     */
+    private val activePlayerController: PlayerController?
+        get() = app.container.peekPlayerController()
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
         val initialUiState = app.playbackUiCoordinator.state.value
-        val activeController = playerController
-        if (activeController is com.hpre.app.player.SessionPlayerController) {
-            activeController.updateLifecyclePolicy(
-                backgroundEnabled = initialUiState.backgroundPlaybackEnabled,
-                pipActiveOrEntering = initialUiState.isInPip
-            )
-        }
+        // Records the policy on the container so it is applied when (and if) the player is built.
+        app.container.updatePlayerLifecyclePolicy(
+            backgroundEnabled = initialUiState.backgroundPlaybackEnabled,
+            pipActiveOrEntering = initialUiState.isInPip
+        )
         setContent {
             val settings by app.container.settingsRepository.settings.collectAsStateWithLifecycle(initialValue = com.hpre.app.settings.AppSettings())
             val darkTheme = when (settings.theme) {
@@ -73,16 +77,13 @@ open class MainActivity : ComponentActivity() {
             AppLocaleProvider(language = settings.language) {
                 HPreTheme(darkTheme = darkTheme) {
                     val playbackUiState by app.playbackUiCoordinator.state.collectAsStateWithLifecycle()
-                    val playbackState by playerController.state.collectAsStateWithLifecycle()
+                    val playbackState by app.container.playbackState.collectAsStateWithLifecycle()
 
                     androidx.compose.runtime.LaunchedEffect(playbackUiState.backgroundPlaybackEnabled, playbackUiState.isInPip) {
-                        val controller = playerController
-                        if (controller is com.hpre.app.player.SessionPlayerController) {
-                            controller.updateLifecyclePolicy(
-                                backgroundEnabled = playbackUiState.backgroundPlaybackEnabled,
-                                pipActiveOrEntering = playbackUiState.isInPip
-                            )
-                        }
+                        app.container.updatePlayerLifecyclePolicy(
+                            backgroundEnabled = playbackUiState.backgroundPlaybackEnabled,
+                            pipActiveOrEntering = playbackUiState.isInPip
+                        )
                     }
                     androidx.compose.runtime.LaunchedEffect(
                         playbackUiState.watchVisible,
@@ -94,9 +95,13 @@ open class MainActivity : ComponentActivity() {
                     ) {
                         updateAutoPipEligibility()
                     }
-                    if (playbackUiState.isInPip) {
+                    // Being in PiP implies playback already started, so the controller exists. The
+                    // null check is a guard rather than an expected path; falling back to the
+                    // scaffold is better than constructing a player to render an empty surface.
+                    val pipController = if (playbackUiState.isInPip) activePlayerController else null
+                    if (pipController != null) {
                         PlayerSurface(
-                            playerController = playerController,
+                            playerController = pipController,
                             coordinator = app.playbackUiCoordinator,
                             owner = com.hpre.app.player.SurfaceOwner.SYSTEM_PIP,
                             modifier = Modifier.fillMaxSize()
@@ -111,18 +116,14 @@ open class MainActivity : ComponentActivity() {
 
     override fun onStart() {
         super.onStart()
-        val activeController = playerController
         val uiState = app.playbackUiCoordinator.state.value
         val inPip = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) isInPictureInPictureMode else false
-        if (activeController is com.hpre.app.player.SessionPlayerController) {
-            activeController.onLifecycleStart()
-            activeController.updateLifecyclePolicy(
-                backgroundEnabled = uiState.backgroundPlaybackEnabled,
-                pipActiveOrEntering = inPip
-            )
-        } else {
-            activeController.onLifecycleStart()
-        }
+        activePlayerController?.onLifecycleStart()
+        // Recorded on the container so it also applies to a player created later in this session.
+        app.container.updatePlayerLifecyclePolicy(
+            backgroundEnabled = uiState.backgroundPlaybackEnabled,
+            pipActiveOrEntering = inPip
+        )
         updateAutoPipEligibility()
     }
 
@@ -142,14 +143,14 @@ open class MainActivity : ComponentActivity() {
         if (!inPip) {
             app.playbackUiCoordinator.setWatchVisible(false)
         }
-        val activeController = playerController
+        val activeController = activePlayerController
         val isChangingConfig = isChangingConfigurations
         if (activeController is com.hpre.app.player.SessionPlayerController) {
             activeController.onLifecycleStop(
                 isChangingConfigurations = isChangingConfig,
                 isInPip = inPip
             )
-        } else if (!isChangingConfig && !inPip) {
+        } else if (activeController != null && !isChangingConfig && !inPip) {
             activeController.onLifecycleStop()
         }
     }
@@ -172,7 +173,7 @@ open class MainActivity : ComponentActivity() {
         if (!isPipSupported()) return false
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return false
 
-        val playbackState = playerController.state.value
+        val playbackState = app.container.playbackState.value
         val uiState = app.playbackUiCoordinator.state.value
         return com.hpre.app.player.PlaybackPolicy.canEnterPip(
             com.hpre.app.player.PipEligibility(
@@ -204,8 +205,7 @@ open class MainActivity : ComponentActivity() {
         if (!isPipSupported()) return false
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return false
 
-        val playbackState = playerController.state.value
-        val activeController = playerController
+        val activeController = activePlayerController
         val uiState = app.playbackUiCoordinator.state.value
         val eligible = isPipEligible()
         if (!eligible) {
@@ -233,7 +233,9 @@ open class MainActivity : ComponentActivity() {
         }
     }
 
-    private fun fallbackHandlePipFailure(activeController: PlayerController, backgroundEnabled: Boolean) {
+    private fun fallbackHandlePipFailure(activeController: PlayerController?, backgroundEnabled: Boolean) {
+        // No controller means nothing is playing, so there is nothing to pause or clear.
+        if (activeController == null) return
         if (activeController is com.hpre.app.player.SessionPlayerController) {
             activeController.updateLifecyclePolicy(backgroundEnabled, pipActiveOrEntering = false)
             if (!com.hpre.app.player.PlaybackPolicy.shouldContinueInBackground(backgroundEnabled, enteringPip = false)) {
@@ -253,14 +255,11 @@ open class MainActivity : ComponentActivity() {
     ) {
         super.onPictureInPictureModeChanged(isInPictureInPictureMode, newConfig)
         app.playbackUiCoordinator.setInPip(isInPictureInPictureMode)
-        val activeController = playerController
-        if (activeController is com.hpre.app.player.SessionPlayerController) {
-            val uiState = app.playbackUiCoordinator.state.value
-            activeController.updateLifecyclePolicy(
-                backgroundEnabled = uiState.backgroundPlaybackEnabled,
-                pipActiveOrEntering = isInPictureInPictureMode
-            )
-        }
+        val uiState = app.playbackUiCoordinator.state.value
+        app.container.updatePlayerLifecyclePolicy(
+            backgroundEnabled = uiState.backgroundPlaybackEnabled,
+            pipActiveOrEntering = isInPictureInPictureMode
+        )
         updateAutoPipEligibility()
     }
 }

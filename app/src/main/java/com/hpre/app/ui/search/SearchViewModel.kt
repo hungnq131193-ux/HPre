@@ -12,6 +12,7 @@ import com.hpre.app.model.SearchResultItem
 import com.hpre.app.repository.CatalogRepository
 import com.hpre.app.repository.LocalSearchHistoryItem
 import com.hpre.app.repository.SearchHistoryRepository
+import com.hpre.app.repository.TtlLruCache
 import com.hpre.app.repository.VideoService
 import com.hpre.app.settings.PlaybackPreferences
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -40,7 +41,15 @@ sealed interface SearchUiState {
     data class Content(
         val items: List<SearchResultItem>,
         val nextPageToken: PageToken? = null,
-        val isLoadingNextPage: Boolean = false
+        val isLoadingNextPage: Boolean = false,
+        /**
+         * A search for a newer query or filter is running while these results stay on screen.
+         *
+         * Typing past the debounce window used to clear the list and show a spinner, so results
+         * visibly vanished and came back on every keystroke burst. Keeping the previous items and
+         * flagging them as superseded lets the screen show a thin inline indicator instead.
+         */
+        val isSearching: Boolean = false
     ) : SearchUiState
     data object Empty : SearchUiState
     data class Error(val error: AppError) : SearchUiState
@@ -114,6 +123,23 @@ class SearchViewModel(
     private var lastSearchedQuery: String? = null
     private var lastSearchedFilter: SearchFilter? = null
 
+    /**
+     * First page of recent searches, keyed by filter and normalized query.
+     *
+     * The dominant repeat is back-navigation: open a result from Watch, come back, and the same
+     * query was re-issued from scratch. Caching only the first page keeps this small while covering
+     * that path; pagination state beyond page one is cheap to rebuild by scrolling.
+     */
+    private val resultCache = TtlLruCache<String, CachedSearchPage>(
+        ttlMs = SEARCH_CACHE_TTL_MS,
+        maxEntries = SEARCH_CACHE_MAX_ENTRIES
+    )
+
+    private data class CachedSearchPage(
+        val items: List<SearchResultItem>,
+        val nextPageToken: PageToken?
+    )
+
     init {
         // Observe debounced queries for real-time search typing (400ms debounce)
         viewModelScope.launch {
@@ -179,7 +205,28 @@ class SearchViewModel(
 
         lastSearchedQuery = query
         lastSearchedFilter = filter
-        _uiState.value = SearchUiState.Loading
+
+        // An explicit action (submit, filter change, retry) means the user wants fresh results, so it
+        // skips the cache. Debounced typing is happy to reuse a recent identical search.
+        val cached = if (isExplicit) null else resultCache.get(requestKey)
+        if (cached != null) {
+            _uiState.value = SearchUiState.Content(
+                items = cached.items,
+                nextPageToken = cached.nextPageToken,
+                isLoadingNextPage = false,
+                isSearching = false
+            )
+            return
+        }
+
+        // Preserve whatever results are showing rather than clearing to a spinner. Only an empty
+        // screen falls back to Loading.
+        val visible = _uiState.value as? SearchUiState.Content
+        _uiState.value = if (visible != null && visible.items.isNotEmpty()) {
+            visible.copy(isSearching = true, isLoadingNextPage = false)
+        } else {
+            SearchUiState.Loading
+        }
 
         activeSearchJob = viewModelScope.launch {
             val result = try {
@@ -196,17 +243,26 @@ class SearchViewModel(
                     is AppResult.Success -> {
                         val page = result.value
                         if (page.items.isEmpty()) {
+                            resultCache.remove(requestKey)
                             _uiState.value = SearchUiState.Empty
                         } else {
                             val deduplicatedItems = deduplicateItems(page.items)
+                            resultCache.put(
+                                requestKey,
+                                CachedSearchPage(deduplicatedItems, page.nextPageToken)
+                            )
                             _uiState.value = SearchUiState.Content(
                                 items = deduplicatedItems,
                                 nextPageToken = page.nextPageToken,
-                                isLoadingNextPage = false
+                                isLoadingNextPage = false,
+                                isSearching = false
                             )
                         }
                     }
                     is AppResult.Failure -> {
+                        // Unlike Home, a failed search shows the error screen even when stale results
+                        // are on screen: those results belong to a different query, so leaving them up
+                        // would misrepresent them as results for what was just typed.
                         _uiState.value = SearchUiState.Error(result.error)
                     }
                 }
@@ -345,6 +401,15 @@ class SearchViewModel(
     }
 
     companion object {
+        /**
+         * Short enough that results still reflect current content, long enough to cover a browsing
+         * loop of opening several videos from one result list.
+         */
+        private const val SEARCH_CACHE_TTL_MS = 180_000L
+
+        /** Covers a typical session's worth of distinct queries without holding much memory. */
+        private const val SEARCH_CACHE_MAX_ENTRIES = 24
+
         fun provideFactory(
             repository: CatalogRepository,
             videoService: VideoService,

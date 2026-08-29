@@ -508,6 +508,140 @@ class SearchViewModelTest {
         assertEquals("item3", (items[2] as SearchResultItem.VideoItem).summary.key.nativeId)
     }
 
+    /**
+     * Typing a new query keeps the previous results composed instead of clearing to a spinner.
+     */
+    @Test
+    fun new_search_keeps_previous_results_visible_while_running() = runTest(testDispatcher) {
+        val fakeService = FakeVideoService()
+        fakeService.searchHandler = { q, _, _ ->
+            if (q == "second") {
+                kotlinx.coroutines.delay(1_000)
+                AppResult.Success(page("second_result"))
+            } else {
+                AppResult.Success(page("first_result"))
+            }
+        }
+        val repository = CatalogRepository(videoService = fakeService, repositoryScope = this)
+        val viewModel = SearchViewModel(repository = repository, videoService = fakeService)
+
+        viewModel.onQuerySubmitted("first")
+        advanceUntilIdle()
+        assertTrue(viewModel.uiState.value is SearchUiState.Content)
+
+        viewModel.onQuerySubmitted("second")
+        advanceTimeBy(50)
+
+        val during = viewModel.uiState.value
+        assertTrue("Search must not clear results to Loading, got $during", during is SearchUiState.Content)
+        val duringContent = during as SearchUiState.Content
+        assertEquals("first_result", (duringContent.items.single() as SearchResultItem.VideoItem).summary.key.nativeId)
+        assertTrue("Expected isSearching while the new query runs", duringContent.isSearching)
+
+        advanceUntilIdle()
+        val after = viewModel.uiState.value as SearchUiState.Content
+        assertEquals("second_result", (after.items.single() as SearchResultItem.VideoItem).summary.key.nativeId)
+        assertFalse(after.isSearching)
+    }
+
+    /** With no results on screen there is nothing to preserve, so Loading is still correct. */
+    @Test
+    fun first_search_with_no_results_on_screen_uses_loading_state() = runTest(testDispatcher) {
+        val fakeService = FakeVideoService()
+        fakeService.searchHandler = { _, _, _ ->
+            kotlinx.coroutines.delay(1_000)
+            AppResult.Success(page("result"))
+        }
+        val repository = CatalogRepository(videoService = fakeService, repositoryScope = this)
+        val viewModel = SearchViewModel(repository = repository, videoService = fakeService)
+
+        viewModel.onQuerySubmitted("first")
+        advanceTimeBy(50)
+        assertTrue(viewModel.uiState.value is SearchUiState.Loading)
+
+        advanceUntilIdle()
+        assertTrue(viewModel.uiState.value is SearchUiState.Content)
+    }
+
+    /**
+     * Back-navigation into a recent query renders from cache with no new request.
+     *
+     * Debounced typing is what replays a cached query; an explicit submit always refetches.
+     */
+    @Test
+    fun repeating_a_recent_query_via_typing_serves_from_cache() = runTest(testDispatcher) {
+        val fakeService = FakeVideoService(
+            searchResponses = mapOf(
+                "alpha" to page("alpha_result"),
+                "beta" to page("beta_result")
+            )
+        )
+        val repository = CatalogRepository(videoService = fakeService, repositoryScope = this)
+        val viewModel = SearchViewModel(repository = repository, videoService = fakeService)
+
+        viewModel.onQueryChanged("alpha")
+        advanceUntilIdle()
+        assertEquals(1, fakeService.searchCallCount)
+
+        viewModel.onQueryChanged("beta")
+        advanceUntilIdle()
+        assertEquals(2, fakeService.searchCallCount)
+
+        // Back to "alpha": served from cache, no third request.
+        viewModel.onQueryChanged("alpha")
+        advanceUntilIdle()
+        assertEquals("cache hit must not issue a request", 2, fakeService.searchCallCount)
+        val state = viewModel.uiState.value
+        assertTrue(state is SearchUiState.Content)
+        val content = state as SearchUiState.Content
+        assertEquals("alpha_result", (content.items.single() as SearchResultItem.VideoItem).summary.key.nativeId)
+        assertFalse(content.isSearching)
+    }
+
+    /** An explicit submit means the user wants fresh results, so it bypasses the cache. */
+    @Test
+    fun explicit_submit_bypasses_the_result_cache() = runTest(testDispatcher) {
+        val fakeService = FakeVideoService(searchResponses = mapOf("alpha" to page("alpha_result")))
+        val repository = CatalogRepository(videoService = fakeService, repositoryScope = this)
+        val viewModel = SearchViewModel(repository = repository, videoService = fakeService)
+
+        viewModel.onQuerySubmitted("alpha")
+        advanceUntilIdle()
+        assertEquals(1, fakeService.searchCallCount)
+
+        viewModel.onQuerySubmitted("alpha")
+        advanceUntilIdle()
+        assertEquals(2, fakeService.searchCallCount)
+    }
+
+    /**
+     * A failed search shows the error even when stale results are visible.
+     *
+     * Those results answer a different query, so keeping them on screen would present them as
+     * results for what the user just searched.
+     */
+    @Test
+    fun failed_search_reports_error_rather_than_keeping_stale_results() = runTest(testDispatcher) {
+        val fakeService = FakeVideoService()
+        fakeService.searchHandler = { q, _, _ ->
+            if (q == "good") AppResult.Success(page("good_result"))
+            else AppResult.Failure(AppError.NetworkError)
+        }
+        val repository = CatalogRepository(videoService = fakeService, repositoryScope = this)
+        val viewModel = SearchViewModel(repository = repository, videoService = fakeService)
+
+        viewModel.onQuerySubmitted("good")
+        advanceUntilIdle()
+        assertTrue(viewModel.uiState.value is SearchUiState.Content)
+
+        viewModel.onQuerySubmitted("bad")
+        advanceUntilIdle()
+
+        val state = viewModel.uiState.value
+        assertTrue("Expected Error for a failed search, got $state", state is SearchUiState.Error)
+        assertEquals(AppError.NetworkError, (state as SearchUiState.Error).error)
+    }
+
     @Test
     fun unexpected_exception_from_repository_maps_to_safe_error_and_does_not_get_stuck_in_loading() = runTest(testDispatcher) {
         val fakeService = FakeVideoService()

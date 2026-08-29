@@ -159,6 +159,7 @@ class HomeViewModelTest {
         assertTrue(viewModel.uiState.value is HomeUiState.Error)
 
         viewModel.retry()
+        // Retrying from an error screen has no content to preserve, so Loading is still correct here.
         assertTrue(viewModel.uiState.value is HomeUiState.Loading)
 
         advanceUntilIdle()
@@ -461,10 +462,19 @@ class HomeViewModelTest {
         assertEquals(null, (state as HomeUiState.Content).content.refreshError)
     }
 
+    /**
+     * Switching chips must not blank the feed.
+     *
+     * The previous list stays composed with [HomeContent.isLoadingSelection] set, which the screen
+     * renders as a thin inline bar rather than replacing everything with a spinner.
+     */
     @Test
-    fun selectChip_is_initial_load_not_refresh() = runTest(testDispatcher) {
+    fun selectChip_keeps_previous_videos_visible_while_loading() = runTest(testDispatcher) {
         val topicSource = FakeTopicFeedSource().apply {
-            handler = { _, _ -> AppResult.Success(listOf(summary("topic_video"))) }
+            handler = { _, _ ->
+                kotlinx.coroutines.delay(500)
+                AppResult.Success(listOf(summary("topic_video")))
+            }
         }
         val viewModel = HomeViewModel(
             repository = HomeRecommendationSource { _ -> AppResult.Success(listOf(summary("all_video"))) },
@@ -473,14 +483,125 @@ class HomeViewModelTest {
         advanceUntilIdle()
         assertTrue(viewModel.uiState.value is HomeUiState.Content)
 
-        // Switching chip transitions to initial Loading, not refresh
         viewModel.selectChip(1)
-        assertTrue(viewModel.uiState.value is HomeUiState.Loading)
+        runCurrent()
+
+        val loading = viewModel.uiState.value
+        assertTrue("Chip switch must not drop to Loading, got $loading", loading is HomeUiState.Content)
+        val loadingContent = (loading as HomeUiState.Content).content
+        assertEquals("all_video", loadingContent.videos.single().key.nativeId)
+        assertTrue("Expected isLoadingSelection while the new chip loads", loadingContent.isLoadingSelection)
+        assertEquals(false, loadingContent.isRefreshing)
 
         advanceUntilIdle()
         val state = viewModel.uiState.value
         assertTrue(state is HomeUiState.Content)
-        assertEquals("topic_video", (state as HomeUiState.Content).content.videos.single().key.nativeId)
+        val content = (state as HomeUiState.Content).content
+        assertEquals("topic_video", content.videos.single().key.nativeId)
+        assertEquals(false, content.isLoadingSelection)
+    }
+
+    /** First ever load has nothing to keep on screen, so full-screen Loading is still correct. */
+    @Test
+    fun first_load_with_no_content_still_uses_loading_state() = runTest(testDispatcher) {
+        val viewModel = HomeViewModel(
+            repository = HomeRecommendationSource { _ ->
+                kotlinx.coroutines.delay(500)
+                AppResult.Success(listOf(summary("all_video")))
+            },
+            topicFeedSource = FakeTopicFeedSource()
+        )
+
+        assertTrue(viewModel.uiState.value is HomeUiState.Loading)
+        advanceUntilIdle()
+        assertTrue(viewModel.uiState.value is HomeUiState.Content)
+    }
+
+    /**
+     * Returning to an already-loaded chip renders from cache with no request and no loading state.
+     */
+    @Test
+    fun returning_to_cached_chip_renders_immediately_without_refetching() = runTest(testDispatcher) {
+        var allCalls = 0
+        val topicSource = FakeTopicFeedSource().apply {
+            handler = { _, _ -> AppResult.Success(listOf(summary("music"))) }
+        }
+        val viewModel = HomeViewModel(
+            repository = HomeRecommendationSource { _ ->
+                allCalls++
+                AppResult.Success(listOf(summary("all_$allCalls")))
+            },
+            topicFeedSource = topicSource
+        )
+        advanceUntilIdle()
+        assertEquals(1, allCalls)
+
+        viewModel.selectChip(1)
+        advanceUntilIdle()
+        assertEquals("music", (viewModel.uiState.value as HomeUiState.Content).content.videos.single().key.nativeId)
+
+        // Back to "Tất cả": served from cache synchronously, no second repository call.
+        viewModel.selectChip(0)
+        runCurrent()
+        val state = viewModel.uiState.value
+        assertTrue("Cached chip must render Content immediately, got $state", state is HomeUiState.Content)
+        val content = (state as HomeUiState.Content).content
+        assertEquals("all_1", content.videos.single().key.nativeId)
+        assertEquals("cached content must not show a loading indicator", false, content.isLoadingSelection)
+
+        advanceUntilIdle()
+        assertEquals("cache hit must not trigger a request", 1, allCalls)
+    }
+
+    /** An explicit retry bypasses the cache: the user asked for new content. */
+    @Test
+    fun retry_bypasses_chip_cache() = runTest(testDispatcher) {
+        var allCalls = 0
+        val viewModel = HomeViewModel(
+            repository = HomeRecommendationSource { _ ->
+                allCalls++
+                AppResult.Success(listOf(summary("all_$allCalls")))
+            },
+            topicFeedSource = FakeTopicFeedSource()
+        )
+        advanceUntilIdle()
+        assertEquals(1, allCalls)
+
+        viewModel.retry()
+        advanceUntilIdle()
+        assertEquals(2, allCalls)
+        assertEquals(
+            "all_2",
+            (viewModel.uiState.value as HomeUiState.Content).content.videos.single().key.nativeId
+        )
+    }
+
+    /**
+     * A failed chip switch keeps the visible list and reports the error inline.
+     *
+     * Wiping working content for an error screen is the worst outcome: the user loses what they had
+     * and gets no way back except a retry.
+     */
+    @Test
+    fun failed_chip_switch_keeps_visible_content_and_reports_error_inline() = runTest(testDispatcher) {
+        val topicSource = FakeTopicFeedSource().apply {
+            handler = { _, _ -> AppResult.Failure(AppError.NetworkError) }
+        }
+        val viewModel = HomeViewModel(
+            repository = HomeRecommendationSource { _ -> AppResult.Success(listOf(summary("all_video"))) },
+            topicFeedSource = topicSource
+        )
+        advanceUntilIdle()
+
+        viewModel.selectChip(1)
+        advanceUntilIdle()
+
+        val state = viewModel.uiState.value
+        assertTrue("Expected Content with inline error, got $state", state is HomeUiState.Content)
+        val content = (state as HomeUiState.Content).content
+        assertEquals("all_video", content.videos.single().key.nativeId)
+        assertEquals(AppError.NetworkError, content.refreshError)
+        assertEquals(false, content.isLoadingSelection)
     }
 
     @Test
@@ -547,8 +668,15 @@ class HomeViewModelTest {
         assertEquals(true, topicSource.calls[1].second.forceRefresh)
     }
 
+    /**
+     * Returning to "Tất cả" restores its feed from cache instead of re-requesting it.
+     *
+     * This previously asserted a second repository call. That refetch is exactly the cost the chip
+     * cache removes: the round trip produced a spinner and a blank feed for content already fetched
+     * seconds earlier. Selection still has to switch back, which is what matters to the user.
+     */
     @Test
-    fun selecting_all_after_topic_loads_recommendations_again() = runTest(testDispatcher) {
+    fun selecting_all_after_topic_restores_cached_recommendations() = runTest(testDispatcher) {
         var recommendationCalls = 0
         val viewModel = HomeViewModel(
             repository = HomeRecommendationSource { _ ->
@@ -564,8 +692,12 @@ class HomeViewModelTest {
         viewModel.selectChip(0)
         advanceUntilIdle()
 
-        assertEquals(2, recommendationCalls)
+        assertEquals(1, recommendationCalls)
         assertEquals(0, viewModel.chipsState.value.selectedIndex)
+        assertEquals(
+            "all_1",
+            (viewModel.uiState.value as HomeUiState.Content).content.videos.single().key.nativeId
+        )
     }
 
     @Test

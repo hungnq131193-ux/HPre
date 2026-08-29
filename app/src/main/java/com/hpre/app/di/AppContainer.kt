@@ -15,6 +15,7 @@ import com.hpre.app.repository.SubscriptionRepository
 import com.hpre.app.extractor.NewPipeVideoService
 import com.hpre.app.extractor.OkHttpDownloader
 import com.hpre.app.player.MediaSourceFactory
+import com.hpre.app.player.PlaybackState
 import com.hpre.app.player.PlayerController
 import com.hpre.app.player.PlayerHttpConfig
 import com.hpre.app.player.SessionPlayerController
@@ -36,6 +37,10 @@ import com.hpre.app.update.UpdateUnavailableReason
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.launch
 import okhttp3.OkHttpClient
 
 /**
@@ -71,6 +76,29 @@ interface AppContainer {
             UpdateCheckResult.Unavailable(UpdateUnavailableReason.NETWORK)
         }
     fun createPlayerController(): PlayerController
+
+    /**
+     * Playback state that can be observed without constructing the player.
+     *
+     * UI that merely reacts to playback (mini player visibility, PiP eligibility) collects this
+     * instead of touching [createPlayerController], so opening the app on Home never builds
+     * ExoPlayer, [MediaSourceFactory] or the recovery coordinator.
+     *
+     * The default implementation falls back to the controller's own state so test doubles keep
+     * their existing behaviour.
+     */
+    val playbackState: StateFlow<PlaybackState>
+        get() = createPlayerController().state
+
+    /**
+     * Returns the player only if it has already been created, otherwise null.
+     *
+     * Call sites that need a real controller for an interaction that implies playback already
+     * started (mini player controls, PiP surface, lifecycle callbacks) use this to avoid forcing
+     * construction as a side effect.
+     */
+    fun peekPlayerController(): PlayerController? = createPlayerController()
+
     fun updatePlayerLifecyclePolicy(
         backgroundEnabled: Boolean,
         pipActiveOrEntering: Boolean
@@ -183,6 +211,17 @@ class DefaultAppContainer(
     @Volatile
     private var pipActiveOrEntering = false
 
+    /**
+     * Mirror of the player's state that exists before (and independently of) the player itself.
+     *
+     * Starts at the default [PlaybackState] (no media, not playing) which is exactly what UI needs
+     * while nothing is playing. Once the controller is built we forward its state into this flow, so
+     * observers never have to distinguish between the two phases.
+     */
+    private val mirroredPlaybackState = MutableStateFlow(PlaybackState())
+
+    override val playbackState: StateFlow<PlaybackState> = mirroredPlaybackState.asStateFlow()
+
     private val sessionPlayerController = AppScopedPlayerControllerProvider {
         val coordinator = StreamRecoveryCoordinator(videoService = videoService)
         SessionPlayerController(
@@ -195,10 +234,15 @@ class DefaultAppContainer(
                 backgroundEnabled = backgroundPlaybackEnabled,
                 pipActiveOrEntering = pipActiveOrEntering
             )
+            applicationScope.launch {
+                controller.state.collect { mirroredPlaybackState.value = it }
+            }
         }
     }
 
     override fun createPlayerController(): PlayerController = sessionPlayerController.get()
+
+    override fun peekPlayerController(): PlayerController? = sessionPlayerController.getIfInitialized()
 
     override fun updatePlayerLifecyclePolicy(
         backgroundEnabled: Boolean,
