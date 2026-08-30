@@ -206,7 +206,8 @@ object StreamSelector {
                                 key = info.key,
                                 streamType = PlaybackStreamType.HLS,
                                 manifestUrl = info.hlsManifestUrl,
-                                subtitles = info.subtitles
+                                subtitles = info.subtitles,
+                                isLive = info.isLive
                             )
                         )
                     } else {
@@ -220,7 +221,8 @@ object StreamSelector {
                                 key = info.key,
                                 streamType = PlaybackStreamType.DASH,
                                 manifestUrl = info.dashManifestUrl,
-                                subtitles = info.subtitles
+                                subtitles = info.subtitles,
+                                isLive = info.isLive
                             )
                         )
                     } else {
@@ -239,7 +241,8 @@ object StreamSelector {
                                 streamType = PlaybackStreamType.PROGRESSIVE,
                                 videoStream = matching,
                                 audioStream = null,
-                                subtitles = info.subtitles
+                                subtitles = info.subtitles,
+                                isLive = info.isLive
                             )
                         )
                     } else {
@@ -267,7 +270,8 @@ object StreamSelector {
                                     streamType = PlaybackStreamType.MERGED_AV,
                                     videoStream = matchingVideo,
                                     audioStream = compatibleAudio,
-                                    subtitles = info.subtitles
+                                    subtitles = info.subtitles,
+                                    isLive = info.isLive
                                 )
                             )
                         }
@@ -293,7 +297,8 @@ object StreamSelector {
                         key = info.key,
                         streamType = PlaybackStreamType.HLS,
                         manifestUrl = info.hlsManifestUrl,
-                        subtitles = info.subtitles
+                        subtitles = info.subtitles,
+                        isLive = info.isLive
                     )
                 )
             }
@@ -303,7 +308,8 @@ object StreamSelector {
                         key = info.key,
                         streamType = PlaybackStreamType.DASH,
                         manifestUrl = info.dashManifestUrl,
-                        subtitles = info.subtitles
+                        subtitles = info.subtitles,
+                        isLive = info.isLive
                     )
                 )
             }
@@ -323,7 +329,8 @@ object StreamSelector {
                     streamType = PlaybackStreamType.PROGRESSIVE,
                     videoStream = chosen,
                     audioStream = null,
-                    subtitles = info.subtitles
+                    subtitles = info.subtitles,
+                    isLive = info.isLive
                 )
             )
         }
@@ -349,7 +356,8 @@ object StreamSelector {
                         streamType = PlaybackStreamType.MERGED_AV,
                         videoStream = video,
                         audioStream = compatibleAudio,
-                        subtitles = info.subtitles
+                        subtitles = info.subtitles,
+                        isLive = info.isLive
                     )
                 )
             }
@@ -362,7 +370,8 @@ object StreamSelector {
                     key = info.key,
                     streamType = PlaybackStreamType.HLS,
                     manifestUrl = info.hlsManifestUrl,
-                    subtitles = info.subtitles
+                    subtitles = info.subtitles,
+                    isLive = info.isLive
                 )
             )
         }
@@ -374,7 +383,8 @@ object StreamSelector {
                     key = info.key,
                     streamType = PlaybackStreamType.DASH,
                     manifestUrl = info.dashManifestUrl,
-                    subtitles = info.subtitles
+                    subtitles = info.subtitles,
+                    isLive = info.isLive
                 )
             )
         }
@@ -389,7 +399,8 @@ object StreamSelector {
                     streamType = PlaybackStreamType.AUDIO_ONLY,
                     videoStream = null,
                     audioStream = chosenAudio,
-                    subtitles = info.subtitles
+                    subtitles = info.subtitles,
+                    isLive = info.isLive
                 )
             )
         }
