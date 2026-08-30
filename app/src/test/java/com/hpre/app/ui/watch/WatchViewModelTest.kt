@@ -159,10 +159,14 @@ class WatchViewModelTest {
         fun setPlayerErrorForTest(error: AppError) {
             _state.value = _state.value.copy(error = error, isPlaying = false, isLoading = false)
         }
+
+        fun markReady(key: ContentKey) {
+            _state.value = _state.value.copy(key = key, isReady = true, isLoading = false)
+        }
     }
 
     @Test
-    fun related_and_comments_start_only_after_player_prepare() = runTest(testDispatcher) {
+    fun related_starts_after_prepare_but_comments_wait_for_player_ready() = runTest(testDispatcher) {
         val events = mutableListOf<String>()
         val streamGate = CompletableDeferred<AppResult<StreamInfo>>()
         val service = FakeVideoService(
@@ -200,10 +204,157 @@ class WatchViewModelTest {
         assertFalse("comments must not compete before prepare: $events", "comments" in events)
 
         streamGate.complete(AppResult.Success(testStreamInfo(testKey)))
-        advanceUntilIdle()
+        runCurrent()
 
         assertTrue(events.indexOf("prepare") < events.indexOf("related"))
+        assertFalse("comments must wait for player ready: $events", "comments" in events)
+
+        player.markReady(testKey)
+        runCurrent()
+
+        assertEquals(1, events.count { it == "comments" })
         assertTrue(events.indexOf("prepare") < events.indexOf("comments"))
+    }
+
+    @Test
+    fun comments_start_once_after_two_second_ready_fallback() = runTest(testDispatcher) {
+        var commentsCalls = 0
+        val service = FakeVideoService(
+            supportsComments = true,
+            videoHandler = { AppResult.Success(testDetails(it)) },
+            streamInfoHandler = { AppResult.Success(testStreamInfo(it)) },
+            relatedHandler = { AppResult.Success(emptyList()) },
+            commentsHandler = { _, _ ->
+                commentsCalls++
+                AppResult.Success(CommentPage(emptyList()))
+            }
+        )
+        val model = WatchViewModel(
+            videoService = service,
+            playerController = FakePlayerController(),
+            savedStateHandle = androidx.lifecycle.SavedStateHandle(),
+            ioDispatcher = testDispatcher
+        )
+
+        model.load(testKey)
+        runCurrent()
+        assertEquals(0, commentsCalls)
+        advanceTimeBy(1_999L)
+        runCurrent()
+        assertEquals(0, commentsCalls)
+        advanceTimeBy(1L)
+        runCurrent()
+        assertEquals(1, commentsCalls)
+    }
+
+    @Test
+    fun ready_and_fallback_race_starts_comments_once() = runTest(testDispatcher) {
+        var commentsCalls = 0
+        val player = FakePlayerController()
+        val service = FakeVideoService(
+            supportsComments = true,
+            videoHandler = { AppResult.Success(testDetails(it)) },
+            streamInfoHandler = { AppResult.Success(testStreamInfo(it)) },
+            relatedHandler = { AppResult.Success(emptyList()) },
+            commentsHandler = { _, _ ->
+                commentsCalls++
+                AppResult.Success(CommentPage(emptyList()))
+            }
+        )
+        val model = WatchViewModel(
+            videoService = service,
+            playerController = player,
+            savedStateHandle = androidx.lifecycle.SavedStateHandle(),
+            ioDispatcher = testDispatcher
+        )
+
+        model.load(testKey)
+        runCurrent()
+        advanceTimeBy(2_000L)
+        player.markReady(testKey)
+        runCurrent()
+
+        assertEquals(1, commentsCalls)
+    }
+
+    @Test
+    fun changing_video_invalidates_previous_comments_gate() = runTest(testDispatcher) {
+        val requestedKeys = mutableListOf<ContentKey>()
+        val first = ContentKey(0, "first")
+        val second = ContentKey(0, "second")
+        val player = FakePlayerController()
+        val service = FakeVideoService(
+            supportsComments = true,
+            videoHandler = { AppResult.Success(testDetails(it)) },
+            streamInfoHandler = { AppResult.Success(testStreamInfo(it)) },
+            relatedHandler = { AppResult.Success(emptyList()) },
+            commentsHandler = { key, _ ->
+                requestedKeys += key
+                AppResult.Success(CommentPage(emptyList()))
+            }
+        )
+        val model = WatchViewModel(
+            videoService = service,
+            playerController = player,
+            savedStateHandle = androidx.lifecycle.SavedStateHandle(),
+            ioDispatcher = testDispatcher
+        )
+
+        model.load(first)
+        runCurrent()
+        model.load(second)
+        runCurrent()
+        player.markReady(first)
+        runCurrent()
+        assertTrue(requestedKeys.isEmpty())
+        player.markReady(second)
+        runCurrent()
+
+        assertEquals(listOf(second), requestedKeys)
+    }
+
+    @Test
+    fun cached_comments_bypass_ready_gate_without_refetch() = runTest(testDispatcher) {
+        var commentsCalls = 0
+        val cachedPage = CommentPage(
+            listOf(Comment("cached", "Author", null, null, "Cached body", null, null))
+        )
+        val cache = com.hpre.app.repository.WatchStateCache().apply {
+            put(
+                testKey,
+                com.hpre.app.repository.WatchStateSnapshot(
+                    details = testDetails(testKey),
+                    relatedVideos = emptyList(),
+                    comments = cachedPage
+                )
+            )
+        }
+        val player = FakePlayerController()
+        val service = FakeVideoService(
+            supportsComments = true,
+            streamInfoHandler = { AppResult.Success(testStreamInfo(it)) },
+            commentsHandler = { _, _ ->
+                commentsCalls++
+                AppResult.Success(CommentPage(emptyList()))
+            }
+        )
+        val model = WatchViewModel(
+            videoService = service,
+            playerController = player,
+            savedStateHandle = androidx.lifecycle.SavedStateHandle(),
+            watchStateCache = cache,
+            ioDispatcher = testDispatcher
+        )
+
+        model.load(testKey)
+        runCurrent()
+        assertEquals(cachedPage, (model.commentsState.value as AsyncState.Content).value)
+        assertEquals(0, commentsCalls)
+
+        player.markReady(testKey)
+        advanceTimeBy(2_000L)
+        runCurrent()
+        assertEquals(0, commentsCalls)
     }
 
     @Test
