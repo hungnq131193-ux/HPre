@@ -23,6 +23,8 @@ interface VideoService {
     suspend fun suggestions(query: String): AppResult<List<String>>
     suspend fun video(key: ContentKey): AppResult<VideoDetails>
     suspend fun streamInfo(key: ContentKey): AppResult<StreamInfo>
+    /** Resolve a replacement for a failed/expired stream, bypassing transient extraction caches. */
+    suspend fun refreshStreamInfo(key: ContentKey): AppResult<StreamInfo> = streamInfo(key)
     suspend fun channel(key: ContentKey): AppResult<ChannelDetails>
     suspend fun related(key: ContentKey): AppResult<List<VideoSummary>>
     suspend fun playlist(key: ContentKey): AppResult<PlaylistDetails>

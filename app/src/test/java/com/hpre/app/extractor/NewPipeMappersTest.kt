@@ -28,6 +28,17 @@ import org.schabi.newpipe.extractor.stream.VideoStream
 import java.util.Locale
 
 class NewPipeMappersTest {
+    @Test
+    fun image_variant_uses_the_smallest_adequate_width_and_preserves_large_fallback() {
+        val images = listOf(
+            Image("https://example.com/48.jpg", 48, 48, Image.ResolutionLevel.LOW),
+            Image("https://example.com/160.jpg", 160, 160, Image.ResolutionLevel.MEDIUM),
+            Image("https://example.com/1024.jpg", 1024, 1024, Image.ResolutionLevel.HIGH)
+        )
+        assertEquals("https://example.com/160.jpg", NewPipeMappers.selectPreferredImage(images, 160))
+        assertEquals("https://example.com/1024.jpg", NewPipeMappers.selectPreferredImage(images, 1920))
+        assertEquals("https://example.com/1024.jpg", NewPipeMappers.selectPreferredImage(images))
+    }
 
     @Test
     fun extractNativeVideoId_parses_various_url_formats_and_encoded_queries() {
@@ -456,4 +467,3 @@ class NewPipeMappersTest {
         assertNull(NewPipeMappers.mapStreamInfo(allInvalid, fallbackServiceId = 0))
     }
 }
-

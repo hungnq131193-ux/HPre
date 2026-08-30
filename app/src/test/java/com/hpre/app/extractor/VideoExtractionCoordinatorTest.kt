@@ -122,4 +122,35 @@ class VideoExtractionCoordinatorTest {
 
         assertEquals(1, coordinator.extractionCountForTest(key))
     }
+
+    @Test fun forced_refresh_bypasses_cached_signed_stream_urls() = runTest {
+        val coordinator = VideoExtractionCoordinator(this)
+        val key = ContentKey(0, "expired")
+        val old = bundle(key)
+        val fresh = old.copy(streamInfo = old.streamInfo.copy(title = "fresh URL generation"))
+        coordinator.execute(key) { AppResult.Success(old) }
+        val result = coordinator.execute(key, forceRefresh = true) { AppResult.Success(fresh) }
+        assertEquals(AppResult.Success(fresh), result)
+        assertEquals(result, coordinator.execute(key) { error("fresh result should be cached") })
+    }
+
+    @Test fun concurrent_refreshes_share_new_work_and_old_completion_cannot_poison_cache() = runTest {
+        val coordinator = VideoExtractionCoordinator(this)
+        val key = ContentKey(0, "refresh-in-flight")
+        val oldGate = CompletableDeferred<Unit>()
+        val freshGate = CompletableDeferred<Unit>()
+        val oldBundle = bundle(key)
+        val freshBundle = oldBundle.copy(streamInfo = oldBundle.streamInfo.copy(title = "refreshed"))
+        val old = async { coordinator.execute(key) { oldGate.await(); AppResult.Success(oldBundle) } }
+        runCurrent()
+        val fresh = async { coordinator.execute(key, true) { freshGate.await(); AppResult.Success(freshBundle) } }
+        val anotherRefresh = async { coordinator.execute(key, true) { error("must join refresh") } }
+        runCurrent()
+        freshGate.complete(Unit)
+        assertEquals(AppResult.Success(freshBundle), fresh.await())
+        assertEquals(fresh.await(), anotherRefresh.await())
+        oldGate.complete(Unit)
+        assertEquals(AppResult.Success(oldBundle), old.await())
+        assertEquals(fresh.await(), coordinator.execute(key) { error("old request replaced fresh cache") })
+    }
 }

@@ -253,16 +253,19 @@ fun SearchScreen(
                     )
                 }
                 is SearchUiState.Content -> {
-                    val requestKey = "${filter.name}:$query"
+                    // The cursor changes even when appending keeps the bounded list at 300 items.
+                    val requestKey = "${filter.name}:$query:${state.nextPageToken?.hashCode()}"
                     SearchResultsList(
                         items = state.items,
                         requestKey = requestKey,
-                        hasNextPage = state.nextPageToken != null,
+                        hasNextPage = state.nextPageToken != null && !state.isSearching,
                         isLoadingNextPage = state.isLoadingNextPage,
                         onLoadMore = { viewModel.loadNextPage() },
                         onVideoClick = onVideoClick,
                         onChannelClick = onChannelClick,
-                        onPlaylistClick = onPlaylistClick
+                        onPlaylistClick = onPlaylistClick,
+                        earlierResultsDropped = state.earlierResultsDropped,
+                        onRestart = viewModel::retry
                     )
 
                     // Previous results stay readable while a newer query runs; this bar is the only
@@ -423,7 +426,9 @@ internal fun SearchResultsList(
     onVideoClick: (ContentKey) -> Unit,
     onChannelClick: (ContentKey) -> Unit,
     onPlaylistClick: (ContentKey) -> Unit,
-    listState: LazyListState = rememberLazyListState()
+    listState: LazyListState = rememberLazyListState(),
+    earlierResultsDropped: Boolean = false,
+    onRestart: () -> Unit = {}
 ) {
     val triggerPolicy = remember { PaginationTriggerPolicy(threshold = 3) }
 
@@ -484,6 +489,13 @@ internal fun SearchResultsList(
             .nestedScroll(nestedScrollConnection)
             .testTag("search_results_list")
     ) {
+        if (earlierResultsDropped) {
+            item(key = "search_window_notice") {
+                TextButton(onClick = onRestart, modifier = Modifier.testTag("search_restart")) {
+                    Text(stringResource(R.string.search_window_restart))
+                }
+            }
+        }
         items(
             items = items,
             key = { item ->
@@ -636,4 +648,3 @@ private fun PlaylistResultCard(
         }
     }
 }
-

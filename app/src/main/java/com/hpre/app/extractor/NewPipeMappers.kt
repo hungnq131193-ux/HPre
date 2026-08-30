@@ -336,11 +336,13 @@ object NewPipeMappers {
         return candidate?.takeIf { PLAYLIST_ID_REGEX.matches(it) }
     }
 
-    fun selectPreferredImage(images: List<Image>?): String? {
+    fun selectPreferredImage(images: List<Image>?, targetWidthPx: Int = Int.MAX_VALUE): String? {
         if (images.isNullOrEmpty()) return null
         val validImages = images.filter { isValidHttpUrl(it.url) }
         if (validImages.isEmpty()) return null
-        return validImages.maxByOrNull { (it.width.coerceAtLeast(0)) * (it.height.coerceAtLeast(0)) }?.url
+        val adequate = validImages.filter { it.width >= targetWidthPx && it.height > 0 }
+        return adequate.minByOrNull { it.width.toLong() * it.height }?.url
+            ?: validImages.maxByOrNull { it.width.coerceAtLeast(0).toLong() * it.height.coerceAtLeast(0) }?.url
             ?: validImages.firstOrNull()?.url
     }
 
@@ -370,8 +372,8 @@ object NewPipeMappers {
             canonicalUrl = item.url ?: "",
             channelKey = channelKey,
             channelName = item.uploaderName,
-            channelAvatarUrl = selectPreferredImage(item.uploaderAvatars),
-            thumbnailUrl = selectPreferredImage(item.thumbnails),
+            channelAvatarUrl = selectPreferredImage(item.uploaderAvatars, 160),
+            thumbnailUrl = selectPreferredImage(item.thumbnails, 960),
             durationSeconds = duration,
             viewCount = viewCount,
             publishedTimestamp = mapDateWrapperToTimestamp(item.uploadDate),
@@ -389,7 +391,7 @@ object NewPipeMappers {
             key = ContentKey(serviceId, channelId),
             name = item.name ?: "",
             canonicalUrl = item.url ?: "",
-            avatarUrl = selectPreferredImage(item.thumbnails),
+            avatarUrl = selectPreferredImage(item.thumbnails, 160),
             bannerUrl = null,
             subscriberCountText = subCountText,
             description = item.description
@@ -409,7 +411,7 @@ object NewPipeMappers {
             canonicalUrl = item.url ?: "",
             channelKey = channelKey,
             channelName = item.uploaderName,
-            thumbnailUrl = selectPreferredImage(item.thumbnails),
+            thumbnailUrl = selectPreferredImage(item.thumbnails, 960),
             videoCount = streamCount
         )
     }
@@ -449,9 +451,9 @@ object NewPipeMappers {
             description = streamInfo.description?.content,
             channelKey = channelKey,
             channelName = streamInfo.uploaderName,
-            channelAvatarUrl = selectPreferredImage(streamInfo.uploaderAvatars),
+            channelAvatarUrl = selectPreferredImage(streamInfo.uploaderAvatars, 160),
             subscriberCountText = subCount,
-            thumbnailUrl = selectPreferredImage(streamInfo.thumbnails),
+            thumbnailUrl = selectPreferredImage(streamInfo.thumbnails, 960),
             durationSeconds = duration,
             viewCount = viewCount,
             likeCount = likeCount,
@@ -568,8 +570,8 @@ object NewPipeMappers {
             key = ContentKey(serviceId, channelId),
             name = channelInfo.name ?: "",
             canonicalUrl = channelInfo.url ?: "",
-            avatarUrl = selectPreferredImage(channelInfo.avatars),
-            bannerUrl = selectPreferredImage(channelInfo.banners),
+            avatarUrl = selectPreferredImage(channelInfo.avatars, 320),
+            bannerUrl = selectPreferredImage(channelInfo.banners, 1920),
             subscriberCountText = subCountText,
             description = channelInfo.description
         )
@@ -607,7 +609,7 @@ object NewPipeMappers {
             DomainComment(
                 commentId = commentId,
                 authorName = item.uploaderName ?: "",
-                authorAvatarUrl = selectPreferredImage(item.uploaderAvatars),
+                authorAvatarUrl = selectPreferredImage(item.uploaderAvatars, 160),
                 channelKey = channelKey,
                 commentText = item.commentText?.content ?: "",
                 publishedTimestamp = mapDateWrapperToTimestamp(item.uploadDate),
@@ -643,8 +645,8 @@ object NewPipeMappers {
             canonicalUrl = playlistInfo.url ?: "",
             channelKey = channelKey,
             channelName = playlistInfo.uploaderName,
-            channelAvatarUrl = selectPreferredImage(playlistInfo.uploaderAvatars),
-            thumbnailUrl = selectPreferredImage(playlistInfo.thumbnails),
+            channelAvatarUrl = selectPreferredImage(playlistInfo.uploaderAvatars, 160),
+            thumbnailUrl = selectPreferredImage(playlistInfo.thumbnails, 960),
             description = playlistInfo.description?.content,
             videoCount = streamCount,
             videos = videos,
@@ -652,4 +654,3 @@ object NewPipeMappers {
         )
     }
 }
-

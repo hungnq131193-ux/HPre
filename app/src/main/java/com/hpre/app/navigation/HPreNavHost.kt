@@ -19,6 +19,10 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.setValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -31,6 +35,7 @@ import androidx.navigation.NavHostController
 import androidx.navigation.NavType
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
+import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.navArgument
 import com.hpre.app.di.AppContainer
 import com.hpre.app.R
@@ -50,6 +55,12 @@ fun HPreNavHost(
 ) {
     val app = androidx.compose.ui.platform.LocalContext.current.applicationContext as? com.hpre.app.HPreApplication
     val effectiveCoordinator = coordinator ?: app?.playbackUiCoordinator ?: androidx.compose.runtime.remember { com.hpre.app.player.PlaybackUiCoordinator() }
+    // Retain only routes, not a ViewModel, comment list and player collector per related video.
+    var watchHistory by rememberSaveable { mutableStateOf(arrayListOf<String>()) }
+    val currentEntry by navController.currentBackStackEntryAsState()
+    LaunchedEffect(currentEntry?.destination?.route) {
+        if (currentEntry != null && currentEntry?.destination?.route != Screen.Watch.route) watchHistory = arrayListOf()
+    }
 
     NavHost(
         navController = navController,
@@ -303,9 +314,23 @@ fun HPreNavHost(
                     contentKey = key,
                     viewModel = watchViewModel,
                     fullscreenHostHandlerFactory = container.fullscreenHostHandlerFactory,
-                    onNavigateBack = { navController.popBackStack() },
-                    onRelatedVideoClick = { navController.navigate(Screen.Watch.createRoute(it)) },
+                    onNavigateBack = {
+                        val previous = watchHistory.lastOrNull()
+                        if (previous == null) {
+                            navController.popBackStack()
+                        } else {
+                            watchHistory = ArrayList(watchHistory.dropLast(1))
+                            navController.replaceWatch(previous)
+                        }
+                    },
+                    onRelatedVideoClick = { nextKey ->
+                        if (nextKey != key && navController.currentBackStackEntry?.id == backStackEntry.id) {
+                            watchHistory = ArrayList((watchHistory + Screen.Watch.createRoute(key)).takeLast(20))
+                            navController.replaceWatch(Screen.Watch.createRoute(nextKey))
+                        }
+                    },
                     onMinimizeToHome = {
+                        watchHistory = arrayListOf()
                         effectiveCoordinator.requestMinimizeToHome()
                         navController.navigateToHomeFromWatch()
                     },
@@ -314,6 +339,13 @@ fun HPreNavHost(
                 )
             }
         }
+    }
+}
+
+internal fun NavHostController.replaceWatch(route: String) {
+    navigate(route) {
+        popUpTo(Screen.Watch.route) { inclusive = true }
+        launchSingleTop = true
     }
 }
 

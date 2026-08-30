@@ -36,6 +36,8 @@ interface PlayerController {
     fun setPlaybackSpeed(speed: Float)
     fun selectQuality(quality: QualityOption)
     fun setQualityPolicy(policy: UserQualityPolicy) = Unit
+    /** Invalidate the previous media without destroying the shared playback session. */
+    fun stopForTransition() = pause()
     fun clearMedia() = Unit
     fun release()
 }

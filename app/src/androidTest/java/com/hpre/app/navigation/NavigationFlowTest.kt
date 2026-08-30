@@ -231,6 +231,31 @@ class NavigationFlowTest {
     }
 
     @Test
+    fun replacing_related_watch_releases_old_entry_and_keeps_source_destination() {
+        val container = TestContainer(FakeVideoService())
+        lateinit var nav: androidx.navigation.NavHostController
+        composeTestRule.setContent {
+            HPreTheme {
+                nav = androidx.navigation.compose.rememberNavController()
+                HPreNavHost(navController = nav, container = container)
+            }
+        }
+        composeTestRule.runOnUiThread { nav.navigate(Screen.Watch.createRoute(ContentKey(0, "first"))) }
+        composeTestRule.waitForIdle()
+        val original = nav.currentBackStackEntry!!
+        repeat(30) { index ->
+            composeTestRule.runOnUiThread { nav.replaceWatch(Screen.Watch.createRoute(ContentKey(0, "next_$index"))) }
+            composeTestRule.waitForIdle()
+        }
+        composeTestRule.runOnUiThread {
+            org.junit.Assert.assertEquals(1, nav.currentBackStack.value.count { it.destination.route == Screen.Watch.route })
+            org.junit.Assert.assertEquals(androidx.lifecycle.Lifecycle.State.DESTROYED, original.lifecycle.currentState)
+            nav.popBackStack()
+            org.junit.Assert.assertEquals(Screen.Home.route, nav.currentDestination?.route)
+        }
+    }
+
+    @Test
     fun watch_navigation_roundtrip_cases_with_slash_literal_percent_plus_hash_and_unicode() {
         val fakeService = FakeVideoService()
         val container = TestContainer(fakeService)

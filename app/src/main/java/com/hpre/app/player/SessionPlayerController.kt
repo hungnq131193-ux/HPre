@@ -53,6 +53,9 @@ internal fun restoreConnectedPlaybackState(
     playbackSpeed = playbackSpeed.takeIf { it > 0f } ?: current.playbackSpeed
 )
 
+internal fun acceptsPlaybackCallback(expectedKey: ContentKey?, eventKey: ContentKey?, transitioning: Boolean): Boolean =
+    if (expectedKey != null) expectedKey == eventKey else !transitioning
+
 @OptIn(UnstableApi::class)
 class SessionPlayerController internal constructor(
     private val context: Context,
@@ -110,7 +113,12 @@ class SessionPlayerController internal constructor(
 
     private var currentStreamInfo: StreamInfo? = null
     private var currentKey: ContentKey? = null
+    private var transitioning: Boolean = false
     private val pendingCommands = PendingSessionCommands()
+
+    private fun acceptsCurrentPlaybackCallback(): Boolean = !isReleased && acceptsPlaybackCallback(
+        currentKey, PlaybackMediaMetadata.from(mediaController?.currentMediaItem)?.key, transitioning
+    )
 
     private var localMediaGen: Long = 0L
     private var localSessionGen: Long = 0L
@@ -127,6 +135,8 @@ class SessionPlayerController internal constructor(
 
         override fun onMediaItemTransition(mediaItem: androidx.media3.common.MediaItem?, reason: Int) {
             val metadata = PlaybackMediaMetadata.from(mediaItem)
+            if (isReleased || !acceptsPlaybackCallback(currentKey, metadata?.key, transitioning)) return
+            if (metadata?.key != null) transitioning = false
             val streamType = mediaItem?.mediaMetadata?.extras?.getString("hpre_stream_type")
                 ?.let { runCatching { PlaybackStreamType.valueOf(it) }.getOrNull() }
             _state.update {
@@ -140,6 +150,7 @@ class SessionPlayerController internal constructor(
         }
 
         override fun onPlayerError(error: androidx.media3.common.PlaybackException) {
+            if (!acceptsCurrentPlaybackCallback()) return
             val http = findCause<androidx.media3.datasource.HttpDataSource.InvalidResponseCodeException>(error)
             val mapped = when (http?.responseCode) {
                 403 -> AppError.StreamExpired
@@ -175,12 +186,12 @@ class SessionPlayerController internal constructor(
         }
 
         override fun onPlaybackParametersChanged(playbackParameters: PlaybackParameters) {
-            if (isReleased) return
+            if (!acceptsCurrentPlaybackCallback()) return
             _state.update { it.copy(playbackSpeed = playbackParameters.speed) }
         }
 
         override fun onPlaybackStateChanged(playbackState: Int) {
-            if (isReleased) return
+            if (!acceptsCurrentPlaybackCallback()) return
             when (playbackState) {
                 Player.STATE_BUFFERING -> {
                     _state.update { it.copy(isBuffering = true, isLoading = false, isReady = false) }
@@ -212,13 +223,13 @@ class SessionPlayerController internal constructor(
             newPosition: Player.PositionInfo,
             reason: Int
         ) {
-            if (isReleased) return
+            if (!acceptsCurrentPlaybackCallback()) return
             val actualPos = mediaController?.currentPosition?.coerceAtLeast(0L) ?: newPosition.positionMs.coerceAtLeast(0L)
             _state.update { it.copy(currentPositionMs = actualPos) }
         }
 
         override fun onPlayWhenReadyChanged(playWhenReady: Boolean, reason: Int) {
-            if (isReleased) return
+            if (!acceptsCurrentPlaybackCallback()) return
             _state.update {
                 it.copy(
                     playWhenReady = playWhenReady,
@@ -228,7 +239,7 @@ class SessionPlayerController internal constructor(
         }
 
         override fun onIsPlayingChanged(isPlaying: Boolean) {
-            if (isReleased) return
+            if (!acceptsCurrentPlaybackCallback()) return
             _state.update {
                 it.copy(
                     isPlaying = isPlaying,
@@ -243,6 +254,7 @@ class SessionPlayerController internal constructor(
         }
 
         override fun onTracksChanged(tracks: androidx.media3.common.Tracks) {
+            if (!acceptsCurrentPlaybackCallback()) return
             val groups = tracks.groups.filter {
                 it.type == androidx.media3.common.C.TRACK_TYPE_VIDEO && it.isSelected
             }
@@ -343,6 +355,7 @@ class SessionPlayerController internal constructor(
                     val pos = controller.currentPosition.coerceAtLeast(0L)
                     val metadata = PlaybackMediaMetadata.from(controller.currentMediaItem)
                     _state.update {
+                        if (!acceptsPlaybackCallback(currentKey, metadata?.key, transitioning)) return@update it
                         restoreConnectedPlaybackState(
                             current = it.copy(
                             key = metadata?.key ?: it.key,
@@ -740,6 +753,7 @@ class SessionPlayerController internal constructor(
         future: ListenableFuture<SessionResult>,
         onDisposedOrFailed: (() -> Unit)? = null
     ) {
+        val requestGeneration = localPrepareRequestGeneration.get()
         future.addListener({
             val result = try {
                 future.get()
@@ -747,7 +761,7 @@ class SessionPlayerController internal constructor(
                 null
             }
             scope.launch(mainDispatcher) {
-                if (isReleased) {
+                if (isReleased || requestGeneration != localPrepareRequestGeneration.get()) {
                     onDisposedOrFailed?.invoke()
                     return@launch
                 }
@@ -950,7 +964,31 @@ class SessionPlayerController internal constructor(
         }
     }
 
+    override fun stopForTransition() {
+        if (isReleased) return
+        transitioning = true
+        stopProgressTracker()
+        localPrepareRequestGeneration.incrementAndGet()
+        pendingCommands.clearPrepare()
+        currentKey = null
+        currentStreamInfo = null
+        val previous = _state.value
+        _state.value = PlaybackState(
+            playbackSpeed = previous.playbackSpeed,
+            qualityPolicy = previous.qualityPolicy as? UserQualityPolicy.Auto ?: UserQualityPolicy.Auto()
+        )
+        // Commands use the same main-thread queue as prepare, so an already dispatched prepare is
+        // invalidated by the service before the next video is delivered. Keep controller/surface.
+        scope.launch(mainDispatcher) {
+            mediaController?.sendCustomCommand(
+                SessionCommand(HPrePlaybackService.CUSTOM_COMMAND_STOP_FOR_TRANSITION, Bundle.EMPTY),
+                Bundle.EMPTY
+            )
+        }
+    }
+
     override fun clearMedia() {
+        transitioning = true
         stopProgressTracker()
         reconnectJob?.cancel()
         reconnectJob = null

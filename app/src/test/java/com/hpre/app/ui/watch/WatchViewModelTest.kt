@@ -77,6 +77,7 @@ class WatchViewModelTest {
         var selectedQualityOption: QualityOption? = null
         var attachedViewCount = 0
         var clearMediaCount = 0
+        var transitionCount = 0
         var onPrepare: (() -> Unit)? = null
 
         override fun attachSurface(playerView: androidx.media3.ui.PlayerView) {
@@ -156,6 +157,11 @@ class WatchViewModelTest {
             _state.value = PlaybackState()
         }
 
+        override fun stopForTransition() {
+            transitionCount++
+            _state.value = PlaybackState()
+        }
+
         fun setPlayerErrorForTest(error: AppError) {
             _state.value = _state.value.copy(error = error, isPlaying = false, isLoading = false)
         }
@@ -197,6 +203,7 @@ class WatchViewModelTest {
         )
 
         model.load(testKey)
+        model.setCommentsExpanded(true)
         runCurrent()
 
         assertTrue("stream must start immediately", "stream" in events)
@@ -237,6 +244,7 @@ class WatchViewModelTest {
         )
 
         model.load(testKey)
+        model.setCommentsExpanded(true)
         runCurrent()
         assertEquals(0, commentsCalls)
         advanceTimeBy(1_999L)
@@ -269,6 +277,7 @@ class WatchViewModelTest {
         )
 
         model.load(testKey)
+        model.setCommentsExpanded(true)
         runCurrent()
         advanceTimeBy(2_000L)
         player.markReady(testKey)
@@ -301,8 +310,10 @@ class WatchViewModelTest {
         )
 
         model.load(first)
+        model.setCommentsExpanded(true)
         runCurrent()
         model.load(second)
+        model.setCommentsExpanded(true)
         runCurrent()
         player.markReady(first)
         runCurrent()
@@ -347,6 +358,7 @@ class WatchViewModelTest {
         )
 
         model.load(testKey)
+        model.setCommentsExpanded(true)
         runCurrent()
         assertEquals(cachedPage, (model.commentsState.value as AsyncState.Content).value)
         assertEquals(0, commentsCalls)
@@ -530,7 +542,8 @@ class WatchViewModelTest {
         model.load(keyB)
         runCurrent()
 
-        assertEquals(1, player.clearMediaCount)
+        assertEquals(0, player.clearMediaCount)
+        assertEquals(1, player.transitionCount)
         assertNull(player.state.value.key)
         streamB.complete(AppResult.Success(testStreamInfo(keyB)))
         advanceUntilIdle()
@@ -779,6 +792,7 @@ class WatchViewModelTest {
         )
 
         model.load(testKey)
+        model.setCommentsExpanded(true)
         advanceUntilIdle()
 
         assertEquals(listOf(relatedVideo), model.relatedState.value.value)
@@ -1041,8 +1055,10 @@ class WatchViewModelTest {
         )
 
         viewModel.load(keyA)
+        viewModel.setCommentsExpanded(true)
         runCurrent()
         viewModel.load(keyB)
+        viewModel.setCommentsExpanded(true)
         runCurrent()
 
         staleRelated.complete(AppResult.Success(emptyList()))
@@ -1606,6 +1622,14 @@ class WatchViewModelTest {
         // State is currently in initial loading
         assertTrue(viewModel.relatedState.value.isInitialLoading)
         assertNull(viewModel.relatedState.value.value)
+        assertEquals(0, recommendationCalls)
+
+        // The initial request waits for playback; refresh must not bypass this gate.
+        viewModel.refreshRelated()
+        runCurrent()
+        assertEquals(0, recommendationCalls)
+        advanceTimeBy(WatchViewModel.COMMENTS_READY_FALLBACK_MS)
+        runCurrent()
         assertEquals(1, recommendationCalls)
 
         // refreshRelated while initial is active should be a NO-OP
@@ -1891,6 +1915,7 @@ class WatchViewModelTest {
         )
 
         model.load(testKey)
+        model.setCommentsExpanded(true)
         advanceUntilIdle()
 
         val commentsContent = (model.commentsState.value as AsyncState.Content<CommentPage>).value.comments
@@ -1898,5 +1923,134 @@ class WatchViewModelTest {
         assertEquals("comm_dup", commentsContent[0].commentId)
         assertEquals("Comment body 1", commentsContent[0].commentText)
         assertEquals("comm_unique", commentsContent[1].commentId)
+    }
+
+    @Test
+    fun comments_are_idle_until_open_and_collapse_rejects_a_late_response() = runTest(testDispatcher) {
+        var calls = 0
+        val gate = CompletableDeferred<AppResult<CommentPage>>()
+        val player = FakePlayerController()
+        val service = FakeVideoService(
+            supportsComments = true,
+            videoHandler = { AppResult.Success(testDetails(it)) },
+            streamInfoHandler = { AppResult.Success(testStreamInfo(it)) },
+            commentsHandler = { _, _ -> calls++; withContext(NonCancellable) { gate.await() } }
+        )
+        val model = WatchViewModel(service, player, androidx.lifecycle.SavedStateHandle(), ioDispatcher = testDispatcher)
+        model.load(testKey)
+        runCurrent()
+        player.markReady(testKey)
+        advanceTimeBy(10_000)
+        runCurrent()
+        assertEquals(0, calls)
+        assertFalse(model.uiState.value.commentsExpanded)
+
+        model.setCommentsExpanded(true)
+        runCurrent()
+        assertEquals(1, calls)
+        model.setCommentsExpanded(false)
+        gate.complete(AppResult.Success(CommentPage(listOf(Comment("late", "A", null, null, "Late", null, null)))))
+        runCurrent()
+        assertEquals(AsyncState.Empty, model.commentsState.value)
+        assertFalse(model.uiState.value.commentsExpanded)
+    }
+
+    @Test
+    fun failed_comment_continuation_keeps_previous_page_and_retries_the_same_token() = runTest(testDispatcher) {
+        val first = Comment("first", "A", null, null, "First", null, null)
+        val second = first.copy(commentId = "second")
+        val token = com.hpre.app.model.PageToken.Id("next")
+        var attempts = 0
+        val player = FakePlayerController()
+        val service = FakeVideoService(
+            supportsComments = true,
+            videoHandler = { AppResult.Success(testDetails(it)) },
+            streamInfoHandler = { AppResult.Success(testStreamInfo(it)) },
+            commentsHandler = { _, pageToken ->
+                if (pageToken == null) AppResult.Success(CommentPage(listOf(first), token))
+                else {
+                    assertEquals(token, pageToken)
+                    attempts++
+                    if (attempts == 1) AppResult.Failure(AppError.NetworkError)
+                    else AppResult.Success(CommentPage(listOf(second)))
+                }
+            }
+        )
+        val model = WatchViewModel(service, player, androidx.lifecycle.SavedStateHandle(), ioDispatcher = testDispatcher)
+        model.load(testKey)
+        runCurrent()
+        player.markReady(testKey)
+        model.setCommentsExpanded(true)
+        runCurrent()
+        model.loadMoreComments()
+        runCurrent()
+        assertEquals(listOf(first), (model.commentsState.value as AsyncState.Content).value.comments)
+        assertEquals(AppError.NetworkError, model.commentsPagination.value.error)
+        model.loadMoreComments()
+        runCurrent()
+        assertEquals(listOf(first, second), (model.commentsState.value as AsyncState.Content).value.comments)
+        assertNull(model.commentsPagination.value.error)
+        assertEquals(2, attempts)
+    }
+
+    @Test
+    fun comment_memory_window_is_bounded_and_reopening_uses_the_first_page_cursor() = runTest(testDispatcher) {
+        val player = FakePlayerController()
+        val cache = com.hpre.app.repository.WatchStateCache()
+        var calls = 0
+        val service = FakeVideoService(
+            supportsComments = true,
+            videoHandler = { AppResult.Success(testDetails(it)) },
+            streamInfoHandler = { AppResult.Success(testStreamInfo(it)) },
+            commentsHandler = { _, token ->
+                calls++
+                val page = (token as? com.hpre.app.model.PageToken.Id)?.id?.toInt() ?: 0
+                AppResult.Success(CommentPage(
+                    (page * 50 until (page + 1) * 50).map { Comment("$it", "A", null, null, "Body $it", null, null) },
+                    com.hpre.app.model.PageToken.Id("${page + 1}")
+                ))
+            }
+        )
+        val model = WatchViewModel(service, player, androidx.lifecycle.SavedStateHandle(),
+            watchStateCache = cache, ioDispatcher = testDispatcher)
+        model.load(testKey)
+        runCurrent()
+        player.markReady(testKey)
+        model.setCommentsExpanded(true)
+        runCurrent()
+        repeat(6) { model.loadMoreComments(); runCurrent() }
+        val visible = (model.commentsState.value as AsyncState.Content).value
+        assertEquals(200, visible.comments.size)
+        assertTrue(model.commentsPagination.value.earlierCommentsDropped)
+        assertEquals("150", visible.comments.first().commentId)
+        assertEquals(50, cache.get(testKey)?.comments?.comments?.size)
+        model.setCommentsExpanded(false)
+        model.setCommentsExpanded(true)
+        runCurrent()
+        assertEquals(7, calls)
+        val restored = (model.commentsState.value as AsyncState.Content).value
+        assertEquals("0", restored.comments.first().commentId)
+        assertEquals(com.hpre.app.model.PageToken.Id("1"), restored.nextPageToken)
+        assertFalse(model.commentsPagination.value.earlierCommentsDropped)
+    }
+
+    @Test
+    fun returning_to_previous_details_reprepares_when_shared_player_is_on_another_video() = runTest(testDispatcher) {
+        val player = FakePlayerController()
+        val service = FakeVideoService(
+            videoHandler = { AppResult.Success(testDetails(it)) },
+            streamInfoHandler = { AppResult.Success(testStreamInfo(it)) }
+        )
+        val model = WatchViewModel(service, player, androidx.lifecycle.SavedStateHandle(), ioDispatcher = testDispatcher)
+        model.load(testKey)
+        advanceUntilIdle()
+        val another = ContentKey(0, "another")
+        player.prepare(another, testStreamInfo(another))
+        model.load(testKey)
+        advanceUntilIdle()
+        assertEquals(testKey, player.state.value.key)
+        assertEquals(testKey, model.uiState.value.details?.key)
+        assertEquals(0, player.clearMediaCount)
+        assertEquals(1, player.transitionCount)
     }
 }

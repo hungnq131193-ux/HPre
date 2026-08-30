@@ -106,6 +106,32 @@ class SearchViewModelTest {
     )
 
     @Test
+    fun long_search_keeps_a_bounded_window_and_retry_returns_to_first_results() = runTest(testDispatcher) {
+        val service = FakeVideoService().apply {
+            searchHandler = { _, _, token ->
+                val pageIndex = (token as? PageToken.Id)?.id?.toInt() ?: 0
+                AppResult.Success(SearchPage(
+                    (pageIndex * 50 until (pageIndex + 1) * 50).map { videoItem("$it") },
+                    PageToken.Id("${pageIndex + 1}")
+                ))
+            }
+        }
+        val model = SearchViewModel(CatalogRepository(service, repositoryScope = this), service)
+        model.onQuerySubmitted("long search")
+        advanceUntilIdle()
+        repeat(8) { model.loadNextPage(); advanceUntilIdle() }
+        val state = model.uiState.value as SearchUiState.Content
+        assertEquals(300, state.items.size)
+        assertEquals("150", (state.items.first() as SearchResultItem.VideoItem).summary.key.nativeId)
+        assertTrue(state.earlierResultsDropped)
+        model.retry()
+        advanceUntilIdle()
+        val restarted = model.uiState.value as SearchUiState.Content
+        assertEquals("0", (restarted.items.first() as SearchResultItem.VideoItem).summary.key.nativeId)
+        assertFalse(restarted.earlierResultsDropped)
+    }
+
+    @Test
     fun blank_query_makes_no_search_or_suggestions_call() = runTest(testDispatcher) {
         val fakeService = FakeVideoService()
         val repository = CatalogRepository(videoService = fakeService, repositoryScope = this)

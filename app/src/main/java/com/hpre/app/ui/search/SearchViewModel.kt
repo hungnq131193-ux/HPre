@@ -49,7 +49,8 @@ sealed interface SearchUiState {
          * visibly vanished and came back on every keystroke burst. Keeping the previous items and
          * flagging them as superseded lets the screen show a thin inline indicator instead.
          */
-        val isSearching: Boolean = false
+        val isSearching: Boolean = false,
+        val earlierResultsDropped: Boolean = false
     ) : SearchUiState
     data object Empty : SearchUiState
     data class Error(val error: AppError) : SearchUiState
@@ -137,7 +138,8 @@ class SearchViewModel(
 
     private data class CachedSearchPage(
         val items: List<SearchResultItem>,
-        val nextPageToken: PageToken?
+        val nextPageToken: PageToken?,
+        val earlierResultsDropped: Boolean = false
     )
 
     init {
@@ -214,7 +216,8 @@ class SearchViewModel(
                 items = cached.items,
                 nextPageToken = cached.nextPageToken,
                 isLoadingNextPage = false,
-                isSearching = false
+                isSearching = false,
+                earlierResultsDropped = cached.earlierResultsDropped
             )
             return
         }
@@ -249,13 +252,15 @@ class SearchViewModel(
                             val deduplicatedItems = deduplicateItems(page.items)
                             resultCache.put(
                                 requestKey,
-                                CachedSearchPage(deduplicatedItems, page.nextPageToken)
+                                CachedSearchPage(deduplicatedItems.takeLast(MAX_RETAINED_RESULTS), page.nextPageToken,
+                                    deduplicatedItems.size > MAX_RETAINED_RESULTS)
                             )
                             _uiState.value = SearchUiState.Content(
-                                items = deduplicatedItems,
+                                items = deduplicatedItems.takeLast(MAX_RETAINED_RESULTS),
                                 nextPageToken = page.nextPageToken,
                                 isLoadingNextPage = false,
-                                isSearching = false
+                                isSearching = false,
+                                earlierResultsDropped = deduplicatedItems.size > MAX_RETAINED_RESULTS
                             )
                         }
                     }
@@ -281,7 +286,7 @@ class SearchViewModel(
         val currentState = _uiState.value
         if (currentState !is SearchUiState.Content) return
         val nextToken = currentState.nextPageToken ?: return
-        if (currentState.isLoadingNextPage) return
+        if (currentState.isLoadingNextPage || currentState.isSearching) return
 
         if (!paginationMutex.tryLock()) return
 
@@ -316,9 +321,10 @@ class SearchViewModel(
                                 val newPage = result.value
                                 val combinedItems = deduplicateItems(latestState.items + newPage.items)
                                 _uiState.value = SearchUiState.Content(
-                                    items = combinedItems,
-                                    nextPageToken = newPage.nextPageToken,
-                                    isLoadingNextPage = false
+                                    items = combinedItems.takeLast(MAX_RETAINED_RESULTS),
+                                    nextPageToken = newPage.nextPageToken.takeUnless { it == nextToken },
+                                    isLoadingNextPage = false,
+                                    earlierResultsDropped = latestState.earlierResultsDropped || combinedItems.size > MAX_RETAINED_RESULTS
                                 )
                             }
                             is AppResult.Failure -> {
@@ -401,6 +407,7 @@ class SearchViewModel(
     }
 
     companion object {
+        internal const val MAX_RETAINED_RESULTS = 300
         /**
          * Short enough that results still reflect current content, long enough to cover a browsing
          * loop of opening several videos from one result list.

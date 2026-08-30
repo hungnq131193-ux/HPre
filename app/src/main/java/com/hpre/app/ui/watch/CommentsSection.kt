@@ -17,8 +17,14 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.setValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -30,6 +36,7 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import coil.compose.AsyncImage
 import com.hpre.app.R
@@ -48,18 +55,38 @@ const val WATCH_KEY_COMMENTS_LOAD_MORE = "section:comments_load_more_sentinel"
 
 fun LazyListScope.commentsItems(
     state: AsyncState<CommentPage>,
-    onRetry: () -> Unit
+    onRetry: () -> Unit,
+    expanded: Boolean = false,
+    onExpandedChange: (Boolean) -> Unit = {},
+    pagination: CommentsPaginationState = CommentsPaginationState(),
+    onLoadMore: () -> Unit = {},
+    onRestart: () -> Unit = {}
 ) {
     item(key = WATCH_KEY_COMMENTS_HEADER) {
-        Column(
+        TextButton(
+            onClick = { onExpandedChange(!expanded) },
             modifier = Modifier
                 .fillMaxWidth()
                 .testTag("comments_section")
         ) {
             Text(
-                text = stringResource(R.string.screen_comments),
-                style = MaterialTheme.typography.titleSmall
+                text = stringResource(if (expanded) R.string.comments_collapse else R.string.comments_expand),
+                style = MaterialTheme.typography.titleSmall,
+                modifier = Modifier.testTag("comments_toggle")
             )
+        }
+    }
+
+    if (!expanded) return
+
+    if (pagination.earlierCommentsDropped) {
+        item(key = "section:comments_window") {
+            Column {
+                Text(stringResource(R.string.comments_window_notice), style = MaterialTheme.typography.bodySmall)
+                TextButton(onClick = onRestart, modifier = Modifier.testTag("comments_restart")) {
+                    Text(stringResource(R.string.comments_restart))
+                }
+            }
         }
     }
 
@@ -89,19 +116,30 @@ fun LazyListScope.commentsItems(
         is AsyncState.Content -> {
             items(
                 items = state.value.comments,
-                key = { comment -> "comment:${comment.commentId}" }
+                key = { comment -> "comment:${comment.commentId}" },
+                contentType = { "comment" }
             ) { comment ->
                 CommentRow(comment)
             }
 
             if (state.value.nextPageToken != null) {
                 item(key = WATCH_KEY_COMMENTS_LOAD_MORE) {
-                    Box(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .height(1.dp)
-                            .testTag("comments_load_more_sentinel")
-                    )
+                    Column(Modifier.fillMaxWidth().testTag("comments_load_more_sentinel")) {
+                        when {
+                            pagination.isLoading -> CircularProgressIndicator(
+                                modifier = Modifier.padding(12.dp).size(24.dp).testTag("comments_page_loading")
+                            )
+                            pagination.error != null -> {
+                                Text(stringResource(R.string.comments_page_error), style = MaterialTheme.typography.bodySmall)
+                                TextButton(onClick = onLoadMore, modifier = Modifier.testTag("comments_page_retry")) {
+                                    Text(stringResource(R.string.action_retry))
+                                }
+                            }
+                            else -> TextButton(onClick = onLoadMore) {
+                                Text(stringResource(R.string.comments_load_more))
+                            }
+                        }
+                    }
                 }
             }
         }
@@ -110,6 +148,8 @@ fun LazyListScope.commentsItems(
 
 @Composable
 private fun CommentRow(comment: Comment) {
+    var expanded by rememberSaveable(comment.commentId) { mutableStateOf(false) }
+    var hasOverflow by remember(comment.commentText) { mutableStateOf(false) }
     val locale = LocalConfiguration.current.locales[0]
     val age = remember(comment.publishedTimestamp, locale) {
         VideoFormat.age(comment.publishedTimestamp, System.currentTimeMillis(), locale)
@@ -183,8 +223,19 @@ private fun CommentRow(comment: Comment) {
                 Text(
                     text = comment.commentText,
                     style = MaterialTheme.typography.bodyMedium,
+                    maxLines = if (expanded) Int.MAX_VALUE else 4,
+                    overflow = TextOverflow.Ellipsis,
+                    onTextLayout = { if (!expanded) hasOverflow = it.hasVisualOverflow },
                     modifier = Modifier.testTag("comment_body_${comment.commentId}")
                 )
+                if (hasOverflow || expanded) {
+                    TextButton(
+                        onClick = { expanded = !expanded },
+                        modifier = Modifier.testTag("comment_toggle_${comment.commentId}")
+                    ) {
+                        Text(stringResource(if (expanded) R.string.comment_read_less else R.string.comment_read_more))
+                    }
+                }
                 if (likes != null || replyCount != null) {
                     Spacer(Modifier.height(8.dp))
                     Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {

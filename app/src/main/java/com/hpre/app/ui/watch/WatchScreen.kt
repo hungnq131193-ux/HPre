@@ -269,6 +269,7 @@ fun WatchScreen(
     val playbackState by viewModel.structuralPlaybackState.collectAsStateWithLifecycle()
     val relatedState by viewModel.relatedState.collectAsStateWithLifecycle()
     val commentsState by viewModel.commentsState.collectAsStateWithLifecycle()
+    val commentsPagination by viewModel.commentsPagination.collectAsStateWithLifecycle()
     val context = LocalContext.current
     val isFullscreen = uiState.isFullscreen
 
@@ -292,8 +293,8 @@ fun WatchScreen(
     }
 
     // Fullscreen back handler: back exits fullscreen first
-    BackHandler(enabled = isFullscreen) {
-        viewModel.setFullscreen(false)
+    BackHandler {
+        if (isFullscreen) viewModel.setFullscreen(false) else onNavigateBack()
     }
 
     var wasFullscreen by remember(hostHandler) { mutableStateOf(isFullscreen) }
@@ -435,6 +436,10 @@ fun WatchScreen(
                         shareLauncher = launcher,
                         relatedState = relatedState,
                         commentsState = commentsState,
+                        commentsExpanded = uiState.commentsExpanded,
+                        commentsPagination = commentsPagination,
+                        onCommentsExpandedChange = viewModel::setCommentsExpanded,
+                        onRestartComments = viewModel::restartComments,
                         onRelatedVideoClick = onRelatedVideoClick,
                         onRetryRelated = viewModel::retryRelated,
                         onRefreshRelated = viewModel::refreshRelated,
@@ -505,6 +510,10 @@ fun WatchMetadataContent(
     onRefreshRelated: () -> Unit = {},
     onRetryComments: () -> Unit = {},
     onLoadMoreComments: () -> Unit = {},
+    commentsExpanded: Boolean = false,
+    commentsPagination: CommentsPaginationState = CommentsPaginationState(),
+    onCommentsExpandedChange: (Boolean) -> Unit = {},
+    onRestartComments: () -> Unit = {},
     modifier: Modifier = Modifier,
     lazyListState: LazyListState? = null
 ) {
@@ -521,8 +530,12 @@ fun WatchMetadataContent(
         mutableStateOf<com.hpre.app.model.PageToken?>(null)
     }
 
-    LaunchedEffect(effectiveLazyListState, nextPageToken, details.key.serviceId, details.key.nativeId) {
-        if (nextPageToken == null) return@LaunchedEffect
+    LaunchedEffect(effectiveLazyListState, nextPageToken, details.key, commentsExpanded, commentsPagination) {
+        if (!commentsExpanded) {
+            lastTriggeredToken = null
+            return@LaunchedEffect
+        }
+        if (nextPageToken == null || commentsPagination.isLoading || commentsPagination.error != null) return@LaunchedEffect
         snapshotFlow {
             val visibleKeys = effectiveLazyListState.layoutInfo.visibleItemsInfo.map { it.key }
             visibleKeys.contains(WATCH_KEY_COMMENTS_LOAD_MORE)
@@ -703,7 +716,15 @@ fun WatchMetadataContent(
 
         commentsItems(
             state = commentsState,
-            onRetry = onRetryComments
+            onRetry = onRetryComments,
+            expanded = commentsExpanded,
+            onExpandedChange = onCommentsExpandedChange,
+            pagination = commentsPagination,
+            onLoadMore = onLoadMoreComments,
+            onRestart = {
+                lastTriggeredToken = null
+                onRestartComments()
+            }
         )
 
         item(key = "section:comments_related_spacer") {

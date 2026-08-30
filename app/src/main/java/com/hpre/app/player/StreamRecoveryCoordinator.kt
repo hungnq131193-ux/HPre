@@ -70,7 +70,7 @@ class StreamRecoveryCoordinator(
         }
 
         val streamResult = try {
-            videoService.streamInfo(key)
+            videoService.refreshStreamInfo(key)
         } catch (ce: CancellationException) {
             mutex.withLock {
                 if (activeRecoveryJob === currentJob) {

@@ -22,6 +22,9 @@ interface HistoryRepository {
     fun observeHistory(): Flow<List<WatchHistoryItem>>
     fun observeRecentHistory(limit: Int): Flow<List<WatchHistoryItem>> =
         observeHistory().map { it.take(limit.coerceAtLeast(1)) }
+    fun observeHistoryPage(limit: Int, offset: Int): Flow<List<WatchHistoryItem>> =
+        observeHistory().map { it.drop(offset.coerceAtLeast(0)).take(limit.coerceAtLeast(1)) }
+    fun observeHistoryCount(): Flow<Int> = observeHistory().map { it.size }
     suspend fun getHistoryItem(key: ContentKey): AppResult<WatchHistoryItem?>
     suspend fun recordHistory(
         summary: VideoSummary,

@@ -115,7 +115,14 @@ data class WatchUiState(
     val isLoading: Boolean = false,
     val details: VideoDetails? = null,
     val error: AppError? = null,
-    val isFullscreen: Boolean = false
+    val isFullscreen: Boolean = false,
+    val commentsExpanded: Boolean = false
+)
+
+data class CommentsPaginationState(
+    val isLoading: Boolean = false,
+    val error: AppError? = null,
+    val earlierCommentsDropped: Boolean = false
 )
 
 class WatchViewModel(
@@ -136,6 +143,8 @@ class WatchViewModel(
         const val KEY_IS_FULLSCREEN = "watch_is_fullscreen"
         internal const val RESUME_LOOKUP_TIMEOUT_MS = 1_500L
         internal const val COMMENTS_READY_FALLBACK_MS = 2_000L
+        internal const val MAX_RETAINED_COMMENTS = 200
+        internal const val MAX_CACHED_COMMENTS = 60
 
         fun provideFactory(
             videoService: VideoService,
@@ -214,6 +223,8 @@ class WatchViewModel(
     val relatedState: StateFlow<RefreshableAsyncState<List<VideoSummary>>> = _relatedState.asStateFlow()
     private val _commentsState = MutableStateFlow<AsyncState<CommentPage>>(AsyncState.Loading)
     val commentsState: StateFlow<AsyncState<CommentPage>> = _commentsState.asStateFlow()
+    private val _commentsPagination = MutableStateFlow(CommentsPaginationState())
+    val commentsPagination: StateFlow<CommentsPaginationState> = _commentsPagination.asStateFlow()
 
     @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
     val isSubscribed: StateFlow<Boolean> = _uiState.flatMapLatest { state ->
@@ -225,7 +236,7 @@ class WatchViewModel(
         }
     }.stateIn(
         scope = viewModelScope,
-        started = SharingStarted.Eagerly,
+        started = SharingStarted.WhileSubscribed(5_000),
         initialValue = false
     )
 
@@ -240,11 +251,11 @@ class WatchViewModel(
     val structuralPlaybackState: StateFlow<PlaybackState> = playerController.state
         .map(PlaybackState::toStructuralState)
         .distinctUntilChanged()
-        .stateIn(viewModelScope, SharingStarted.Eagerly, playerController.state.value.toStructuralState())
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), playerController.state.value.toStructuralState())
     val playbackProgress: StateFlow<PlaybackProgress> = playerController.state
         .map(PlaybackState::toProgress)
         .distinctUntilChanged()
-        .stateIn(viewModelScope, SharingStarted.Eagerly, playerController.state.value.toProgress())
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), playerController.state.value.toProgress())
 
     @Volatile
     private var currentKey: ContentKey? = null
@@ -258,6 +269,8 @@ class WatchViewModel(
     private var commentsJob: Job? = null
     private var commentsGateJob: Job? = null
     private var commentsInFlight = false
+    private var commentsRequestGeneration = 0L
+    private var firstCommentsPage: CommentPage? = null
 
     private suspend fun loadResumePosition(key: ContentKey): Long {
         val repository = historyRepository ?: return 0L
@@ -273,17 +286,28 @@ class WatchViewModel(
     }
 
     fun load(key: ContentKey, forceRefresh: Boolean = false) {
-        if (!forceRefresh && currentKey == key && _uiState.value.details != null && _uiState.value.error == null && playbackState.value.error == null) {
+        if (!forceRefresh && currentKey == key && playbackState.value.key == key &&
+            _uiState.value.details != null && _uiState.value.error == null && playbackState.value.error == null) {
             return
         }
 
+        if (currentKey != key) {
+            _uiState.update { it.copy(commentsExpanded = false) }
+        }
+        synchronized(sessionGuard) {
+            cancelCommentsRequests()
+            firstCommentsPage = null
+            _commentsPagination.value = CommentsPaginationState()
+        }
+
         if (playbackState.value.key?.let { it != key } == true) {
-            playerController.clearMedia()
+            playerController.stopForTransition()
         }
 
         val cachedSnapshot = if (!forceRefresh) watchStateCache?.get(key) else null
         val metricsSession = videoOpenMetrics.start(key)
         if (cachedSnapshot != null) {
+            firstCommentsPage = cachedSnapshot.comments
             val generation = synchronized(sessionGuard) {
                 loadJob?.cancel()
                 relatedJob?.cancel()
@@ -562,6 +586,12 @@ class WatchViewModel(
                         excludedKeys = excluded
                     )
                     val result = if (watchRecommendationSource != null && details != null) {
+                        if (!isRefresh) {
+                            // Do not compete with the initial media fetch/decoder startup.
+                            withTimeoutOrNull(COMMENTS_READY_FALLBACK_MS) {
+                                playerController.state.first { it.key == key && it.isReady }
+                            }
+                        }
                         watchRecommendationSource.recommendations(key, details, req)
                     } else {
                         when (val rel = videoService.related(key)) {
@@ -623,22 +653,58 @@ class WatchViewModel(
     private data class Tuple5<A, B, C, D, E>(val a: A, val b: B, val c: C, val d: D, val e: E)
 
     private fun scheduleInitialComments(key: ContentKey, generation: Long) {
+        if (!_uiState.value.commentsExpanded || firstCommentsPage != null || _commentsState.value is AsyncState.Content || commentsInFlight) return
         commentsGateJob?.cancel()
         commentsGateJob = viewModelScope.launch(ioDispatcher) {
+            playerController.state.first { it.key == key }
             withTimeoutOrNull(COMMENTS_READY_FALLBACK_MS) {
                 playerController.state.first { state -> state.key == key && state.isReady }
             }
-            if (generation == currentGeneration && currentKey == key) {
+            if (generation == currentGeneration && currentKey == key && _uiState.value.commentsExpanded) {
                 loadComments(key, generation, null, append = false)
             }
         }
     }
 
-    fun retryComments() = currentKey?.let {
-        loadComments(it, currentGeneration, null, append = false)
+    fun setCommentsExpanded(expanded: Boolean) {
+        synchronized(sessionGuard) {
+            _uiState.update { it.copy(commentsExpanded = expanded) }
+            if (!expanded) {
+                cancelCommentsRequests()
+                _commentsPagination.value = CommentsPaginationState()
+                _commentsState.value = firstCommentsPage?.let { AsyncState.Content(it) } ?: AsyncState.Empty
+            }
+        }
+        if (expanded) currentKey?.let { scheduleInitialComments(it, currentGeneration) }
+    }
+
+    private fun cancelCommentsRequests() {
+        commentsRequestGeneration++
+        commentsGateJob?.cancel()
+        commentsGateJob = null
+        commentsJob?.cancel()
+        commentsJob = null
+        commentsInFlight = false
+    }
+
+    fun retryComments() = currentKey?.let { key ->
+        if (_uiState.value.commentsExpanded) loadComments(key, currentGeneration, null, append = false)
+    }
+
+    fun restartComments() {
+        val key = currentKey ?: return
+        synchronized(sessionGuard) {
+            cancelCommentsRequests()
+            _commentsPagination.value = CommentsPaginationState()
+            _commentsState.value = firstCommentsPage?.let { AsyncState.Content(it) } ?: AsyncState.Empty
+        }
+        if (firstCommentsPage == null && _uiState.value.commentsExpanded) {
+            loadComments(key, currentGeneration, null, append = false)
+        }
     }
 
     fun loadMoreComments() {
+        if (!_uiState.value.commentsExpanded) return
         val key = currentKey ?: return
         val page = (_commentsState.value as? AsyncState.Content)?.value ?: return
         val token = page.nextPageToken ?: return
@@ -657,48 +723,67 @@ class WatchViewModel(
             }
             return
         }
-        val admitted = synchronized(sessionGuard) {
-            if (generation != currentGeneration || currentKey != key || commentsInFlight) {
-                false
-            } else {
-                commentsInFlight = true
-                if (!append) _commentsState.value = AsyncState.Loading
-                true
-            }
+        val requestGeneration = synchronized(sessionGuard) {
+            if (generation != currentGeneration || currentKey != key || commentsInFlight || !_uiState.value.commentsExpanded) return
+            commentsInFlight = true
+            if (!append) _commentsState.value = AsyncState.Loading
+            _commentsPagination.update { it.copy(isLoading = append, error = null) }
+            ++commentsRequestGeneration
         }
-        if (!admitted) return
         commentsJob = viewModelScope.launch(ioDispatcher) {
             try {
-                val nextState = when (val result = videoService.comments(key, token)) {
-                    is AppResult.Success -> {
-                        val prior = if (append) (_commentsState.value as? AsyncState.Content)?.value?.comments.orEmpty() else emptyList()
-                        val deduped = (prior + result.value.comments).distinctBy { it.commentId }
-                        val page = result.value.copy(comments = deduped)
-                        if (page.comments.isEmpty()) AsyncState.Empty else AsyncState.Content(page)
-                    }
-                    is AppResult.Failure -> AsyncState.Error(result.error)
-                }
-                if (generation == currentGeneration && currentKey == key) {
-                    _commentsState.value = nextState
-                    (nextState as? AsyncState.Content)?.value?.let { page ->
-                        _uiState.value.details?.let { details ->
-                            watchStateCache?.updateComments(key, page)
+                val result = videoService.comments(key, token)
+                synchronized(sessionGuard) {
+                    if (generation != currentGeneration || currentKey != key || requestGeneration != commentsRequestGeneration) return@launch
+                    when (result) {
+                        is AppResult.Success -> {
+                            val prior = if (append) (_commentsState.value as? AsyncState.Content)?.value?.comments.orEmpty() else emptyList()
+                            val commentsById = LinkedHashMap<String, com.hpre.app.model.Comment>()
+                            prior.forEach { commentsById[it.commentId] = it }
+                            result.value.comments.forEach { commentsById.putIfAbsent(it.commentId, it) }
+                            val dropped = commentsById.size > MAX_RETAINED_COMMENTS
+                            val page = result.value.copy(
+                                comments = commentsById.values.toList().takeLast(MAX_RETAINED_COMMENTS),
+                                // A repeated continuation must not turn a visible sentinel into a request loop.
+                                nextPageToken = result.value.nextPageToken.takeUnless { append && it == token }
+                            )
+                            _commentsState.value = if (page.comments.isEmpty()) AsyncState.Empty else AsyncState.Content(page)
+                            _commentsPagination.update {
+                                CommentsPaginationState(earlierCommentsDropped = (append && it.earlierCommentsDropped) || dropped)
+                            }
+                            if (!append) {
+                                firstCommentsPage = page.takeIf { !dropped && it.comments.size <= MAX_CACHED_COMMENTS }
+                                watchStateCache?.updateComments(key, firstCommentsPage)
+                            }
                         }
+                        is AppResult.Failure -> publishCommentsError(result.error, append)
                     }
                 }
             } catch (cancelled: CancellationException) {
                 throw cancelled
             } catch (_: Throwable) {
-                if (generation == currentGeneration && currentKey == key) {
-                    _commentsState.value = AsyncState.Error(AppError.Unknown)
+                synchronized(sessionGuard) {
+                    if (generation == currentGeneration && currentKey == key && requestGeneration == commentsRequestGeneration) {
+                        publishCommentsError(AppError.Unknown, append)
+                    }
                 }
             } finally {
                 synchronized(sessionGuard) {
-                    if (generation == currentGeneration && currentKey == key) {
+                    if (generation == currentGeneration && currentKey == key && requestGeneration == commentsRequestGeneration) {
                         commentsInFlight = false
+                        _commentsPagination.update { it.copy(isLoading = false) }
                     }
                 }
             }
+        }
+    }
+
+    private fun publishCommentsError(error: AppError, append: Boolean) {
+        if (append) {
+            _commentsPagination.update { it.copy(isLoading = false, error = error) }
+        } else {
+            _commentsState.value = AsyncState.Error(error)
+            _commentsPagination.value = CommentsPaginationState()
         }
     }
 
@@ -802,7 +887,7 @@ class WatchViewModel(
 
             loadJob = viewModelScope.launch(ioDispatcher) {
                 try {
-                    val freshStreamResult = videoService.streamInfo(key)
+                    val freshStreamResult = videoService.refreshStreamInfo(key)
                     if (generation != currentGeneration || currentKey != key) return@launch
 
                     when (freshStreamResult) {

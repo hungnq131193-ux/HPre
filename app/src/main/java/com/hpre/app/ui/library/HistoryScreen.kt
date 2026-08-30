@@ -15,6 +15,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
@@ -31,6 +32,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -60,6 +62,10 @@ fun HistoryScreen(
     modifier: Modifier = Modifier
 ) {
     val historyList by viewModel.history.collectAsStateWithLifecycle()
+    val historyPage by viewModel.historyPage.collectAsStateWithLifecycle()
+    val historyCount by viewModel.historyCount.collectAsStateWithLifecycle()
+    val listState = rememberLazyListState()
+    LaunchedEffect(historyPage) { listState.scrollToItem(0) }
     var showClearConfirmDialog by remember { mutableStateOf(false) }
 
     Scaffold(
@@ -109,19 +115,45 @@ fun HistoryScreen(
                 )
             }
         } else {
-            LazyColumn(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .padding(innerPadding)
-                    .testTag("history_list"),
-                verticalArrangement = Arrangement.spacedBy(8.dp)
-            ) {
-                items(historyList, key = { it.key.toString() }) { item ->
-                    HistoryItemRow(
-                        item = item,
-                        onClick = { onVideoClick(item.key) },
-                        onDelete = { viewModel.deleteHistoryItem(item.key) }
-                    )
+            Column(Modifier.fillMaxSize().padding(innerPadding)) {
+                LazyColumn(
+                    state = listState,
+                    modifier = Modifier.fillMaxWidth().weight(1f).testTag("history_list"),
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    items(historyList, key = { it.key.toString() }) { item ->
+                        HistoryItemRow(
+                            item = item,
+                            onClick = { onVideoClick(item.key) },
+                            onDelete = { viewModel.deleteHistoryItem(item.key) }
+                        )
+                    }
+                }
+                if (historyCount > LibraryViewModel.HISTORY_PAGE_SIZE) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        TextButton(
+                            onClick = viewModel::previousHistoryPage,
+                            enabled = historyPage > 0,
+                            modifier = Modifier.testTag("history_previous_page")
+                        ) {
+                            Text(stringResource(R.string.history_previous_page))
+                        }
+                        Text(stringResource(
+                            R.string.history_page, historyPage + 1,
+                            (historyCount + LibraryViewModel.HISTORY_PAGE_SIZE - 1) / LibraryViewModel.HISTORY_PAGE_SIZE
+                        ))
+                        TextButton(
+                            onClick = viewModel::nextHistoryPage,
+                            enabled = (historyPage + 1) * LibraryViewModel.HISTORY_PAGE_SIZE < historyCount,
+                            modifier = Modifier.testTag("history_next_page")
+                        ) {
+                            Text(stringResource(R.string.history_next_page))
+                        }
+                    }
                 }
             }
         }

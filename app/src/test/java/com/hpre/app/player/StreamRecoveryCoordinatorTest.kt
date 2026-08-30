@@ -28,6 +28,22 @@ class StreamRecoveryCoordinatorTest {
     private val testKey = ContentKey(0, "video_403")
     private val otherKey = ContentKey(0, "video_other")
 
+    @Test
+    fun recovery_uses_explicit_refresh_instead_of_the_ordinary_stream_cache() = runTest {
+        var refreshes = 0
+        val service = object : VideoService by FakeVideoService() {
+            override suspend fun streamInfo(key: ContentKey): AppResult<StreamInfo> = error("must not use cached URL")
+            override suspend fun refreshStreamInfo(key: ContentKey): AppResult<StreamInfo> {
+                refreshes++
+                return AppResult.Success(sampleStreamInfo(key))
+            }
+        }
+        val coordinator = StreamRecoveryCoordinator(service)
+        assertTrue(coordinator.recoverExpiredStream(testKey, 1, 123L, true, QualityPreference.Auto) is RecoveryResult.Recovered)
+        assertTrue(coordinator.recoverExpiredStream(testKey, 1, 456L, true, QualityPreference.Auto) is RecoveryResult.Failed)
+        assertEquals(1, refreshes)
+    }
+
     private fun sampleStreamInfo(
         key: ContentKey = testKey,
         progressiveUrl: String = "https://fresh.example.com/stream.mp4",

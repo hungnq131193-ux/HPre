@@ -9,10 +9,9 @@ object StartupStreamSelector {
     /**
      * Picks the stream to prepare first when opening a video.
      *
-     * With [fastStart] enabled (the default for a fresh open) this deliberately chooses the *lowest*
-     * usable rendition rather than the best one, so the first frame arrives quickly and the watch page
-     * can render recommendations and comments without waiting on a large initial buffer.
-     * [StartupQualityPolicy] then raises quality once playback is running.
+     * Progressive/merged playback chooses a usable rendition within [maxHeight] once and keeps it.
+     * Explicit [fastStart] callers may request the lowest rendition; neither path schedules a source
+     * rebuild just to raise quality. A manual quality choice remains available.
      *
      * Adaptive manifests are still preferred when present: they start low on their own via ABR and the
      * service applies an additional height cap, so no rebuffer is needed to climb.
@@ -20,7 +19,7 @@ object StartupStreamSelector {
     fun select(
         info: StreamInfo,
         maxHeight: Int = DEFAULT_MAX_HEIGHT,
-        fastStart: Boolean = true
+        fastStart: Boolean = false
     ): AppResult<SelectedStreams> {
         // Prefer a real adaptive manifest at startup. The height cap is enforced by the service's
         // track selector; progressive streams cannot provide continuous ABR.
