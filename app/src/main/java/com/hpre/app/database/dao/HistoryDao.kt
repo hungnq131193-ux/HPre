@@ -15,6 +15,12 @@ interface HistoryDao {
     @Query("SELECT * FROM watch_history ORDER BY watchedTimestamp DESC LIMIT :limit")
     fun observeRecent(limit: Int): Flow<List<HistoryEntity>>
 
+    @Query("SELECT * FROM watch_history ORDER BY watchedTimestamp DESC, serviceId, videoId LIMIT :limit OFFSET :offset")
+    fun observePage(limit: Int, offset: Int): Flow<List<HistoryEntity>>
+
+    @Query("SELECT COUNT(*) FROM watch_history")
+    fun observeCount(): Flow<Int>
+
     @Query("SELECT * FROM watch_history WHERE serviceId = :serviceId AND videoId = :videoId LIMIT 1")
     suspend fun getByKey(serviceId: Int, videoId: String): HistoryEntity?
 

@@ -16,6 +16,8 @@ import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.Semaphore
+import kotlinx.coroutines.sync.withPermit
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withTimeoutOrNull
 
@@ -59,6 +61,9 @@ class RecommendationRepository(
     private val videoService: VideoService? = null,
     private val playbackPreferences: PlaybackPreferences? = null
 ) : HomeRecommendationSource, WatchRecommendationSource {
+    // Shared across Home/Watch requests: leave extractor workers available for video opens/seeks.
+    private val backgroundRequests = Semaphore(2)
+    private val whitespace = Regex("\\s+")
 
     private class SourceRequestCancelled(
         val cancellation: CancellationException
@@ -394,7 +399,7 @@ class RecommendationRepository(
     }
 
     private suspend fun <T> safeRequest(block: suspend () -> AppResult<T>): AppResult<T> = try {
-        block()
+        backgroundRequests.withPermit { block() }
     } catch (cancelled: CancellationException) {
         if (cancelled is TimeoutCancellationException) throw cancelled
         throw SourceRequestCancelled(cancelled)
@@ -405,7 +410,7 @@ class RecommendationRepository(
     private fun normalize(value: String): String = value
         .trim()
         .lowercase(Locale.ROOT)
-        .replace("\\s+".toRegex(), " ")
+        .replace(whitespace, " ")
 
     companion object {
         const val MAX_SEARCH_QUERIES = 3

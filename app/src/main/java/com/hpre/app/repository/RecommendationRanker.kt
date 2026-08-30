@@ -12,6 +12,7 @@ data class RecommendationContext(
 )
 
 object RecommendationRanker {
+    private val tokenSeparator = Regex("[^\\p{L}\\p{N}]+")
     fun rank(
         candidates: List<VideoSummary>,
         signals: LocalInterestSignals,
@@ -25,6 +26,7 @@ object RecommendationRanker {
             .distinctBy(VideoSummary::key)
         val hasFreshCandidates = deduplicated.any { it.key !in signals.recentlyWatched }
         val normalizedQueries = signals.recentQueries.map(::tokens).filter(List<String>::isNotEmpty)
+        val currentChannel = context.currentChannelName?.let(::normalize)
         val channelFrequency = buildMap {
             signals.watchedChannelFrequency.forEach { (channel, count) ->
                 if (count > 0) {
@@ -48,17 +50,18 @@ object RecommendationRanker {
                     (if (titleTokens.containsSequence(queryTokens)) recencyWeight * 10 else 0) +
                         matchingTokens * recencyWeight * 3
                 }.sum()
-                val affinity = channelFrequency[normalize(video.channelName.orEmpty())] ?: 0
+                val normalizedChannel = normalize(video.channelName.orEmpty())
+                val affinity = channelFrequency[normalizedChannel] ?: 0
                 val relatedScore = if (video.key in context.providerRelatedKeys) RELATED_SCORE else 0
                 val currentChannelScore = if (
-                    context.currentChannelName != null &&
-                    normalize(video.channelName.orEmpty()) == normalize(context.currentChannelName)
+                    currentChannel != null && normalizedChannel == currentChannel
                 ) CURRENT_CHANNEL_SCORE else 0
                 val freshnessScore = freshnessScore(video.publishedTimestamp, context.nowEpochSeconds)
                 RankedVideo(
                     video,
                     queryScore + affinity + relatedScore + currentChannelScore + freshnessScore,
                     indexed.index,
+                    normalizedChannel,
                     isFallbackWatched = hasFreshCandidates && video.key in signals.recentlyWatched
                 )
             }
@@ -72,37 +75,43 @@ object RecommendationRanker {
 
     private fun tokens(value: String): List<String> = value
         .lowercase(Locale.ROOT)
-        .split("[^\\p{L}\\p{N}]+".toRegex())
+        .split(tokenSeparator)
         .filter(String::isNotBlank)
 
     private fun normalize(value: String): String = tokens(value).joinToString(" ")
 
     private fun List<String>.containsSequence(sequence: List<String>): Boolean {
         if (sequence.isEmpty() || sequence.size > size) return false
-        return windowed(sequence.size).any { it == sequence }
+        return (0..size - sequence.size).any { start ->
+            sequence.indices.all { offset -> this[start + offset] == sequence[offset] }
+        }
     }
 
     private fun diversify(ranked: List<RankedVideo>, limit: Int): List<VideoSummary> {
         val remaining = ranked.toMutableList()
         val result = mutableListOf<VideoSummary>()
+        val recentChannels = ArrayDeque<String>(2)
         while (remaining.isNotEmpty() && result.size < limit) {
             val currentFallbackGroup = remaining.first().isFallbackWatched
             val eligibleRange = remaining.takeWhile {
                 it.isFallbackWatched == currentFallbackGroup
             }
-            val previousChannels = result.takeLast(2).map { normalize(it.channelName.orEmpty()) }
+            val previousChannels = recentChannels.toList()
             val nextIndex = if (
                 previousChannels.size == 2 &&
                 previousChannels[0].isNotBlank() &&
                 previousChannels[0] == previousChannels[1]
             ) {
                 eligibleRange.indexOfFirst {
-                    normalize(it.video.channelName.orEmpty()) != previousChannels[0]
+                    it.normalizedChannel != previousChannels[0]
                 }.takeIf { it >= 0 } ?: 0
             } else {
                 0
             }
-            result += remaining.removeAt(nextIndex).video
+            val next = remaining.removeAt(nextIndex)
+            result += next.video
+            if (recentChannels.size == 2) recentChannels.removeFirst()
+            recentChannels.addLast(next.normalizedChannel)
         }
         return result
     }
@@ -128,6 +137,7 @@ object RecommendationRanker {
         val video: VideoSummary,
         val score: Int,
         val inputIndex: Int,
+        val normalizedChannel: String,
         val isFallbackWatched: Boolean
     )
 

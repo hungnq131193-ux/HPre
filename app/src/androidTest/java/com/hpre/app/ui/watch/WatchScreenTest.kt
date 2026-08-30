@@ -61,6 +61,38 @@ class WatchScreenTest {
 
     private val testKey = ContentKey(0, "watch_ui_test_video")
 
+    @Test
+    fun comments_section_and_long_comment_can_expand_and_collapse() {
+        var expanded by androidx.compose.runtime.mutableStateOf(false)
+        val comment = com.hpre.app.model.Comment("fold", "A", null, null,
+            (1..6).joinToString("\n") { "Comment line $it" }, null, null)
+        composeTestRule.setContent {
+            HPreTheme {
+                WatchMetadataContent(
+                    details = testDetails(testKey),
+                    commentsState = com.hpre.app.ui.common.AsyncState.Content(com.hpre.app.model.CommentPage(listOf(comment))),
+                    commentsExpanded = expanded,
+                    onCommentsExpandedChange = { expanded = it }
+                )
+            }
+        }
+        composeTestRule.onNodeWithTag("watch_lazy_column").performScrollToNode(hasTestTag("comments_section"))
+        composeTestRule.onNodeWithTag("comment_fold").assertDoesNotExist()
+        composeTestRule.onNodeWithTag("comments_section").performClick()
+        composeTestRule.onNodeWithTag("watch_lazy_column").performScrollToNode(hasTestTag("comment_fold"))
+        val collapsed = mutableListOf<androidx.compose.ui.text.TextLayoutResult>()
+        composeTestRule.onNodeWithTag("comment_body_fold").performSemanticsAction(SemanticsActions.GetTextLayoutResult) { it(collapsed) }
+        assertEquals(4, collapsed.single().lineCount)
+        composeTestRule.onNodeWithTag("comment_toggle_fold").performClick()
+        val opened = mutableListOf<androidx.compose.ui.text.TextLayoutResult>()
+        composeTestRule.onNodeWithTag("comment_body_fold").performSemanticsAction(SemanticsActions.GetTextLayoutResult) { it(opened) }
+        assertEquals(6, opened.single().lineCount)
+        composeTestRule.onNodeWithTag("comment_toggle_fold").performClick()
+        composeTestRule.onNodeWithTag("watch_lazy_column").performScrollToNode(hasTestTag("comments_section"))
+        composeTestRule.onNodeWithTag("comments_section").performClick()
+        composeTestRule.onNodeWithTag("comment_fold").assertDoesNotExist()
+    }
+
     private class FakePlayerController(
         private val preparedPlaying: Boolean? = null
     ) : PlayerController {
@@ -1101,6 +1133,7 @@ class WatchScreenTest {
         composeTestRule.setContent {
             HPreTheme {
                 WatchMetadataContent(
+                    commentsExpanded = true,
                     details = testDetails(testKey),
                     relatedState = relatedState
                 )
@@ -1146,6 +1179,7 @@ class WatchScreenTest {
         composeTestRule.setContent {
             HPreTheme {
                 WatchMetadataContent(
+                    commentsExpanded = true,
                     details = testDetails(testKey),
                     commentsState = commentsState,
                     onLoadMoreComments = { loadMoreCallCount++ }
@@ -1204,6 +1238,7 @@ class WatchScreenTest {
         composeTestRule.setContent {
             HPreTheme {
                 WatchMetadataContent(
+                    commentsExpanded = true,
                     details = testDetails(testKey),
                     commentsState = com.hpre.app.ui.common.AsyncState.Content(
                         com.hpre.app.model.CommentPage(listOf(comment))
@@ -1238,6 +1273,7 @@ class WatchScreenTest {
         composeTestRule.setContent {
             HPreTheme {
                 WatchMetadataContent(
+                    commentsExpanded = true,
                     details = testDetails(testKey),
                     commentsState = com.hpre.app.ui.common.AsyncState.Content(
                         com.hpre.app.model.CommentPage(listOf(comment))
@@ -1288,6 +1324,7 @@ class WatchScreenTest {
         composeTestRule.setContent {
             HPreTheme {
                 WatchMetadataContent(
+                    commentsExpanded = true,
                     details = testDetails(testKey),
                     commentsState = com.hpre.app.ui.common.AsyncState.Content(
                         com.hpre.app.model.CommentPage(comments)
@@ -1328,6 +1365,7 @@ class WatchScreenTest {
         composeTestRule.setContent {
             HPreTheme {
                 WatchMetadataContent(
+                    commentsExpanded = true,
                     details = currentDetails,
                     commentsState = currentComments,
                     onLoadMoreComments = onLoadMore

@@ -15,7 +15,7 @@ HPre là ứng dụng khách video độc lập dành cho Android. Ứng dụng 
 - Tìm kiếm video, kênh và danh sách phát.
 - Phát video hoặc chỉ âm thanh, chọn chất lượng và tốc độ phát.
 - Toàn màn hình, trình phát thu nhỏ, phát nền và Picture-in-Picture.
-- Xem bình luận và nội dung liên quan.
+- Mở/thu gọn phần bình luận; mở rộng từng bình luận dài và xem nội dung liên quan.
 - Lưu cục bộ lịch sử xem, danh sách phát và kênh theo dõi.
 - Giao diện theo hệ thống, sáng hoặc tối.
 - Hỗ trợ tiếng Việt và tiếng Anh.
@@ -65,6 +65,8 @@ cd HPre
 ```
 
 Trên Windows có thể dùng `gradlew.bat assembleDebug`.
+
+Hướng dẫn build, ký và kiểm tra bản 1.0.12 cho OpenCode: [`docs/releases/1.0.12.md`](docs/releases/1.0.12.md).
 
 ## Phát hành bản release
 

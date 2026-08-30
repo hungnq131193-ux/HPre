@@ -17,6 +17,19 @@ import org.junit.Test
 class SessionPlayerProtocolTest {
 
     @Test
+    fun obsolete_media_callbacks_cannot_replace_a_pending_video_or_reanimate_a_cleared_player() {
+        val old = ContentKey(0, "old")
+        val next = ContentKey(0, "next")
+        assertFalse(acceptsPlaybackCallback(next, old, transitioning = true))
+        assertFalse(acceptsPlaybackCallback(next, null, transitioning = true))
+        assertTrue(acceptsPlaybackCallback(next, next, transitioning = true))
+        assertFalse(acceptsPlaybackCallback(null, old, transitioning = true))
+        assertFalse(acceptsPlaybackCallback(null, null, transitioning = true))
+        // A freshly connected observer may adopt an existing service session.
+        assertTrue(acceptsPlaybackCallback(null, old, transitioning = false))
+    }
+
+    @Test
     fun position_only_updates_do_not_change_structural_playback_state() {
         val first = PlaybackState(
             key = testKey,

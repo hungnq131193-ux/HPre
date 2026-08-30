@@ -18,32 +18,48 @@ import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.stateIn
+import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.flatMapLatest
+import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.launch
 
+@OptIn(ExperimentalCoroutinesApi::class)
 class LibraryViewModel(
     private val historyRepository: HistoryRepository,
     private val subscriptionRepository: SubscriptionRepository,
     private val playlistRepository: PlaylistRepository
 ) : ViewModel() {
 
-    val history: StateFlow<List<WatchHistoryItem>> = historyRepository.observeHistory()
+    private val requestedHistoryPage = MutableStateFlow(0)
+    val historyCount: StateFlow<Int> = historyRepository.observeHistoryCount()
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), 0)
+
+    val historyPage: StateFlow<Int> = combine(requestedHistoryPage, historyCount) { requested, count ->
+        requested.coerceIn(0, ((count - 1).coerceAtLeast(0) / HISTORY_PAGE_SIZE))
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), 0)
+
+    val recentHistory: StateFlow<List<WatchHistoryItem>> = historyRepository.observeRecentHistory(8)
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+
+    val history: StateFlow<List<WatchHistoryItem>> = historyPage
+        .flatMapLatest { page -> historyRepository.observeHistoryPage(HISTORY_PAGE_SIZE, page * HISTORY_PAGE_SIZE) }
         .stateIn(
             scope = viewModelScope,
-            started = SharingStarted.Eagerly,
+            started = SharingStarted.WhileSubscribed(5_000),
             initialValue = emptyList()
         )
 
     val subscriptions: StateFlow<List<LocalSubscription>> = subscriptionRepository.observeSubscriptions()
         .stateIn(
             scope = viewModelScope,
-            started = SharingStarted.Eagerly,
+            started = SharingStarted.WhileSubscribed(5_000),
             initialValue = emptyList()
         )
 
     val playlists: StateFlow<List<LocalPlaylist>> = playlistRepository.observePlaylists()
         .stateIn(
             scope = viewModelScope,
-            started = SharingStarted.Eagerly,
+            started = SharingStarted.WhileSubscribed(5_000),
             initialValue = emptyList()
         )
 
@@ -51,6 +67,15 @@ class LibraryViewModel(
     val playlistDetail: StateFlow<LocalPlaylistWithEntries?> = _playlistDetail.asStateFlow()
 
     private var activeDetailJob: Job? = null
+
+    fun previousHistoryPage() {
+        requestedHistoryPage.value = (historyPage.value - 1).coerceAtLeast(0)
+    }
+
+    fun nextHistoryPage() {
+        val lastPage = (historyCount.value - 1).coerceAtLeast(0) / HISTORY_PAGE_SIZE
+        requestedHistoryPage.value = (historyPage.value + 1).coerceAtMost(lastPage)
+    }
 
     fun loadPlaylistDetail(playlistId: Long) {
         activeDetailJob?.cancel()
@@ -68,6 +93,7 @@ class LibraryViewModel(
     }
 
     fun clearHistory() {
+        requestedHistoryPage.value = 0
         viewModelScope.launch {
             historyRepository.clearHistory()
         }
@@ -119,6 +145,7 @@ class LibraryViewModel(
     }
 
     companion object {
+        const val HISTORY_PAGE_SIZE = 50
         fun provideFactory(
             historyRepository: HistoryRepository,
             subscriptionRepository: SubscriptionRepository,

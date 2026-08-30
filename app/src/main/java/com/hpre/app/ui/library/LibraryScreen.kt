@@ -82,7 +82,8 @@ fun LibraryScreen(
     onVideoClick: (ContentKey) -> Unit,
     modifier: Modifier = Modifier
 ) {
-    val historyList by viewModel.history.collectAsStateWithLifecycle()
+    val historyList by viewModel.recentHistory.collectAsStateWithLifecycle()
+    val historyCount by viewModel.historyCount.collectAsStateWithLifecycle()
     val subscriptionsList by viewModel.subscriptions.collectAsStateWithLifecycle()
     val playlistsList by viewModel.playlists.collectAsStateWithLifecycle()
 
@@ -97,7 +98,7 @@ fun LibraryScreen(
         // Section: History Header & Recent Horizontal Row
         LibrarySectionHeader(
             title = stringResource(R.string.library_history),
-            count = historyList.size,
+            count = historyCount,
             onSeeAllClick = onNavigateToHistory,
             tag = "library_history_header"
         )
@@ -117,7 +118,7 @@ fun LibraryScreen(
                     .testTag("library_recent_history_row"),
                 horizontalArrangement = Arrangement.spacedBy(12.dp)
             ) {
-                items(historyList.take(8), key = { it.key.toString() }) { item ->
+                items(historyList, key = { it.key.toString() }) { item ->
                     RecentHistoryCard(item = item, onClick = { onVideoClick(item.key) })
                 }
             }

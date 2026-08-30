@@ -51,15 +51,9 @@ internal class PlaybackReadinessTracker {
 }
 
 /**
- * Startup quality policy: begin playback at the smallest usable rendition so the first frame and the
- * surrounding page (recommendations, comments) appear quickly, then raise the ceiling once playback
- * is actually running.
- *
- * Two escalation shapes exist because the cost of raising quality differs per source:
- *  - Adaptive sources (HLS/DASH) escalate by lifting the track-selector height cap in steps. ExoPlayer's
- *    ABR switches renditions on segment boundaries, so this is seamless and can be done repeatedly.
- *  - Progressive/merged sources have no ABR; raising quality requires rebuilding the media source and
- *    re-buffering. That is done at most once, straight to the target height, to avoid repeated stalls.
+ * Adaptive sources start with a conservative cap and then let ABR switch on segment boundaries.
+ * Progressive/merged sources keep their initial rendition: an automatic source rebuild would
+ * discard the buffer and introduce a second startup stall.
  */
 object StartupQualityPolicy {
 
@@ -140,22 +134,9 @@ object StartupQualityPolicy {
             )
         }
 
-        PlaybackStreamType.PROGRESSIVE, PlaybackStreamType.MERGED_AV -> {
-            val ceiling = minOf(PROGRESSIVE_TARGET_HEIGHT, policyMaxHeight ?: UNLIMITED_HEIGHT)
-            val target = progressiveEscalationTarget(
-                available = available,
-                streamType = streamType,
-                startHeight = startHeight,
-                targetHeight = ceiling
-            )
-            if (target == null) null else FastStartPlan(
-                isAdaptive = false,
-                startCapHeight = null,
-                heightSteps = listOf(target.height),
-                escalationOption = target,
-                forceLowestBitrate = false
-            )
-        }
+        // A progressive/merged change discards buffered data and prepares another source. Pick a
+        // usable rendition once at startup; only an explicit user choice may rebuild that source.
+        PlaybackStreamType.PROGRESSIVE, PlaybackStreamType.MERGED_AV -> null
 
         PlaybackStreamType.AUDIO_ONLY -> null
     }

@@ -38,7 +38,8 @@ class WatchStateCache(
 
     fun put(key: ContentKey, snapshot: WatchStateSnapshot, nowMs: Long = System.currentTimeMillis()) {
         synchronized(lock) {
-            map[key] = Entry(snapshot, nowMs)
+            map.entries.removeAll { nowMs - it.value.timestampMs >= ttlMs }
+            map[key] = Entry(snapshot.copy(comments = snapshot.comments?.takeIf { it.comments.size <= 60 }), nowMs)
         }
     }
 
@@ -57,7 +58,7 @@ class WatchStateCache(
         }
     }
 
-    fun updateComments(key: ContentKey, comments: CommentPage) {
+    fun updateComments(key: ContentKey, comments: CommentPage?) {
         synchronized(lock) {
             val entry = map[key] ?: return
             val existing = entry.snapshot
@@ -65,7 +66,7 @@ class WatchStateCache(
                 WatchStateSnapshot(
                     details = existing.details,
                     relatedVideos = existing.relatedVideos,
-                    comments = comments
+                    comments = comments?.takeIf { it.comments.size <= 60 }
                 ),
                 entry.timestampMs
             )

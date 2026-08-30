@@ -32,7 +32,8 @@ internal class VideoExtractionCoordinator(
     private class InFlight(
         val result: CompletableDeferred<AppResult<ExtractedVideoBundle>>,
         val job: Deferred<*>,
-        var subscribers: Int
+        var subscribers: Int,
+        val isRefresh: Boolean
     )
 
     private val mutex = Mutex()
@@ -60,11 +61,14 @@ internal class VideoExtractionCoordinator(
 
     suspend fun execute(
         key: ContentKey,
+        forceRefresh: Boolean = false,
         loader: suspend () -> AppResult<ExtractedVideoBundle>
     ): AppResult<ExtractedVideoBundle> {
         val request: InFlight
         mutex.withLock {
             val now = nowMs()
+            cache.entries.removeAll { now - it.value.storedAtMs >= ttlMs }
+            if (forceRefresh) cache.remove(key)
             val cached = cache[key]
             if (cached != null) {
                 if (now - cached.storedAtMs < ttlMs) {
@@ -74,7 +78,7 @@ internal class VideoExtractionCoordinator(
             }
 
             val existing = inFlight[key]
-            if (existing != null) {
+            if (existing != null && (!forceRefresh || existing.isRefresh)) {
                 existing.subscribers++
                 request = existing
             } else {
@@ -95,7 +99,11 @@ internal class VideoExtractionCoordinator(
                         }
                         if (loaded is AppResult.Success) {
                             mutex.withLock {
-                                cache[key] = CacheEntry(loaded.value, nowMs())
+                                // A replaced extraction may finish for its original subscribers,
+                                // but must never overwrite the newer recovery result.
+                                if (inFlight[key] === holder[0]) {
+                                    cache[key] = CacheEntry(loaded.value, nowMs())
+                                }
                             }
                         }
                         result.complete(loaded)
@@ -113,7 +121,7 @@ internal class VideoExtractionCoordinator(
                         }
                     }
                 }
-                request = InFlight(result, job, subscribers = 1)
+                request = InFlight(result, job, subscribers = 1, isRefresh = forceRefresh)
                 holder[0] = request
                 inFlight[key] = request
             }
@@ -125,13 +133,11 @@ internal class VideoExtractionCoordinator(
             var cancelledUpstream = false
             withContext(NonCancellable) {
                 mutex.withLock {
-                    if (inFlight[key] === request) {
-                        request.subscribers--
-                        if (request.subscribers <= 0) {
-                            inFlight.remove(key)
-                            request.job.cancel(cancelled)
-                            cancelledUpstream = true
-                        }
+                    request.subscribers--
+                    if (request.subscribers <= 0) {
+                        if (inFlight[key] === request) inFlight.remove(key)
+                        request.job.cancel(cancelled)
+                        cancelledUpstream = true
                     }
                 }
                 if (cancelledUpstream) {

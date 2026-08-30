@@ -144,8 +144,16 @@ class NewPipeVideoService internal constructor(
         }
     }
 
-    private suspend fun bundle(key: ContentKey): AppResult<ExtractedVideoBundle> =
-        extractionCoordinator.execute(key) {
+    override suspend fun refreshStreamInfo(key: ContentKey): AppResult<StreamInfo> {
+        if (key.serviceId != serviceId) return AppResult.Failure(AppError.ExtractionFailed)
+        return when (val result = bundle(key, forceRefresh = true)) {
+            is AppResult.Success -> AppResult.Success(result.value.streamInfo)
+            is AppResult.Failure -> result
+        }
+    }
+
+    private suspend fun bundle(key: ContentKey, forceRefresh: Boolean = false): AppResult<ExtractedVideoBundle> =
+        extractionCoordinator.execute(key, forceRefresh) {
             extract { operations.videoBundle(key) }
         }
 
@@ -171,4 +179,3 @@ class NewPipeVideoService internal constructor(
         operations.trending()
     }
 }
-

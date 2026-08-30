@@ -42,6 +42,11 @@ class HistoryRepositoryTest {
         override fun observeRecent(limit: Int): Flow<List<HistoryEntity>> =
             flow.map { it.take(limit) }
 
+        override fun observePage(limit: Int, offset: Int): Flow<List<HistoryEntity>> =
+            flow.map { it.drop(offset).take(limit) }
+
+        override fun observeCount(): Flow<Int> = flow.map { it.size }
+
         override suspend fun getByKey(serviceId: Int, videoId: String): HistoryEntity? {
             if (shouldThrowIoException) throw java.io.IOException("Disk read error")
             return storage[Pair(serviceId, videoId)]

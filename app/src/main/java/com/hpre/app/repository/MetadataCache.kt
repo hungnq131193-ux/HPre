@@ -5,6 +5,9 @@ import com.hpre.app.model.CatalogCacheValue
 import com.hpre.app.model.Channel
 import com.hpre.app.model.PlaylistSummary
 import com.hpre.app.model.SearchResultItem
+import com.hpre.app.model.SearchPage
+import com.hpre.app.model.ContentKey
+import com.hpre.app.model.PageToken
 import com.hpre.app.model.StreamInfo
 import com.hpre.app.model.SubtitleStream
 import com.hpre.app.model.VideoDetails
@@ -30,6 +33,21 @@ class MetadataCache<K : Any, V : CatalogCacheValue>(
         if (value == null) return
         if (depth > 10) {
             throw IllegalArgumentException("Object graph exceeds maximum allowable inspection depth of 10")
+        }
+        // Final metadata DTOs have no stream-typed fields. Avoid reflecting over every title,
+        // thumbnail URL and boxed number on the UI caller's dispatcher. Custom payloads still
+        // receive the recursive stream-object validation below.
+        when (value) {
+            is String, is Byte, is Short, is Int, is Long, is Float, is Double, is Boolean, is Char,
+            is ContentKey, is PageToken, is VideoSummary, is VideoDetails,
+            is Channel, is PlaylistSummary -> return
+            is SearchPage -> {
+                validateSafeValue(value.items, visited, depth + 1)
+                return
+            }
+            is SearchResultItem.VideoItem -> return
+            is SearchResultItem.ChannelItem -> return
+            is SearchResultItem.PlaylistItem -> return
         }
         if (visited.containsKey(value)) return
         visited[value] = true
@@ -105,6 +123,7 @@ class MetadataCache<K : Any, V : CatalogCacheValue>(
     fun put(key: K, value: V, nowMs: Long = System.currentTimeMillis()) {
         validateSafeValue(value)
         synchronized(lock) {
+            map.entries.removeAll { nowMs - it.value.timestampMs >= ttlMs }
             map[key] = Entry(value, nowMs)
         }
     }
@@ -124,4 +143,3 @@ class MetadataCache<K : Any, V : CatalogCacheValue>(
     val size: Int
         get() = synchronized(lock) { map.size }
 }
-

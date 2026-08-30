@@ -42,7 +42,7 @@ class StartupQualityPolicyTest {
     // --- Startup selection: begin at the smallest usable rendition ---
 
     @Test
-    fun startup_picks_lowest_progressive() {
+    fun default_startup_keeps_highest_progressive_within_720p() {
         val result = StartupStreamSelector.select(
             StreamInfo(
                 key,
@@ -52,11 +52,11 @@ class StartupQualityPolicyTest {
         ) as AppResult.Success<SelectedStreams>
 
         assertEquals(PlaybackStreamType.PROGRESSIVE, result.value.streamType)
-        assertEquals(240, result.value.videoStream?.height)
+        assertEquals(720, result.value.videoStream?.height)
     }
 
     @Test
-    fun startup_includes_renditions_below_240p() {
+    fun default_startup_does_not_choose_144p_when_360p_is_available() {
         val result = StartupStreamSelector.select(
             StreamInfo(
                 key,
@@ -65,20 +65,20 @@ class StartupQualityPolicyTest {
             )
         ) as AppResult.Success<SelectedStreams>
 
-        assertEquals(144, result.value.videoStream?.height)
+        assertEquals(360, result.value.videoStream?.height)
     }
 
     @Test
-    fun startup_uses_lowest_available_when_every_rendition_is_below_240p() {
+    fun default_startup_uses_best_available_even_below_240p() {
         val result = StartupStreamSelector.select(
             StreamInfo(key, "Test", videoStreams = listOf(progressive(144), progressive(180)))
         ) as AppResult.Success<SelectedStreams>
 
-        assertEquals(144, result.value.videoStream?.height)
+        assertEquals(180, result.value.videoStream?.height)
     }
 
     @Test
-    fun startup_picks_lowest_merged_av_when_no_progressive_exists() {
+    fun default_startup_selects_merged_av_within_720p_when_no_progressive_exists() {
         val result = StartupStreamSelector.select(
             StreamInfo(
                 key,
@@ -89,7 +89,7 @@ class StartupQualityPolicyTest {
         ) as AppResult.Success<SelectedStreams>
 
         assertEquals(PlaybackStreamType.MERGED_AV, result.value.streamType)
-        assertEquals(360, result.value.videoStream?.height)
+        assertEquals(720, result.value.videoStream?.height)
     }
 
     @Test
@@ -279,7 +279,7 @@ class StartupQualityPolicyTest {
     }
 
     @Test
-    fun plan_for_progressive_source_switches_once_without_a_start_cap() {
+    fun progressive_source_never_schedules_an_automatic_source_rebuild() {
         val available = StreamSelector.getAvailableQualities(
             StreamInfo(key, "Test", videoStreams = listOf(progressive(240), progressive(720), progressive(1080)))
         )
@@ -291,16 +291,11 @@ class StartupQualityPolicyTest {
             policyMaxHeight = null
         )
 
-        assertNotNull(plan)
-        assertTrue(!plan!!.isAdaptive)
-        // Progressive escalation is a media-source rebuild, so it happens once and never above 720p.
-        assertNull(plan.startCapHeight)
-        assertEquals(listOf(720), plan.heightSteps)
-        assertEquals(720, plan.escalationOption?.height)
+        assertNull(plan)
     }
 
     @Test
-    fun plan_honours_a_user_height_ceiling_below_the_progressive_target() {
+    fun progressive_policy_ceiling_does_not_trigger_a_source_rebuild() {
         val available = StreamSelector.getAvailableQualities(
             StreamInfo(key, "Test", videoStreams = listOf(progressive(240), progressive(480), progressive(720)))
         )
@@ -312,7 +307,7 @@ class StartupQualityPolicyTest {
             policyMaxHeight = 480
         )
 
-        assertEquals(480, plan?.escalationOption?.height)
+        assertNull(plan)
     }
 
     @Test

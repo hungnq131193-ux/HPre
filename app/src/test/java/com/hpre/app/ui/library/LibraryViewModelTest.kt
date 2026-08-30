@@ -15,10 +15,14 @@ import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.test.UnconfinedTestDispatcher
 import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.resetMain
 import kotlinx.coroutines.test.runTest
 import kotlinx.coroutines.test.setMain
+import kotlinx.coroutines.test.runCurrent
+import kotlinx.coroutines.test.advanceTimeBy
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -30,6 +34,60 @@ import org.junit.Test
 class LibraryViewModelTest {
 
     private val testDispatcher = StandardTestDispatcher()
+
+    @Test
+    fun history_pages_keep_all_records_accessible_without_retaining_the_entire_history() = runTest {
+        val historyRepo = FakeHistoryRepo()
+        historyRepo.listFlow.value = (0 until 123).map { index ->
+            WatchHistoryItem(ContentKey(0, "$index"), "https://example.test/$index", "Video $index",
+                null, null, null, 120L, 0L, index.toLong())
+        }
+        val model = LibraryViewModel(historyRepo, FakeSubscriptionRepo(), FakePlaylistRepo())
+        backgroundScope.launch(UnconfinedTestDispatcher(testScheduler)) { model.history.collect {} }
+        backgroundScope.launch(UnconfinedTestDispatcher(testScheduler)) { model.recentHistory.collect {} }
+        runCurrent()
+        assertEquals(123, model.historyCount.value)
+        assertEquals(8, model.recentHistory.value.size)
+        assertEquals(50, model.history.value.size)
+        assertEquals("0", model.history.value.first().key.nativeId)
+        model.nextHistoryPage()
+        runCurrent()
+        assertEquals("50", model.history.value.first().key.nativeId)
+        model.nextHistoryPage()
+        runCurrent()
+        assertEquals(23, model.history.value.size)
+        assertEquals("100", model.history.value.first().key.nativeId)
+        model.nextHistoryPage()
+        runCurrent()
+        assertEquals(2, model.historyPage.value)
+        model.previousHistoryPage()
+        runCurrent()
+        assertEquals("50", model.history.value.first().key.nativeId)
+        model.clearHistory()
+        runCurrent()
+        assertEquals(0, model.historyPage.value)
+        assertTrue(model.history.value.isEmpty())
+    }
+
+    @Test
+    fun inactive_library_does_not_observe_room_tables_and_stops_after_leaving() = runTest {
+        val historyRepo = FakeHistoryRepo()
+        val subRepo = FakeSubscriptionRepo()
+        val playlistRepo = FakePlaylistRepo()
+        val model = LibraryViewModel(historyRepo, subRepo, playlistRepo)
+        runCurrent()
+        assertEquals(0, historyRepo.listFlow.subscriptionCount.value)
+        assertEquals(0, subRepo.subFlow.subscriptionCount.value)
+        assertEquals(0, playlistRepo.playlistsFlow.subscriptionCount.value)
+        val observer = backgroundScope.launch(UnconfinedTestDispatcher(testScheduler)) { model.subscriptions.collect {} }
+        runCurrent()
+        assertEquals(1, subRepo.subFlow.subscriptionCount.value)
+        assertEquals(0, historyRepo.listFlow.subscriptionCount.value)
+        observer.cancel()
+        advanceTimeBy(5_001)
+        runCurrent()
+        assertEquals(0, subRepo.subFlow.subscriptionCount.value)
+    }
 
     private class FakeHistoryRepo : HistoryRepository {
         val listFlow = MutableStateFlow<List<WatchHistoryItem>>(emptyList())
@@ -186,6 +244,7 @@ class LibraryViewModelTest {
         val subRepo = FakeSubscriptionRepo()
         val playlistRepo = FakePlaylistRepo()
         val viewModel = LibraryViewModel(historyRepo, subRepo, playlistRepo)
+        backgroundScope.launch(UnconfinedTestDispatcher(testScheduler)) { viewModel.history.collect {} }
 
         val item1 = WatchHistoryItem(
             key = ContentKey(1, "v1"),
@@ -230,6 +289,7 @@ class LibraryViewModelTest {
         val subRepo = FakeSubscriptionRepo()
         val playlistRepo = FakePlaylistRepo()
         val viewModel = LibraryViewModel(historyRepo, subRepo, playlistRepo)
+        backgroundScope.launch(UnconfinedTestDispatcher(testScheduler)) { viewModel.subscriptions.collect {} }
 
         subRepo.subFlow.value = listOf(
             LocalSubscription(ContentKey(1, "c1"), "https://example.com/c1", "Channel 1", null, 1000L)
@@ -248,6 +308,7 @@ class LibraryViewModelTest {
         val subRepo = FakeSubscriptionRepo()
         val playlistRepo = FakePlaylistRepo()
         val viewModel = LibraryViewModel(historyRepo, subRepo, playlistRepo)
+        backgroundScope.launch(UnconfinedTestDispatcher(testScheduler)) { viewModel.playlists.collect {} }
 
         viewModel.createPlaylist("My Favorite")
         testScheduler.advanceUntilIdle()

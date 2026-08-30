@@ -32,6 +32,7 @@
     <string name="search_history_clear_message">This will delete all search history on this device.</string>
     <string name="search_history_update_failed">Could not update search history.</string>
     <string name="search_idle">Enter to search for videos, channels, and playlists</string>
+    <string name="search_window_restart">Keeping the latest 300 results · Back to the first results</string>
     <string name="search_empty">No results found for "%1$s"</string>
     <string name="search_filter_all">All</string>
     <string name="search_filter_videos">Videos</string>
@@ -51,6 +52,9 @@
     <string name="subscription_following_local">Following</string>
     <string name="screen_history">Watch history</string>
     <string name="history_empty">No watch history yet</string>
+    <string name="history_previous_page">Previous</string>
+    <string name="history_next_page">Next</string>
+    <string name="history_page">%1$d / %2$d</string>
     <string name="history_clear">Clear history</string>
     <string name="history_clear_title">Clear watch history?</string>
     <string name="history_clear_message">This will delete all watch history on this device.</string>
@@ -79,6 +83,13 @@
     <string name="screen_related_videos">Related videos</string>
     <string name="related_videos_empty">No related videos</string>
     <string name="comments_load_more">Load more</string>
+    <string name="comments_expand">Show comments</string>
+    <string name="comments_collapse">Hide comments</string>
+    <string name="comment_read_more">Read more</string>
+    <string name="comment_read_less">Show less</string>
+    <string name="comments_page_error">Could not load the next comments. Previously loaded comments are still available.</string>
+    <string name="comments_window_notice">Keeping up to 200 comments in memory.</string>
+    <string name="comments_restart">Back to the first comments</string>
     <string name="comments_author_avatar">Avatar of %1$s</string>
     <string name="comments_like_count">%1$s likes</string>
     <plurals name="comments_reply_count">

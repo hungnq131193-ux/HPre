@@ -205,7 +205,7 @@ class RecommendationRepositoryTest {
 
         val result = repository.home(RecommendationRequest(limit = 100)).valueOrThrow()
 
-        assertTrue("Max concurrent searches ${fake.maxConcurrentSearches} > 6", fake.maxConcurrentSearches <= 6)
+        assertTrue("Max concurrent background searches ${fake.maxConcurrentSearches} > 2", fake.maxConcurrentSearches <= 2)
         assertTrue("Page count by query exceeded 2: ${fake.pageCountByQuery}", fake.pageCountByQuery.values.all { it <= 2 })
         assertTrue("Continuation calls ${fake.continuationCalls} > 6", fake.continuationCalls <= 6)
         assertEquals(100, result.size)
