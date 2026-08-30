@@ -110,7 +110,8 @@ class MiniPlayerTest {
         composeTestRule.onNodeWithTag("mini-player", useUnmergedTree = true).assertExists()
         composeTestRule.onNodeWithTag("mini-player", useUnmergedTree = true).assertIsDisplayed()
         composeTestRule.onNodeWithText("Mini player title").assertIsDisplayed()
-        composeTestRule.onNodeWithText("Đang phát").assertIsDisplayed()
+        val context = androidx.test.core.app.ApplicationProvider.getApplicationContext<android.content.Context>()
+        composeTestRule.onNodeWithText(context.getString(com.hpre.app.R.string.status_playing)).assertIsDisplayed()
 
         // Play/Pause interaction
         composeTestRule.onNodeWithTag("mini_player_play_pause_button").performClick()

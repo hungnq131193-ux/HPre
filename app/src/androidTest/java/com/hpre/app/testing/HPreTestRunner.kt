@@ -39,6 +39,17 @@ class HPreTestRunner : AndroidJUnitRunner() {
         super.onCreate(modifiedArgs)
     }
 
+    override fun onStart() {
+        listOf(
+            "input keyevent KEYCODE_WAKEUP",
+            "wm dismiss-keyguard",
+            "svc power stayon true"
+        ).forEach { command ->
+            uiAutomation.executeShellCommand(command).close()
+        }
+        super.onStart()
+    }
+
     private fun isLiveRequested(args: Bundle?): Boolean {
         val arg = args?.getString("hpreLivePlayback")
             ?: System.getProperty("hpreLivePlayback")

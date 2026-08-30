@@ -31,6 +31,13 @@ class WatchRecreationTest {
         val sharedPlayer = app.recordingPlayer
         val testContainer = app.testContainer
         val recordingFactory = testContainer.fullscreenHostHandlerFactory
+        sharedPlayer._state.value = com.hpre.app.player.PlaybackState(
+            key = app.testKey,
+            isPlaying = true,
+            playWhenReady = true,
+            durationMs = 60_000L,
+            currentPositionMs = 12_000L
+        )
 
         // 1. Wait for Home screen video card and click it to navigate to Watch route
         composeTestRule.waitUntil(10000) {

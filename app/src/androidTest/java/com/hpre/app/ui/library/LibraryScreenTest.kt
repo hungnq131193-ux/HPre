@@ -293,7 +293,8 @@ class LibraryScreenTest {
 
         composeRule.waitForIdle()
         assertTrue(historyRepo.listFlow.value.isEmpty())
-        composeRule.onNodeWithText("No watch history").assertIsDisplayed()
+        val context = androidx.test.core.app.ApplicationProvider.getApplicationContext<android.content.Context>()
+        composeRule.onNodeWithText(context.getString(com.hpre.app.R.string.history_empty)).assertIsDisplayed()
     }
 
     @Test
@@ -323,7 +324,8 @@ class LibraryScreenTest {
         composeRule.onNodeWithTag("unsubscribe_button_c1").performClick()
         composeRule.waitForIdle()
         assertTrue(subRepo.subFlow.value.isEmpty())
-        composeRule.onNodeWithText("Chưa theo dõi kênh nào").assertIsDisplayed()
+        val context = androidx.test.core.app.ApplicationProvider.getApplicationContext<android.content.Context>()
+        composeRule.onNodeWithText(context.getString(com.hpre.app.R.string.subscriptions_empty)).assertIsDisplayed()
     }
 
     @Test
@@ -348,12 +350,15 @@ class LibraryScreenTest {
 
         composeRule.onNodeWithTag("settings_screen").assertIsDisplayed()
         composeRule.onNodeWithTag("setting_check_update_item").performScrollTo().assertIsDisplayed()
-        composeRule.onNodeWithText("Phiên bản hiện tại: 1.0.0").assertIsDisplayed()
+        val context = androidx.test.core.app.ApplicationProvider.getApplicationContext<android.content.Context>()
+        composeRule.onNodeWithText(context.getString(com.hpre.app.R.string.settings_current_version, "1.0.0")).assertIsDisplayed()
         assertEquals(0, updateCheckCalls)
 
         composeRule.onNodeWithTag("setting_check_update_item").performClick()
         composeRule.waitUntil(timeoutMillis = 5_000) { updateCheckCalls == 1 }
-        composeRule.onNodeWithText("Bạn đang dùng phiên bản mới nhất.").assertIsDisplayed()
+        composeRule.onNodeWithText(context.getString(com.hpre.app.R.string.settings_update_current))
+            .performScrollTo()
+            .assertIsDisplayed()
 
         // Toggle background playback
         composeRule.onNodeWithTag("setting_background_playback_switch").performClick()
@@ -371,7 +376,7 @@ class LibraryScreenTest {
         assertFalse(settingsRepo.settingsFlow.value.historyEnabled)
 
         // Select Theme
-        composeRule.onNodeWithTag("setting_theme_item").performClick()
+        composeRule.onNodeWithTag("setting_theme_item").performScrollTo().performClick()
         composeRule.onNodeWithTag("theme_option_DARK").performClick()
         composeRule.waitForIdle()
         assertEquals(AppTheme.DARK, settingsRepo.settingsFlow.value.theme)

@@ -42,6 +42,7 @@ import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.flatMapLatest
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.distinctUntilChanged
@@ -134,6 +135,7 @@ class WatchViewModel(
     companion object {
         const val KEY_IS_FULLSCREEN = "watch_is_fullscreen"
         internal const val RESUME_LOOKUP_TIMEOUT_MS = 1_500L
+        internal const val COMMENTS_READY_FALLBACK_MS = 2_000L
 
         fun provideFactory(
             videoService: VideoService,
@@ -254,6 +256,7 @@ class WatchViewModel(
     private var loadJob: Job? = null
     private var relatedJob: Job? = null
     private var commentsJob: Job? = null
+    private var commentsGateJob: Job? = null
     private var commentsInFlight = false
 
     private suspend fun loadResumePosition(key: ContentKey): Long {
@@ -285,6 +288,7 @@ class WatchViewModel(
                 loadJob?.cancel()
                 relatedJob?.cancel()
                 commentsJob?.cancel()
+                commentsGateJob?.cancel()
                 commentsInFlight = false
                 currentKey = key
                 relatedGeneration++
@@ -349,7 +353,7 @@ class WatchViewModel(
                             executeRelated(key, cachedSnapshot.details, forceRefresh = false, isRefresh = false)
                         }
                         if (cachedSnapshot.comments == null) {
-                            loadComments(key, generation, null, append = false)
+                            scheduleInitialComments(key, generation)
                         }
                     } catch (cancelled: CancellationException) {
                         throw cancelled
@@ -364,7 +368,7 @@ class WatchViewModel(
                     executeRelated(key, cachedSnapshot.details, forceRefresh = false, isRefresh = false)
                 }
                 if (cachedSnapshot.comments == null) {
-                    loadComments(key, generation, null, append = false)
+                    scheduleInitialComments(key, generation)
                 }
             }
             return
@@ -374,6 +378,7 @@ class WatchViewModel(
             loadJob?.cancel()
             relatedJob?.cancel()
             commentsJob?.cancel()
+            commentsGateJob?.cancel()
             commentsInFlight = false
             currentKey = key
             relatedGeneration++
@@ -469,7 +474,7 @@ class WatchViewModel(
                 if (watchRecommendationSource == null) {
                     executeRelated(key, null, forceRefresh = forceRefresh, isRefresh = false)
                 }
-                loadComments(key, generation, null, append = false)
+                scheduleInitialComments(key, generation)
 
                 detailsJob.join()
             } catch (ce: CancellationException) {
@@ -616,6 +621,18 @@ class WatchViewModel(
     }
 
     private data class Tuple5<A, B, C, D, E>(val a: A, val b: B, val c: C, val d: D, val e: E)
+
+    private fun scheduleInitialComments(key: ContentKey, generation: Long) {
+        commentsGateJob?.cancel()
+        commentsGateJob = viewModelScope.launch(ioDispatcher) {
+            withTimeoutOrNull(COMMENTS_READY_FALLBACK_MS) {
+                playerController.state.first { state -> state.key == key && state.isReady }
+            }
+            if (generation == currentGeneration && currentKey == key) {
+                loadComments(key, generation, null, append = false)
+            }
+        }
+    }
 
     fun retryComments() = currentKey?.let {
         loadComments(it, currentGeneration, null, append = false)

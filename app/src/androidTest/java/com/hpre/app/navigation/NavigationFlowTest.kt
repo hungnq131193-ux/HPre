@@ -308,12 +308,13 @@ class NavigationFlowTest {
         }
 
         val chanKey = ContentKey(0, "chan_abc/123")
+        val context = androidx.test.core.app.ApplicationProvider.getApplicationContext<android.content.Context>()
         composeTestRule.runOnUiThread {
             navController?.navigate(Screen.ChannelUnavailable.createRoute(chanKey))
         }
 
         composeTestRule.onNodeWithTag("channel_unavailable_screen").assertIsDisplayed()
-        composeTestRule.onNodeWithText("Channel (chan_abc/123) Unavailable").assertIsDisplayed()
+        composeTestRule.onNodeWithText(context.getString(com.hpre.app.R.string.channel_unavailable, chanKey.nativeId)).assertIsDisplayed()
 
         val playKey = ContentKey(0, "playlist_xyz")
         composeTestRule.runOnUiThread {
@@ -321,7 +322,7 @@ class NavigationFlowTest {
         }
 
         composeTestRule.onNodeWithTag("playlist_unavailable_screen").assertIsDisplayed()
-        composeTestRule.onNodeWithText("Playlist (playlist_xyz) Unavailable").assertIsDisplayed()
+        composeTestRule.onNodeWithText(context.getString(com.hpre.app.R.string.playlist_unavailable, playKey.nativeId)).assertIsDisplayed()
     }
 
     @Test

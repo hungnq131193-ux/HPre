@@ -7,10 +7,12 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.semantics.SemanticsActions
 import androidx.compose.ui.test.assertCountEquals
+import androidx.compose.ui.test.assertContentDescriptionContains
 import androidx.compose.ui.test.assertHeightIsAtLeast
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.assertIsEnabled
 import androidx.compose.ui.test.assertIsNotEnabled
+import androidx.compose.ui.test.assertTextEquals
 import androidx.compose.ui.test.hasTestTag
 import androidx.compose.ui.test.hasText
 import androidx.compose.ui.test.junit4.createComposeRule
@@ -59,7 +61,9 @@ class WatchScreenTest {
 
     private val testKey = ContentKey(0, "watch_ui_test_video")
 
-    private class FakePlayerController : PlayerController {
+    private class FakePlayerController(
+        private val preparedPlaying: Boolean? = null
+    ) : PlayerController {
         val _state = MutableStateFlow(PlaybackState())
         override val state: StateFlow<PlaybackState> = _state
 
@@ -90,8 +94,8 @@ class WatchScreenTest {
         ) {
             _state.value = PlaybackState(
                 key = key,
-                isPlaying = playWhenReady,
-                playWhenReady = playWhenReady,
+                isPlaying = preparedPlaying ?: playWhenReady,
+                playWhenReady = preparedPlaying ?: playWhenReady,
                 durationMs = 60_000L,
                 currentPositionMs = 5_000L,
                 availableQualities = listOf(
@@ -311,7 +315,7 @@ class WatchScreenTest {
             videoHandler = { AppResult.Success(testDetails(it)) },
             streamInfoHandler = { AppResult.Success(StreamInfo(it, "Title", hlsManifestUrl = "https://manifest.m3u8")) }
         )
-        val fakePlayer = FakePlayerController()
+        val fakePlayer = FakePlayerController(preparedPlaying = false)
         val viewModel = WatchViewModel(
             videoService = fakeService,
             playerController = fakePlayer,
@@ -328,43 +332,45 @@ class WatchScreenTest {
             }
         }
 
-        // Wait for player container to be displayed
+        // Wait for the asynchronous prepare to publish the controls. The paused
+        // fixture keeps them visible without racing the production auto-hide.
         composeTestRule.waitUntil(5000) {
-            composeTestRule.onAllNodes(androidx.compose.ui.test.hasTestTag("player_container"))
+            composeTestRule.onAllNodes(androidx.compose.ui.test.hasTestTag("control_play_pause"))
                 .fetchSemanticsNodes().isNotEmpty()
         }
 
         // Controls expose localized accessibility descriptions.
-        composeTestRule.onNodeWithContentDescription("Tạm dừng").assertIsDisplayed()
-        composeTestRule.onNodeWithContentDescription("Tua lùi 10 giây").assertIsDisplayed()
-        composeTestRule.onNodeWithContentDescription("Tua tới 10 giây").assertIsDisplayed()
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        composeTestRule.onNodeWithContentDescription(context.getString(com.hpre.app.R.string.action_play)).assertExists()
+        composeTestRule.onNodeWithContentDescription(context.getString(com.hpre.app.R.string.action_rewind_10)).assertExists()
+        composeTestRule.onNodeWithContentDescription(context.getString(com.hpre.app.R.string.action_forward_10)).assertExists()
 
         // Test play/pause toggle dispatch
-        composeTestRule.onNodeWithTag("control_play_pause").assertIsDisplayed()
+        composeTestRule.onNodeWithTag("control_play_pause").assertExists()
         composeTestRule.onNodeWithTag("control_play_pause").performClick()
         assertTrue("playPause should be dispatched to controller", fakePlayer.playPauseCalled)
 
         // Test rewind 10s dispatch
-        composeTestRule.onNodeWithTag("control_rewind_10").assertIsDisplayed()
+        composeTestRule.onNodeWithTag("control_rewind_10").assertExists()
         composeTestRule.onNodeWithTag("control_rewind_10").performClick()
         assertEquals(-10_000L, fakePlayer.seekDeltaCalled)
 
         // Test fast forward 10s dispatch
-        composeTestRule.onNodeWithTag("control_forward_10").assertIsDisplayed()
+        composeTestRule.onNodeWithTag("control_forward_10").assertExists()
         composeTestRule.onNodeWithTag("control_forward_10").performClick()
         assertEquals(10_000L, fakePlayer.seekDeltaCalled)
 
         // Test speed menu selection dispatch
-        composeTestRule.onNodeWithTag("control_speed_button").assertIsDisplayed()
+        composeTestRule.onNodeWithTag("control_speed_button").assertExists()
         composeTestRule.onNodeWithTag("control_speed_button").performClick()
-        composeTestRule.onNodeWithTag("speed_option_1.5").assertIsDisplayed()
+        composeTestRule.onNodeWithTag("speed_option_1.5").assertExists()
         composeTestRule.onNodeWithTag("speed_option_1.5").performClick()
         assertEquals(1.5f, fakePlayer.speedSelected ?: 0f, 0.01f)
 
         // Test quality menu selection dispatch
-        composeTestRule.onNodeWithTag("control_quality_button").assertIsDisplayed()
+        composeTestRule.onNodeWithTag("control_quality_button").assertExists()
         composeTestRule.onNodeWithTag("control_quality_button").performClick()
-        composeTestRule.onNodeWithTag("quality_option_720").assertIsDisplayed()
+        composeTestRule.onNodeWithTag("quality_option_720").assertExists()
         composeTestRule.onNodeWithTag("quality_option_720").performClick()
         assertEquals(720, fakePlayer.qualitySelected?.height)
     }
@@ -1159,10 +1165,14 @@ class WatchScreenTest {
         composeTestRule.waitForIdle()
         assertEquals(1, loadMoreCallCount)
 
-        // 2. ViewModel completes page 2 with new token tok_page_3 while sentinel remains visible
+        // 2. ViewModel completes page 2 with a new token. The taller open-row
+        // layout may move the sentinel below the viewport, so reach it again.
         commentsState = com.hpre.app.ui.common.AsyncState.Content(
             com.hpre.app.model.CommentPage(page1 + page2, nextPageToken = com.hpre.app.model.PageToken.Id("tok_page_3"))
         )
+        composeTestRule.waitForIdle()
+        composeTestRule.onNodeWithTag("watch_lazy_column")
+            .performScrollToNode(hasTestTag("comments_load_more_sentinel"))
         composeTestRule.waitForIdle()
 
         // Token change must trigger next page (page 3) exactly once
@@ -1177,6 +1187,73 @@ class WatchScreenTest {
         // Sentinel removed, no more loadMore calls
         composeTestRule.onNodeWithTag("comments_load_more_sentinel").assertDoesNotExist()
         assertEquals(2, loadMoreCallCount)
+    }
+
+    @Test
+    fun comments_open_row_displays_author_age_body_likes_and_replies() {
+        val comment = com.hpre.app.model.Comment(
+            commentId = "complete",
+            authorName = "Minh Anh",
+            authorAvatarUrl = "https://example.test/avatar.jpg",
+            channelKey = null,
+            commentText = "Nội dung bình luận",
+            publishedTimestamp = System.currentTimeMillis() - 7_200_000L,
+            likeCount = 128L,
+            replyCount = 12L
+        )
+        composeTestRule.setContent {
+            HPreTheme {
+                WatchMetadataContent(
+                    details = testDetails(testKey),
+                    commentsState = com.hpre.app.ui.common.AsyncState.Content(
+                        com.hpre.app.model.CommentPage(listOf(comment))
+                    )
+                )
+            }
+        }
+
+        composeTestRule.onNodeWithTag("watch_lazy_column")
+            .performScrollToNode(hasTestTag("comment_complete"))
+        composeTestRule.onNodeWithTag("comment_author_complete").assertTextEquals("Minh Anh")
+        composeTestRule.onNodeWithTag("comment_age_complete").assertIsDisplayed()
+        composeTestRule.onNodeWithTag("comment_body_complete").assertTextEquals("Nội dung bình luận")
+        composeTestRule.onNodeWithTag("comment_likes_complete").assertIsDisplayed()
+        composeTestRule.onNodeWithTag("comment_replies_complete").assertIsDisplayed()
+        composeTestRule.onNodeWithTag("comment_avatar_complete")
+            .assertContentDescriptionContains("Minh Anh", substring = true)
+    }
+
+    @Test
+    fun comments_open_row_uses_initial_and_omits_missing_metadata() {
+        val comment = com.hpre.app.model.Comment(
+            commentId = "fallback",
+            authorName = "Linh",
+            authorAvatarUrl = null,
+            channelKey = null,
+            commentText = "Bình luận ngắn",
+            publishedTimestamp = null,
+            likeCount = null,
+            replyCount = null
+        )
+        composeTestRule.setContent {
+            HPreTheme {
+                WatchMetadataContent(
+                    details = testDetails(testKey),
+                    commentsState = com.hpre.app.ui.common.AsyncState.Content(
+                        com.hpre.app.model.CommentPage(listOf(comment))
+                    )
+                )
+            }
+        }
+
+        composeTestRule.onNodeWithTag("watch_lazy_column")
+            .performScrollToNode(hasTestTag("comment_fallback"))
+        composeTestRule.onNodeWithTag("comment_avatar_fallback")
+            .assertTextEquals("L")
+            .assertContentDescriptionContains("Linh", substring = true)
+        composeTestRule.onNodeWithTag("comment_age_fallback").assertDoesNotExist()
+        composeTestRule.onNodeWithTag("comment_likes_fallback").assertDoesNotExist()
+        composeTestRule.onNodeWithTag("comment_replies_fallback").assertDoesNotExist()
     }
 
     @Test
@@ -1304,6 +1381,13 @@ class WatchScreenTest {
                     contentKey = testKey,
                     viewModel = viewModel,
                     onNavigateBack = {},
+                    fullscreenHostHandlerFactory = FullscreenHostHandlerFactory {
+                        _, _ -> object : FullscreenHostHandler {
+                            override fun enterFullscreen() = Unit
+                            override fun exitFullscreen() = Unit
+                            override fun onConfigurationChange() = Unit
+                        }
+                    },
                     onMinimizeToHome = { minimizeCalls++ }
                 )
             }
@@ -1316,7 +1400,7 @@ class WatchScreenTest {
 
         // Downward swipe on player overlay
         composeTestRule.onNodeWithTag("player_controls_overlay").performTouchInput {
-            swipeDown(startY = centerY, endY = centerY + 300f)
+            swipeDown(startY = top + height * 0.2f, endY = bottom - 1f)
         }
         composeTestRule.waitForIdle()
 
@@ -1344,6 +1428,13 @@ class WatchScreenTest {
                     contentKey = testKey,
                     viewModel = viewModel,
                     onNavigateBack = {},
+                    fullscreenHostHandlerFactory = FullscreenHostHandlerFactory {
+                        _, _ -> object : FullscreenHostHandler {
+                            override fun enterFullscreen() = Unit
+                            override fun exitFullscreen() = Unit
+                            override fun onConfigurationChange() = Unit
+                        }
+                    },
                     onMinimizeToHome = { minimizeCalls++ }
                 )
             }
@@ -1363,7 +1454,7 @@ class WatchScreenTest {
 
         // Downward swipe in fullscreen overlay
         composeTestRule.onNodeWithTag("player_controls_overlay").performTouchInput {
-            swipeDown(startY = centerY, endY = centerY + 300f)
+            swipeDown(startY = top + height * 0.2f, endY = bottom - 1f)
         }
         composeTestRule.waitForIdle()
 
@@ -1404,7 +1495,7 @@ class WatchScreenTest {
 
         // Downward swipe in PiP mode
         composeTestRule.onNodeWithTag("player_controls_overlay").performTouchInput {
-            swipeDown(startY = centerY, endY = centerY + 300f)
+            swipeDown(startY = top + height * 0.2f, endY = bottom - 1f)
         }
         composeTestRule.waitForIdle()
 
@@ -1695,6 +1786,13 @@ class WatchScreenTest {
                     contentKey = testKey,
                     viewModel = viewModel,
                     onNavigateBack = {},
+                    fullscreenHostHandlerFactory = FullscreenHostHandlerFactory {
+                        _, _ -> object : FullscreenHostHandler {
+                            override fun enterFullscreen() = Unit
+                            override fun exitFullscreen() = Unit
+                            override fun onConfigurationChange() = Unit
+                        }
+                    },
                     onMinimizeToHome = { minimizeCalls++ }
                 )
             }

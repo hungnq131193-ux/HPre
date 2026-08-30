@@ -20,7 +20,7 @@ import kotlinx.coroutines.withContext
 internal class VideoExtractionCoordinator(
     private val scope: CoroutineScope,
     private val ttlMs: Long = 20_000L,
-    private val maxEntries: Int = 8,
+    private val maxEntries: Int = 16,
     private val nowMs: () -> Long = { System.nanoTime() / 1_000_000L },
     private val countExtractions: Boolean = BuildConfig.DEBUG
 ) {

@@ -1,5 +1,6 @@
 package com.hpre.app.ui.common
 
+import java.util.Locale
 import org.junit.Assert.assertEquals
 import org.junit.Test
 
@@ -42,13 +43,14 @@ class VideoFormatTest {
     @Test
     fun age_formats_vietnamese_relative_time() {
         val now = 2_000_000_000_000L
-        assertEquals("vừa xong", VideoFormat.age(now, now))
-        assertEquals("5 phút trước", VideoFormat.age(now - 5 * 60_000L, now))
-        assertEquals("3 giờ trước", VideoFormat.age(now - 3 * 3_600_000L, now))
-        assertEquals("6 ngày trước", VideoFormat.age(now - 6 * 86_400_000L, now))
-        assertEquals("2 tuần trước", VideoFormat.age(now - 14 * 86_400_000L, now))
-        assertEquals("3 tháng trước", VideoFormat.age(now - 90 * 86_400_000L, now))
-        assertEquals("2 năm trước", VideoFormat.age(now - 730 * 86_400_000L, now))
+        val locale = Locale("vi", "VN")
+        assertEquals("vừa xong", VideoFormat.age(now, now, locale))
+        assertEquals("5 phút trước", VideoFormat.age(now - 5 * 60_000L, now, locale))
+        assertEquals("3 giờ trước", VideoFormat.age(now - 3 * 3_600_000L, now, locale))
+        assertEquals("6 ngày trước", VideoFormat.age(now - 6 * 86_400_000L, now, locale))
+        assertEquals("2 tuần trước", VideoFormat.age(now - 14 * 86_400_000L, now, locale))
+        assertEquals("3 tháng trước", VideoFormat.age(now - 90 * 86_400_000L, now, locale))
+        assertEquals("2 năm trước", VideoFormat.age(now - 730 * 86_400_000L, now, locale))
     }
 
     @Test
@@ -56,5 +58,15 @@ class VideoFormatTest {
         val now = 2_000_000_000_000L
         assertEquals("", VideoFormat.age(null, now))
         assertEquals("", VideoFormat.age(now + 1, now))
+    }
+
+    @Test
+    fun age_uses_vietnamese_for_vi_locale() {
+        assertEquals("2 giờ trước", VideoFormat.age(0L, 7_200_000L, Locale("vi", "VN")))
+    }
+
+    @Test
+    fun age_uses_english_for_en_locale() {
+        assertEquals("2 hours ago", VideoFormat.age(0L, 7_200_000L, Locale.ENGLISH))
     }
 }

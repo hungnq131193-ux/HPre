@@ -326,14 +326,7 @@ fun NavHostController.navigateToHomeFromWatch() {
     }
 
     if (homeEntryExists) {
-        navigate(Screen.Home.route) {
-            popUpTo(Screen.Home.route) {
-                inclusive = false
-                saveState = true
-            }
-            launchSingleTop = true
-            restoreState = true
-        }
+        popBackStack(Screen.Home.route, inclusive = false)
     } else {
         val currentDestinationId = currentBackStackEntry?.destination?.id
         navigate(Screen.Home.route) {

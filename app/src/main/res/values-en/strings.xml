@@ -79,6 +79,12 @@
     <string name="screen_related_videos">Related videos</string>
     <string name="related_videos_empty">No related videos</string>
     <string name="comments_load_more">Load more</string>
+    <string name="comments_author_avatar">Avatar of %1$s</string>
+    <string name="comments_like_count">%1$s likes</string>
+    <plurals name="comments_reply_count">
+        <item quantity="one">%d reply</item>
+        <item quantity="other">%d replies</item>
+    </plurals>
     <string name="action_rewind_10">Rewind 10 seconds</string>
     <string name="action_forward_10">Forward 10 seconds</string>
     <string name="action_enter_fullscreen">Enter fullscreen</string>

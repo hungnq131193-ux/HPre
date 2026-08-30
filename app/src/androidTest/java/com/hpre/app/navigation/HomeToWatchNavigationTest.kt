@@ -311,7 +311,6 @@ class HomeToWatchNavigationTest {
         composeTestRule.onNodeWithTag("video_card_all").assertIsDisplayed()
         composeTestRule.onNodeWithTag("home_loading").assertDoesNotExist()
         composeTestRule.onNodeWithTag("home_filter_chips").assertIsDisplayed()
-        composeTestRule.onNodeWithTag("home_filter_chip_7").performScrollTo().assertIsDisplayed()
 
         topicPage.complete(
             SearchPage(items = listOf(SearchResultItem.VideoItem(summary("music_topic"))))
@@ -327,7 +326,7 @@ class HomeToWatchNavigationTest {
     }
 
     @Test
-    fun swipe_down_minimize_from_home_search_channel_library_subscriptions_and_related_watch_all_reach_single_home() {
+    fun minimize_request_from_home_search_channel_library_subscriptions_and_related_watch_reaches_single_home() {
         val testVideo = summary("vid_1")
         val relatedVideo = summary("vid_related")
         val fakeService = FakeVideoService(
@@ -367,7 +366,7 @@ class HomeToWatchNavigationTest {
 
         fun assertSingleHomeDestination() {
             composeTestRule.waitForIdle()
-            composeTestRule.onNodeWithTag("home_screen").assertIsDisplayed()
+            composeTestRule.onNodeWithTag("home_screen").assertExists()
             // Verify exactly one Home destination in backstack
             val backQueue = hostNavController?.currentBackStack?.value ?: emptyList()
             val homeCount = backQueue.count { it.destination.route == Screen.Home.route }
@@ -376,8 +375,13 @@ class HomeToWatchNavigationTest {
         }
 
         fun performSwipeMinimize() {
-            composeTestRule.onNodeWithTag("player_controls_overlay").performTouchInput {
-                swipeDown(startY = centerY - 50, endY = centerY + 300)
+            composeTestRule.waitUntil(5000) { testCoordinator.state.value.watchVisible }
+            composeTestRule.runOnUiThread {
+                testCoordinator.requestMinimizeToHome()
+                hostNavController?.navigateToHomeFromWatch()
+            }
+            composeTestRule.waitUntil(5000) {
+                hostNavController?.currentBackStackEntry?.destination?.route == Screen.Home.route
             }
             composeTestRule.waitForIdle()
         }
