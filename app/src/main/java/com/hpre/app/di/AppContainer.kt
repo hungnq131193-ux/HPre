@@ -68,6 +68,8 @@ interface AppContainer {
         get() = CatalogTopicFeedSource(catalogRepository)
     val fullscreenHostHandlerFactory: FullscreenHostHandlerFactory
     val okHttpClient: OkHttpClient
+    val mediaCacheManager: com.hpre.app.player.cache.MediaCacheManager?
+        get() = null
     val mediaSourceFactory: MediaSourceFactory
     val playbackPreferences: com.hpre.app.settings.PlaybackPreferences
     val settingsRepository: com.hpre.app.settings.SettingsRepository
@@ -155,11 +157,16 @@ class DefaultAppContainer(
         )
     }
 
+    override val mediaCacheManager: com.hpre.app.player.cache.MediaCacheManager by lazy {
+        com.hpre.app.player.cache.DefaultMediaCacheManager(appContext)
+    }
+
     override val mediaSourceFactory: MediaSourceFactory by lazy {
         MediaSourceFactory(
             context = appContext,
             okHttpClient = okHttpClient,
-            httpConfig = PlayerHttpConfig()
+            httpConfig = PlayerHttpConfig(),
+            cacheManager = mediaCacheManager
         )
     }
 

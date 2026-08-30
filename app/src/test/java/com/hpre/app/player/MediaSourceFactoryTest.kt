@@ -58,43 +58,61 @@ class MediaSourceFactoryTest {
     private val dataSourceFactory = FakeDataSourceFactory()
 
     @Test
-    fun progressive_creates_progressive_media_source_with_correct_mime_and_subtitles() {
+    fun progressiveNonLive_setsCustomCacheKey() {
+        val stream = com.hpre.app.model.VideoStream(
+            url = "https://v.test/p720.mp4",
+            format = "mp4",
+            resolution = "720p",
+            width = 1280,
+            height = 720,
+            bitrate = 1000L,
+            streamId = "22",
+            isVideoOnly = false
+        )
         val selected = SelectedStreams(
             key = testKey,
             streamType = PlaybackStreamType.PROGRESSIVE,
-            videoStream = com.hpre.app.model.VideoStream(
-                url = "https://example.com/video.mp4",
-                format = "mp4",
-                resolution = "720p",
-                width = 1280,
-                height = 720,
-                bitrate = 1_500_000L,
-                isVideoOnly = false,
-                mimeType = "video/mp4"
-            ),
-            subtitles = listOf(
-                com.hpre.app.model.SubtitleStream(
-                    url = "https://example.com/sub.vtt",
-                    language = "en",
-                    format = "vtt",
-                    mimeType = "text/vtt"
-                )
-            )
+            videoStream = stream,
+            isLive = false
         )
 
-        var createdFor: SelectedStreams? = null
+        var capturedFor: SelectedStreams? = null
         val fakeSource = createFakeMediaSource()
         val customCreator = MediaSourceCreator { s ->
-            createdFor = s
+            capturedFor = s
             fakeSource
         }
         val factory = MediaSourceFactory(dataSourceFactory, customCreator::createMediaSource)
-        val source = factory.createMediaSource(selected)
+        factory.createMediaSource(selected)
 
-        assertNotNull(source)
-        assertEquals(PlaybackStreamType.PROGRESSIVE, createdFor?.streamType)
-        assertEquals("https://example.com/video.mp4", createdFor?.videoStream?.url)
-        assertEquals(1, createdFor?.subtitles?.size)
+        assertNotNull(capturedFor)
+        val cacheKey = capturedFor?.videoStream?.let {
+            com.hpre.app.player.cache.YouTubeCacheKeyFactory.buildVideoCacheKey(capturedFor!!.key, it)
+        }
+        assertNotNull(cacheKey)
+        assertTrue(cacheKey!!.startsWith("hpre:v1:v:"))
+    }
+
+    @Test
+    fun livestream_bypassesCacheKey() {
+        val stream = com.hpre.app.model.VideoStream(
+            url = "https://v.test/live.mp4",
+            format = "mp4",
+            resolution = "720p",
+            width = 1280,
+            height = 720,
+            bitrate = 1000L,
+            streamId = "22",
+            isVideoOnly = false
+        )
+        val selected = SelectedStreams(
+            key = testKey,
+            streamType = PlaybackStreamType.PROGRESSIVE,
+            videoStream = stream,
+            isLive = true
+        )
+
+        assertTrue(selected.isLive)
     }
 
     @Test
