@@ -32,12 +32,27 @@ object VideoFormat {
         return "${formatter.format(value)} $unit lượt xem"
     }
 
-    fun age(publishedTimestamp: Long?, now: Long): String {
+    fun age(
+        publishedTimestamp: Long?,
+        now: Long,
+        locale: Locale = Locale.getDefault()
+    ): String {
         if (publishedTimestamp == null || publishedTimestamp > now) return ""
         val elapsed = now - publishedTimestamp
         val minutes = elapsed / 60_000L
         val hours = elapsed / 3_600_000L
         val days = elapsed / 86_400_000L
+        if (locale.language != "vi") {
+            return when {
+                minutes < 1 -> "just now"
+                hours < 1 -> "${minutes} ${if (minutes == 1L) "minute" else "minutes"} ago"
+                days < 1 -> "${hours} ${if (hours == 1L) "hour" else "hours"} ago"
+                days < 7 -> "${days} ${if (days == 1L) "day" else "days"} ago"
+                days < 30 -> (days / 7).let { "$it ${if (it == 1L) "week" else "weeks"} ago" }
+                days < 365 -> (days / 30).let { "$it ${if (it == 1L) "month" else "months"} ago" }
+                else -> (days / 365).let { "$it ${if (it == 1L) "year" else "years"} ago" }
+            }
+        }
         return when {
             minutes < 1 -> "vừa xong"
             hours < 1 -> "$minutes phút trước"

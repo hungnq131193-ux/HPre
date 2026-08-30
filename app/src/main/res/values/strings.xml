@@ -79,6 +79,12 @@
     <string name="screen_related_videos">Video liên quan</string>
     <string name="related_videos_empty">Không có video liên quan</string>
     <string name="comments_load_more">Tải thêm</string>
+    <string name="comments_author_avatar">Ảnh đại diện của %1$s</string>
+    <string name="comments_like_count">%1$s lượt thích</string>
+    <plurals name="comments_reply_count">
+        <item quantity="one">%d phản hồi</item>
+        <item quantity="other">%d phản hồi</item>
+    </plurals>
     <string name="action_rewind_10">Tua lùi 10 giây</string>
     <string name="action_forward_10">Tua tới 10 giây</string>
     <string name="action_enter_fullscreen">Mở toàn màn hình</string>
