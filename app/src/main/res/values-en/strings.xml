@@ -145,6 +145,7 @@
     <string name="settings_clear_video_cache_summary">Clear temporarily stored video data. It will be fetched again when needed.</string>
     <string name="settings_clear_video_cache_title">Clear video cache?</string>
     <string name="settings_clear_video_cache_message">This will delete temporarily stored video data on this device.</string>
+    <string name="settings_clear_video_cache_error">Could not clear the entire video cache. Please try again.</string>
     <string name="settings_wifi_quality">Quality on Wi-Fi</string>
     <string name="settings_mobile_quality">Quality on mobile data</string>
     <string name="settings_choose_wifi_quality">Choose Wi-Fi quality</string>

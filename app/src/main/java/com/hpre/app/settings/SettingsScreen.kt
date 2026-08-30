@@ -51,6 +51,7 @@ fun SettingsScreen(
 ) {
     val settings by viewModel.settingsState.collectAsStateWithLifecycle()
     val updateState by viewModel.updateState.collectAsStateWithLifecycle()
+    val videoCacheClearState by viewModel.videoCacheClearState.collectAsStateWithLifecycle()
 
     var showThemeDialog by remember { mutableStateOf(false) }
     var showLanguageDialog by remember { mutableStateOf(false) }
@@ -170,6 +171,15 @@ fun SettingsScreen(
                 tag = "setting_clear_video_cache_item",
                 onClick = { showClearVideoCacheDialog = true }
             )
+
+            if (videoCacheClearState == VideoCacheClearUiState.Error) {
+                Text(
+                    text = stringResource(R.string.settings_clear_video_cache_error),
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.error,
+                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)
+                )
+            }
 
             HorizontalDivider()
 

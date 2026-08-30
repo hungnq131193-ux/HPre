@@ -1,6 +1,7 @@
 package com.hpre.app.player.datasource
 
 import android.net.Uri
+import androidx.media3.common.C
 import androidx.media3.datasource.DataSpec
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -45,6 +46,39 @@ class YouTubeRequestPolicyTest {
         assertFalse(transformed.uri.toString().contains("range="))
         assertEquals("bytes=100-299", transformed.headers["Range"])
         assertEquals(DataSpec.HTTP_METHOD_POST, transformed.httpMethod)
+    }
+
+    @Test
+    fun dashProfile_replacesExistingRange_andDoesNotDuplicateRn() {
+        val uri = Uri.parse(
+            "https://rr1---sn-4g5ednks.googlevideo.com/videoplayback?expire=123&rn=7&range=0-99"
+        )
+        val dataSpec = DataSpec.Builder()
+            .setUri(uri)
+            .setPosition(100)
+            .setLength(200)
+            .build()
+
+        val transformed = YouTubeRequestPolicy.transformDataSpec(dataSpec, YouTubeRequestProfile.DASH, requestNumber = 8)
+
+        assertEquals(
+            "https://rr1---sn-4g5ednks.googlevideo.com/videoplayback?expire=123&rn=7&range=100-299",
+            transformed.uriString
+        )
+    }
+
+    @Test
+    fun dashProfile_clearsDataSpecRangeAfterEncodingItInQuery() {
+        val dataSpec = DataSpec.Builder()
+            .setUri(ytUri)
+            .setPosition(100)
+            .setLength(200)
+            .build()
+
+        val transformed = YouTubeRequestPolicy.transformDataSpec(dataSpec, YouTubeRequestProfile.DASH, requestNumber = 0)
+
+        assertEquals(0L, transformed.position)
+        assertEquals(C.LENGTH_UNSET.toLong(), transformed.length)
     }
 
     @Test

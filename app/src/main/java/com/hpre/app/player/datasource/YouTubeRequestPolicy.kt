@@ -6,7 +6,6 @@ import androidx.media3.common.C
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.datasource.DataSpec
 import java.net.URI
-import java.net.URLEncoder
 
 data class TransformedRequest(
     val uri: Uri,
@@ -14,12 +13,46 @@ data class TransformedRequest(
     val headers: Map<String, String>,
     val httpMethod: Int,
     val httpBody: ByteArray?,
-    val isEligibleYouTube: Boolean
+    val isEligibleYouTube: Boolean,
+    val position: Long,
+    val length: Long,
+    val addedRn: Boolean
 )
 
 @OptIn(UnstableApi::class)
 object YouTubeRequestPolicy {
     private val POST_BODY = byteArrayOf(0x78, 0x00)
+
+    private fun hasQueryParameter(url: String, name: String): Boolean {
+        val query = try {
+            URI(url).rawQuery
+        } catch (_: Throwable) {
+            null
+        } ?: return false
+
+        return query.split("&").any { it.substringBefore("=") == name }
+    }
+
+    private fun replaceQueryParameter(url: String, name: String, value: String): String {
+        val uri = try {
+            URI(url)
+        } catch (_: Throwable) {
+            return url
+        }
+        val retained = uri.rawQuery.orEmpty()
+            .split("&")
+            .filter { it.isNotEmpty() && it.substringBefore("=") != name }
+            .toMutableList()
+        retained += "$name=$value"
+
+        return URI(
+            uri.scheme,
+            uri.rawAuthority,
+            uri.rawPath,
+            retained.joinToString("&"),
+            uri.rawFragment
+        ).toString()
+    }
 
     fun isEligibleYouTubeMediaUrl(urlStr: String): Boolean {
         return try {
@@ -53,17 +86,23 @@ object YouTubeRequestPolicy {
                 headers = dataSpec.httpRequestHeaders,
                 httpMethod = dataSpec.httpMethod,
                 httpBody = dataSpec.httpBody,
-                isEligibleYouTube = false
+                isEligibleYouTube = false,
+                position = dataSpec.position,
+                length = dataSpec.length,
+                addedRn = false
             )
         }
 
         var newUrl = urlStr
+        var addedRn = false
+        var position = dataSpec.position
+        var length = dataSpec.length
 
         // 1. rn parameter
         if (profile == YouTubeRequestProfile.DASH || profile == YouTubeRequestProfile.PROGRESSIVE) {
-            if (!newUrl.contains("rn=") && !newUrl.contains("&rn=") && !newUrl.contains("?rn=")) {
-                val separator = if (newUrl.contains("?")) "&" else "?"
-                newUrl += "${separator}rn=$requestNumber"
+            if (!hasQueryParameter(newUrl, "rn")) {
+                newUrl = replaceQueryParameter(newUrl, "rn", requestNumber.toString())
+                addedRn = true
             }
         }
 
@@ -83,9 +122,10 @@ object YouTubeRequestPolicy {
                 } else {
                     "$pos-"
                 }
-                val separator = if (newUrl.contains("?")) "&" else "?"
-                newUrl += "${separator}range=$rangeVal"
+                newUrl = replaceQueryParameter(newUrl, "range", rangeVal)
                 headers.remove("Range")
+                position = 0L
+                length = C.LENGTH_UNSET.toLong()
             }
         }
 
@@ -109,7 +149,10 @@ object YouTubeRequestPolicy {
             headers = headers,
             httpMethod = DataSpec.HTTP_METHOD_POST,
             httpBody = POST_BODY,
-            isEligibleYouTube = true
+            isEligibleYouTube = true,
+            position = position,
+            length = length,
+            addedRn = addedRn
         )
     }
 }

@@ -28,6 +28,12 @@ sealed interface UpdateUiState {
     data class Error(val reason: UpdateUnavailableReason) : UpdateUiState
 }
 
+sealed interface VideoCacheClearUiState {
+    data object Idle : VideoCacheClearUiState
+    data object Success : VideoCacheClearUiState
+    data object Error : VideoCacheClearUiState
+}
+
 class SettingsViewModel(
     private val settingsRepository: SettingsRepository,
     private val appUpdateChecker: AppUpdateChecker,
@@ -37,6 +43,8 @@ class SettingsViewModel(
 
     private val _updateState = MutableStateFlow<UpdateUiState>(UpdateUiState.Idle)
     val updateState: StateFlow<UpdateUiState> = _updateState.asStateFlow()
+    private val _videoCacheClearState = MutableStateFlow<VideoCacheClearUiState>(VideoCacheClearUiState.Idle)
+    val videoCacheClearState: StateFlow<VideoCacheClearUiState> = _videoCacheClearState.asStateFlow()
 
     val settingsState: StateFlow<AppSettings> = settingsRepository.settings
         .stateIn(
@@ -101,7 +109,11 @@ class SettingsViewModel(
 
     fun clearVideoCache() {
         viewModelScope.launch {
-            mediaCacheManager?.clearCache()
+            _videoCacheClearState.value = if (mediaCacheManager?.clearCache() == true) {
+                VideoCacheClearUiState.Success
+            } else {
+                VideoCacheClearUiState.Error
+            }
         }
     }
 

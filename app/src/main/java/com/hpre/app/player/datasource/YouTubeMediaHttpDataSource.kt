@@ -20,12 +20,15 @@ class YouTubeMediaHttpDataSource(
         val transformed = YouTubeRequestPolicy.transformDataSpec(
             dataSpec = dataSpec,
             profile = profile,
-            requestNumber = requestCounter.getAndIncrement()
+            requestNumber = requestCounter.get()
         )
+        if (transformed.addedRn) requestCounter.incrementAndGet()
 
         val newSpecBuilder = dataSpec.buildUpon()
             .setUri(transformed.uri)
             .setHttpRequestHeaders(transformed.headers)
+            .setPosition(transformed.position)
+            .setLength(transformed.length)
 
         if (transformed.isEligibleYouTube) {
             newSpecBuilder
