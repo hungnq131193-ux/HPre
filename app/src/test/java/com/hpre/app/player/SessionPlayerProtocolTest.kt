@@ -979,6 +979,43 @@ class SessionPlayerProtocolTest {
     }
 
     @Test
+    fun clearMedia_invalidates_prepare_dispatch_that_has_not_reached_main() = kotlinx.coroutines.test.runTest {
+        val fakeContext = object : android.content.ContextWrapper(null) {
+            override fun getApplicationContext(): android.content.Context = this
+        }
+        var createdCount = 0
+        val futures = mutableListOf<com.google.common.util.concurrent.SettableFuture<androidx.media3.session.MediaController>>()
+        val coordinator = object : SessionPlayerController.ConnectionLifecycleCoordinator {
+            override fun createControllerFuture(
+                context: android.content.Context,
+                listener: androidx.media3.session.MediaController.Listener
+            ): com.google.common.util.concurrent.ListenableFuture<androidx.media3.session.MediaController> {
+                createdCount++
+                return com.google.common.util.concurrent.SettableFuture.create<androidx.media3.session.MediaController>()
+                    .also(futures::add)
+            }
+        }
+        val dispatcher = kotlinx.coroutines.test.StandardTestDispatcher(testScheduler)
+        val controller = SessionPlayerController(
+            context = fakeContext,
+            connectionCoordinator = coordinator,
+            mainDispatcher = dispatcher,
+            ioDispatcher = dispatcher,
+            externalScope = this
+        )
+
+        testScheduler.runCurrent()
+        assertEquals(1, createdCount)
+        controller.prepare(testKey, StreamInfo(testKey, "Test Stream"), 0L, false)
+        controller.clearMedia()
+        testScheduler.runCurrent()
+
+        assertEquals("stale prepare must not reconnect after clear", 1, createdCount)
+        assertEquals(null, controller.state.value.key)
+        controller.release()
+    }
+
+    @Test
     fun stale_future_completion_is_observable_and_queued_prepare_is_not_reported_as_delivered() = kotlinx.coroutines.runBlocking {
         val fakeContext = object : android.content.ContextWrapper(null) {
             override fun getApplicationContext(): android.content.Context = this
