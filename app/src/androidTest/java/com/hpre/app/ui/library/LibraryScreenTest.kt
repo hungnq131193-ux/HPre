@@ -361,17 +361,17 @@ class LibraryScreenTest {
             .assertIsDisplayed()
 
         // Toggle background playback
-        composeRule.onNodeWithTag("setting_background_playback_switch").performClick()
+        composeRule.onNodeWithTag("setting_background_playback_switch").performScrollTo().performClick()
         composeRule.waitForIdle()
         assertFalse(settingsRepo.settingsFlow.value.backgroundPlaybackEnabled)
 
         // Toggle PiP
-        composeRule.onNodeWithTag("setting_pip_switch").performClick()
+        composeRule.onNodeWithTag("setting_pip_switch").performScrollTo().performClick()
         composeRule.waitForIdle()
         assertFalse(settingsRepo.settingsFlow.value.pipEnabled)
 
         // Toggle history
-        composeRule.onNodeWithTag("setting_history_switch").performClick()
+        composeRule.onNodeWithTag("setting_history_switch").performScrollTo().performClick()
         composeRule.waitForIdle()
         assertFalse(settingsRepo.settingsFlow.value.historyEnabled)
 

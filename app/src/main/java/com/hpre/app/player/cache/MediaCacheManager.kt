@@ -19,6 +19,7 @@ object MediaCacheConstants {
     const val CACHE_DIR_NAME = "video_cache"
 }
 
+@OptIn(UnstableApi::class)
 interface MediaCacheManager {
     val cache: Cache?
     val isAvailable: Boolean

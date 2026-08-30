@@ -1,7 +1,9 @@
 package com.hpre.app.player.datasource
 
 import android.net.Uri
+import androidx.annotation.OptIn
 import androidx.media3.common.C
+import androidx.media3.common.util.UnstableApi
 import androidx.media3.datasource.DataSpec
 import java.net.URI
 import java.net.URLEncoder
@@ -15,6 +17,7 @@ data class TransformedRequest(
     val isEligibleYouTube: Boolean
 )
 
+@OptIn(UnstableApi::class)
 object YouTubeRequestPolicy {
     private val POST_BODY = byteArrayOf(0x78, 0x00)
 
