@@ -103,8 +103,8 @@ class VideoExtractionCoordinatorTest {
         assertEquals(0, coordinator.inFlightCountForTest)
     }
 
-    @Test fun cache_never_exceeds_capacity() = runTest {
-        val coordinator = VideoExtractionCoordinator(this, maxEntries = 16)
+    @Test fun default_cache_capacity_is_sixteen() = runTest {
+        val coordinator = VideoExtractionCoordinator(this)
         repeat(17) { index ->
             val key = ContentKey(0, "$index")
             coordinator.execute(key) { AppResult.Success(bundle(key)) }
