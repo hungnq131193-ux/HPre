@@ -57,6 +57,7 @@ fun SettingsScreen(
     var showWifiQualityDialog by remember { mutableStateOf(false) }
     var showMobileQualityDialog by remember { mutableStateOf(false) }
     var showSpeedDialog by remember { mutableStateOf(false) }
+    var showClearVideoCacheDialog by remember { mutableStateOf(false) }
 
     Scaffold(
         topBar = {
@@ -161,6 +162,13 @@ fun SettingsScreen(
                 subtitle = qualityLabel(settings.mobileQuality),
                 tag = "setting_mobile_quality_item",
                 onClick = { showMobileQualityDialog = true }
+            )
+
+            SettingsClickableItem(
+                title = stringResource(R.string.settings_clear_video_cache),
+                subtitle = stringResource(R.string.settings_clear_video_cache_summary),
+                tag = "setting_clear_video_cache_item",
+                onClick = { showClearVideoCacheDialog = true }
             )
 
             HorizontalDivider()
@@ -340,6 +348,37 @@ fun SettingsScreen(
                 showSpeedDialog = false
             },
             onDismiss = { showSpeedDialog = false }
+        )
+    }
+
+    if (showClearVideoCacheDialog) {
+        AlertDialog(
+            onDismissRequest = { showClearVideoCacheDialog = false },
+            title = { Text(stringResource(R.string.settings_clear_video_cache_title)) },
+            text = { Text(stringResource(R.string.settings_clear_video_cache_message)) },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        viewModel.clearVideoCache()
+                        showClearVideoCacheDialog = false
+                    },
+                    modifier = Modifier.testTag("settings_clear_video_cache_confirm")
+                ) {
+                    Text(
+                        text = stringResource(R.string.action_delete),
+                        color = MaterialTheme.colorScheme.error
+                    )
+                }
+            },
+            dismissButton = {
+                TextButton(
+                    onClick = { showClearVideoCacheDialog = false },
+                    modifier = Modifier.testTag("settings_clear_video_cache_cancel")
+                ) {
+                    Text(stringResource(R.string.action_cancel))
+                }
+            },
+            modifier = Modifier.testTag("settings_clear_video_cache_dialog")
         )
     }
 }

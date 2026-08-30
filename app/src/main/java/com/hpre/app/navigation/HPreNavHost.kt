@@ -206,7 +206,8 @@ fun HPreNavHost(
                 factory = com.hpre.app.settings.SettingsViewModel.provideFactory(
                     settingsRepository = container.settingsRepository,
                     appUpdateChecker = container.appUpdateChecker,
-                    installedVersion = com.hpre.app.BuildConfig.VERSION_NAME
+                    installedVersion = com.hpre.app.BuildConfig.VERSION_NAME,
+                    mediaCacheManager = container.mediaCacheManager
                 )
             )
             com.hpre.app.settings.SettingsScreen(

@@ -110,6 +110,29 @@ class SettingsViewModelTest {
     }
 
     @Test
+    fun clearVideoCache_delegatesToMediaCacheManager() = runTest {
+        var cleared = false
+        val fakeCacheManager = object : com.hpre.app.player.cache.MediaCacheManager {
+            override val cache: androidx.media3.datasource.cache.Cache? = null
+            override val isAvailable: Boolean = true
+            override suspend fun clearCache(): Boolean {
+                cleared = true
+                return true
+            }
+        }
+        val viewModel = SettingsViewModel(
+            settingsRepository = FakeSettingsRepository(),
+            appUpdateChecker = FakeUpdateChecker { UpdateCheckResult.UpToDate(SemanticVersion(1, 0, 13)) },
+            installedVersion = "1.0.13",
+            mediaCacheManager = fakeCacheManager
+        )
+        viewModel.clearVideoCache()
+        testScheduler.advanceUntilIdle()
+
+        assertTrue(cleared)
+    }
+
+    @Test
     fun viewModel_updates_settings_via_repository() = runTest {
         val fakeRepo = FakeSettingsRepository()
         val viewModel = SettingsViewModel(

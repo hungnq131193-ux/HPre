@@ -141,6 +141,10 @@
     <string name="settings_autoplay">Tự động phát video tiếp theo</string>
     <string name="settings_autoplay_summary">Tự động phát video tiếp theo khi video hiện tại kết thúc</string>
     <string name="settings_video_quality">Chất lượng video</string>
+    <string name="settings_clear_video_cache">Xóa bộ nhớ đệm video</string>
+    <string name="settings_clear_video_cache_summary">Xóa dữ liệu video đã lưu tạm. Dữ liệu sẽ được tải lại khi cần.</string>
+    <string name="settings_clear_video_cache_title">Xóa bộ nhớ đệm video?</string>
+    <string name="settings_clear_video_cache_message">Thao tác này sẽ xóa dữ liệu video đã lưu tạm trên thiết bị.</string>
     <string name="settings_wifi_quality">Chất lượng khi dùng Wi-Fi</string>
     <string name="settings_mobile_quality">Chất lượng khi dùng dữ liệu di động</string>
     <string name="settings_choose_wifi_quality">Chọn chất lượng Wi-Fi</string>
