@@ -463,6 +463,24 @@ object NewPipeMappers {
         )
     }
 
+    private fun sanitizeStreamId(rawId: String?): String? {
+        if (rawId.isNullOrBlank()) return null
+        val trimmed = rawId.trim()
+        if (trimmed.equals("UNKNOWN", ignoreCase = true) || trimmed.equals("ID_UNKNOWN", ignoreCase = true)) {
+            return null
+        }
+        return trimmed
+    }
+
+    private fun mapDeliveryMethod(deliveryMethod: org.schabi.newpipe.extractor.stream.DeliveryMethod?): com.hpre.app.model.VideoDeliveryMethod {
+        if (deliveryMethod == null) return com.hpre.app.model.VideoDeliveryMethod.UNKNOWN
+        return try {
+            com.hpre.app.model.VideoDeliveryMethod.valueOf(deliveryMethod.name)
+        } catch (_: Throwable) {
+            com.hpre.app.model.VideoDeliveryMethod.UNKNOWN
+        }
+    }
+
     fun mapVideoStream(stream: VideoStream): DomainVideoStream? {
         val url = stream.content
         if (!isValidHttpUrl(url)) return null
@@ -483,7 +501,9 @@ object NewPipeMappers {
             bitrate = bitrate,
             isVideoOnly = stream.isVideoOnly(),
             mimeType = mime,
-            codec = codec
+            codec = codec,
+            streamId = sanitizeStreamId(stream.id),
+            deliveryMethod = mapDeliveryMethod(stream.deliveryMethod)
         )
     }
 
@@ -504,7 +524,9 @@ object NewPipeMappers {
             averageBitrate = avgBitrate,
             language = stream.audioLocale?.language,
             mimeType = mime,
-            codec = codec
+            codec = codec,
+            streamId = sanitizeStreamId(stream.id),
+            audioTrackId = stream.audioTrackId?.trim()?.ifBlank { null }
         )
     }
 

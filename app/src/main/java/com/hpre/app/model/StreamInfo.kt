@@ -9,7 +9,9 @@ data class VideoStream(
     val bitrate: Long?,
     val isVideoOnly: Boolean = false,
     val mimeType: String? = null,
-    val codec: String? = null
+    val codec: String? = null,
+    val streamId: String? = null,
+    val deliveryMethod: VideoDeliveryMethod? = null
 )
 
 data class AudioStream(
@@ -19,7 +21,9 @@ data class AudioStream(
     val averageBitrate: Long? = null,
     val language: String? = null,
     val mimeType: String? = null,
-    val codec: String? = null
+    val codec: String? = null,
+    val streamId: String? = null,
+    val audioTrackId: String? = null
 )
 
 data class SubtitleStream(

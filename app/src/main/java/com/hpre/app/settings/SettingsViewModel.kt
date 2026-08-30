@@ -9,6 +9,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
+import com.hpre.app.player.cache.MediaCacheManager
 import com.hpre.app.update.AppUpdateChecker
 import com.hpre.app.update.OfficialReleasePage
 import com.hpre.app.update.UpdateCheckResult
@@ -27,14 +28,23 @@ sealed interface UpdateUiState {
     data class Error(val reason: UpdateUnavailableReason) : UpdateUiState
 }
 
+sealed interface VideoCacheClearUiState {
+    data object Idle : VideoCacheClearUiState
+    data object Success : VideoCacheClearUiState
+    data object Error : VideoCacheClearUiState
+}
+
 class SettingsViewModel(
     private val settingsRepository: SettingsRepository,
     private val appUpdateChecker: AppUpdateChecker,
-    val installedVersion: String
+    val installedVersion: String,
+    private val mediaCacheManager: MediaCacheManager? = null
 ) : ViewModel() {
 
     private val _updateState = MutableStateFlow<UpdateUiState>(UpdateUiState.Idle)
     val updateState: StateFlow<UpdateUiState> = _updateState.asStateFlow()
+    private val _videoCacheClearState = MutableStateFlow<VideoCacheClearUiState>(VideoCacheClearUiState.Idle)
+    val videoCacheClearState: StateFlow<VideoCacheClearUiState> = _videoCacheClearState.asStateFlow()
 
     val settingsState: StateFlow<AppSettings> = settingsRepository.settings
         .stateIn(
@@ -97,6 +107,16 @@ class SettingsViewModel(
         }
     }
 
+    fun clearVideoCache() {
+        viewModelScope.launch {
+            _videoCacheClearState.value = if (mediaCacheManager?.clearCache() == true) {
+                VideoCacheClearUiState.Success
+            } else {
+                VideoCacheClearUiState.Error
+            }
+        }
+    }
+
     fun checkForUpdates() {
         if (_updateState.value == UpdateUiState.Checking) return
         _updateState.value = UpdateUiState.Checking
@@ -125,12 +145,13 @@ class SettingsViewModel(
         fun provideFactory(
             settingsRepository: SettingsRepository,
             appUpdateChecker: AppUpdateChecker,
-            installedVersion: String
+            installedVersion: String,
+            mediaCacheManager: MediaCacheManager? = null
         ): ViewModelProvider.Factory =
             object : ViewModelProvider.Factory {
                 @Suppress("UNCHECKED_CAST")
                 override fun <T : ViewModel> create(modelClass: Class<T>): T {
-                    return SettingsViewModel(settingsRepository, appUpdateChecker, installedVersion) as T
+                    return SettingsViewModel(settingsRepository, appUpdateChecker, installedVersion, mediaCacheManager) as T
                 }
             }
     }

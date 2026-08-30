@@ -9,12 +9,19 @@ import androidx.media3.common.MimeTypes
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.datasource.DataSource
 import androidx.media3.datasource.DefaultDataSource
+import androidx.media3.datasource.cache.CacheDataSink
+import androidx.media3.datasource.cache.CacheDataSource
 import androidx.media3.datasource.okhttp.OkHttpDataSource
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
 import androidx.media3.exoplayer.source.MediaSource
 import androidx.media3.exoplayer.source.MergingMediaSource
 import androidx.media3.exoplayer.source.ProgressiveMediaSource
 import com.hpre.app.model.SubtitleStream
+import com.hpre.app.player.cache.MediaCacheConstants
+import com.hpre.app.player.cache.MediaCacheManager
+import com.hpre.app.player.cache.YouTubeCacheKeyFactory
+import com.hpre.app.player.datasource.YouTubeMediaHttpDataSource
+import com.hpre.app.player.datasource.YouTubeRequestProfile
 import okhttp3.OkHttpClient
 import java.util.concurrent.TimeUnit
 
@@ -44,20 +51,73 @@ internal fun playbackHttpClient(baseClient: OkHttpClient): OkHttpClient =
 
 @OptIn(UnstableApi::class)
 class MediaSourceFactory(
-    private val dataSourceFactory: DataSource.Factory,
+    private val dashDataSourceFactory: DataSource.Factory,
+    private val progressiveDataSourceFactory: DataSource.Factory,
+    private val hlsDataSourceFactory: DataSource.Factory,
+    private val cachedProgressiveDataSourceFactory: DataSource.Factory,
     private val mediaSourceCreator: ((SelectedStreams) -> MediaSource)? = null
 ) : MediaSourceCreator {
 
     constructor(
+        dataSourceFactory: DataSource.Factory,
+        mediaSourceCreator: ((SelectedStreams) -> MediaSource)? = null
+    ) : this(
+        dashDataSourceFactory = dataSourceFactory,
+        progressiveDataSourceFactory = dataSourceFactory,
+        hlsDataSourceFactory = dataSourceFactory,
+        cachedProgressiveDataSourceFactory = dataSourceFactory,
+        mediaSourceCreator = mediaSourceCreator
+    )
+
+    constructor(
         context: Context,
         okHttpClient: OkHttpClient = OkHttpClient(),
-        httpConfig: PlayerHttpConfig = PlayerHttpConfig()
+        httpConfig: PlayerHttpConfig = PlayerHttpConfig(),
+        cacheManager: MediaCacheManager? = null
     ) : this(
-        dataSourceFactory = DefaultDataSource.Factory(
-            context,
-            OkHttpDataSource.Factory(playbackHttpClient(okHttpClient)).setUserAgent(httpConfig.userAgent)
-        )
+        dashDataSourceFactory = createProfileFactory(context, okHttpClient, httpConfig, YouTubeRequestProfile.DASH),
+        progressiveDataSourceFactory = createProfileFactory(context, okHttpClient, httpConfig, YouTubeRequestProfile.PROGRESSIVE),
+        hlsDataSourceFactory = createProfileFactory(context, okHttpClient, httpConfig, YouTubeRequestProfile.HLS),
+        cachedProgressiveDataSourceFactory = createCachedProgressiveFactory(context, okHttpClient, httpConfig, cacheManager),
+        mediaSourceCreator = null
     )
+
+    companion object {
+        private fun createProfileFactory(
+            context: Context,
+            okHttpClient: OkHttpClient,
+            httpConfig: PlayerHttpConfig,
+            profile: YouTubeRequestProfile
+        ): DataSource.Factory {
+            val baseHttpFactory = OkHttpDataSource.Factory(playbackHttpClient(okHttpClient))
+                .setUserAgent(httpConfig.userAgent)
+            val ytHttpFactory = YouTubeMediaHttpDataSource.Factory(baseHttpFactory, profile)
+            return DefaultDataSource.Factory(context, ytHttpFactory)
+        }
+
+        private fun createCachedProgressiveFactory(
+            context: Context,
+            okHttpClient: OkHttpClient,
+            httpConfig: PlayerHttpConfig,
+            cacheManager: MediaCacheManager?
+        ): DataSource.Factory {
+            val defaultUpstreamFactory = createProfileFactory(context, okHttpClient, httpConfig, YouTubeRequestProfile.PROGRESSIVE)
+            val cache = cacheManager?.cache
+            return if (cache != null) {
+                val sinkFactory = CacheDataSink.Factory()
+                    .setCache(cache)
+                    .setFragmentSize(MediaCacheConstants.FRAGMENT_SIZE_BYTES)
+
+                CacheDataSource.Factory()
+                    .setCache(cache)
+                    .setUpstreamDataSourceFactory(defaultUpstreamFactory)
+                    .setCacheWriteDataSinkFactory(sinkFactory)
+                    .setFlags(CacheDataSource.FLAG_IGNORE_CACHE_ON_ERROR)
+            } else {
+                defaultUpstreamFactory
+            }
+        }
+    }
 
     private fun resolveMimeType(format: String, isVideo: Boolean, mimeTypeOverride: String? = null): String {
         if (!mimeTypeOverride.isNullOrBlank()) {
@@ -136,11 +196,11 @@ class MediaSourceFactory(
             }
         }
 
-        fun mediaItemBuilder(uri: Uri, mimeType: String): MediaItem.Builder {
+        fun mediaItemBuilder(uri: Uri, mimeType: String, customCacheKey: String? = null): MediaItem.Builder {
             val extras = android.os.Bundle().apply {
                 putString("hpre_stream_type", selected.streamType.name)
             }
-            return MediaItem.Builder()
+            val builder = MediaItem.Builder()
                 .setMediaId(PlaybackMediaId.encode(selected.key))
                 .setMediaMetadata(
                     androidx.media3.common.MediaMetadata.Builder()
@@ -150,18 +210,29 @@ class MediaSourceFactory(
                 )
                 .setUri(uri)
                 .setMimeType(mimeType)
+
+            if (customCacheKey != null) {
+                builder.setCustomCacheKey(customCacheKey)
+            }
+
+            return builder
         }
+
+        val isCacheable = !selected.isLive
 
         val baseSource = when (selected.streamType) {
             PlaybackStreamType.PROGRESSIVE -> {
                 val video = requireNotNull(selected.videoStream) { "Progressive stream requires non-null videoStream" }
                 val uri = Uri.parse(video.url)
                 val mimeType = resolveMimeType(video.format, isVideo = true, mimeTypeOverride = video.mimeType)
-                val mediaItemBuilder = mediaItemBuilder(uri, mimeType)
+                val cacheKey = if (isCacheable) YouTubeCacheKeyFactory.buildVideoCacheKey(selected.key, video) else null
+                val mediaItemBuilder = mediaItemBuilder(uri, mimeType, customCacheKey = cacheKey)
                 if (subtitleConfigs.isNotEmpty()) {
                     mediaItemBuilder.setSubtitleConfigurations(subtitleConfigs)
                 }
-                ProgressiveMediaSource.Factory(dataSourceFactory)
+
+                val dsFactory = if (isCacheable) cachedProgressiveDataSourceFactory else progressiveDataSourceFactory
+                ProgressiveMediaSource.Factory(dsFactory)
                     .createMediaSource(mediaItemBuilder.build())
             }
 
@@ -174,17 +245,21 @@ class MediaSourceFactory(
                 val videoMime = resolveMimeType(video.format, isVideo = true, mimeTypeOverride = video.mimeType)
                 val audioMime = resolveMimeType(audio.format, isVideo = false, mimeTypeOverride = audio.mimeType)
 
-                val videoMediaItemBuilder = mediaItemBuilder(videoUri, videoMime)
+                val videoCacheKey = if (isCacheable) YouTubeCacheKeyFactory.buildVideoCacheKey(selected.key, video) else null
+                val audioCacheKey = if (isCacheable) YouTubeCacheKeyFactory.buildAudioCacheKey(selected.key, audio) else null
+
+                val videoMediaItemBuilder = mediaItemBuilder(videoUri, videoMime, customCacheKey = videoCacheKey)
                 if (subtitleConfigs.isNotEmpty()) {
                     videoMediaItemBuilder.setSubtitleConfigurations(subtitleConfigs)
                 }
 
-                val audioMediaItem = mediaItemBuilder(audioUri, audioMime)
+                val audioMediaItem = mediaItemBuilder(audioUri, audioMime, customCacheKey = audioCacheKey)
                     .build()
 
-                val videoSource = ProgressiveMediaSource.Factory(dataSourceFactory)
+                val dsFactory = if (isCacheable) cachedProgressiveDataSourceFactory else progressiveDataSourceFactory
+                val videoSource = ProgressiveMediaSource.Factory(dsFactory)
                     .createMediaSource(videoMediaItemBuilder.build())
-                val audioSource = ProgressiveMediaSource.Factory(dataSourceFactory)
+                val audioSource = ProgressiveMediaSource.Factory(dsFactory)
                     .createMediaSource(audioMediaItem)
 
                 MergingMediaSource(videoSource, audioSource)
@@ -194,10 +269,10 @@ class MediaSourceFactory(
                 val audio = requireNotNull(selected.audioStream) { "Audio-only requires non-null audioStream" }
                 val audioUri = Uri.parse(audio.url)
                 val audioMime = resolveMimeType(audio.format, isVideo = false, mimeTypeOverride = audio.mimeType)
-                val audioMediaItem = mediaItemBuilder(audioUri, audioMime)
+                val audioMediaItem = mediaItemBuilder(audioUri, audioMime, customCacheKey = null)
                     .build()
 
-                ProgressiveMediaSource.Factory(dataSourceFactory)
+                ProgressiveMediaSource.Factory(progressiveDataSourceFactory)
                     .createMediaSource(audioMediaItem)
             }
 
@@ -208,7 +283,7 @@ class MediaSourceFactory(
                 if (subtitleConfigs.isNotEmpty()) {
                     mediaItemBuilder.setSubtitleConfigurations(subtitleConfigs)
                 }
-                DefaultMediaSourceFactory(dataSourceFactory)
+                DefaultMediaSourceFactory(hlsDataSourceFactory)
                     .createMediaSource(mediaItemBuilder.build())
             }
 
@@ -219,7 +294,7 @@ class MediaSourceFactory(
                 if (subtitleConfigs.isNotEmpty()) {
                     mediaItemBuilder.setSubtitleConfigurations(subtitleConfigs)
                 }
-                DefaultMediaSourceFactory(dataSourceFactory)
+                DefaultMediaSourceFactory(dashDataSourceFactory)
                     .createMediaSource(mediaItemBuilder.build())
             }
         }

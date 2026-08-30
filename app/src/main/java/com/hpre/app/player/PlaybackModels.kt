@@ -65,7 +65,8 @@ data class SelectedStreams(
     val videoStream: VideoStream? = null,
     val audioStream: AudioStream? = null,
     val manifestUrl: String? = null,
-    val subtitles: List<SubtitleStream> = emptyList()
+    val subtitles: List<SubtitleStream> = emptyList(),
+    val isLive: Boolean = false
 )
 
 data class RetrySnapshot(
