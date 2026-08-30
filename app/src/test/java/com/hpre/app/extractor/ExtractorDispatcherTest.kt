@@ -203,12 +203,12 @@ class ExtractorDispatcherTest {
     }
 
     @Test
-    fun default_executor_configuration_has_bounded_queue_capacity_of_sixteen() {
+    fun default_executor_configuration_has_eight_workers_and_queue_capacity_of_thirty_two() {
         val pool = ExtractorDispatcher.createBoundedExtractorExecutor()
         try {
-            assertEquals("Default queue capacity must be 16", 16, pool.queue.remainingCapacity())
-            assertEquals("Core pool size must be 4", 4, pool.corePoolSize)
-            assertEquals("Maximum pool size must be 4", 4, pool.maximumPoolSize)
+            assertEquals("Default queue capacity must be 32", 32, pool.queue.remainingCapacity())
+            assertEquals("Core pool size must be 8", 8, pool.corePoolSize)
+            assertEquals("Maximum pool size must be 8", 8, pool.maximumPoolSize)
         } finally {
             pool.shutdownNow()
         }

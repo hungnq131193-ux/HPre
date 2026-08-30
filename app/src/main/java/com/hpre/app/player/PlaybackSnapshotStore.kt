@@ -20,8 +20,6 @@ import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.flow.firstOrNull
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.runBlocking
-import kotlinx.coroutines.withContext
 import java.io.File
 import java.io.IOException
 import java.util.concurrent.locks.ReentrantLock
@@ -153,7 +151,11 @@ class SnapshotWriter(
                     inMemorySnapshot = parsed
                     snapshotVersion = prefsVersion
                     parsed
-                } else if (parsed == null && prefs[KEY_SERVICE_ID] == null) {
+                } else if (
+                    parsed == null &&
+                    prefs[KEY_SERVICE_ID] == null &&
+                    prefsVersion >= snapshotVersion
+                ) {
                     inMemorySnapshot = null
                     null
                 } else {
@@ -271,47 +273,7 @@ class SnapshotWriter(
 
     fun saveSync(snapshot: PlaybackSnapshot) {
         val targetGen = enqueueSave()
-        lock.withLock {
-            if (targetGen != snapshotVersion) return
-            inMemorySnapshot = snapshot
-            try {
-                storageDir?.mkdirs()
-                val file = legacySnapshotFile.takeIf { dataStore == null }
-                if (file != null) {
-                    val qualityPart = if (snapshot.selectedQuality != null) {
-                        val q = snapshot.selectedQuality
-                        """, "selectedQuality": {"height": ${q.height}, "label": "${escapeJson(q.label)}", "isProgressive": ${q.isProgressive}, "format": "${escapeJson(q.format)}", "mimeType": "${escapeJson(q.mimeType ?: "")}", "codec": "${escapeJson(q.codec ?: "")}", "streamType": "${q.streamType.name}"}"""
-                    } else {
-                        ""
-                    }
-                    val jsonString = """{"serviceId": ${snapshot.key.serviceId}, "nativeId": "${escapeJson(snapshot.key.nativeId)}", "positionMs": ${snapshot.positionMs}, "playWhenReady": ${snapshot.playWhenReady}, "playbackSpeed": ${snapshot.playbackSpeed}$qualityPart}"""
-                    val temporary = File(file.parentFile, "${file.name}.${System.nanoTime()}.tmp")
-                    temporary.writeText(jsonString, Charsets.UTF_8)
-                    if (targetGen == snapshotVersion) {
-                        if (!temporary.renameTo(file)) {
-                            temporary.delete()
-                        }
-                    } else {
-                        temporary.delete()
-                    }
-                }
-            } catch (ce: kotlinx.coroutines.CancellationException) {
-                throw ce
-            } catch (_: Exception) {}
-
-        }
-        val store = dataStore ?: return
-        runBlocking {
-            withContext(Dispatchers.IO) {
-                store.edit { prefs ->
-                    lock.withLock {
-                        if (targetGen == snapshotVersion) {
-                            writeToPreferences(prefs, snapshot, targetGen)
-                        }
-                    }
-                }
-            }
-        }
+        saveWithGeneration(snapshot, targetGen)
     }
 
     fun saveWithGeneration(

@@ -80,10 +80,10 @@ class HPrePlaybackService : MediaSessionService() {
         const val EXTRA_POLICY_MAX_HEIGHT = "extra_policy_max_height"
         const val EXTRA_POLICY_MAX_BITRATE = "extra_policy_max_bitrate"
 
-        private const val MIN_PLAYBACK_BUFFER_MS = 20_000
-        private const val MAX_PLAYBACK_BUFFER_MS = 50_000
-        private const val BUFFER_FOR_PLAYBACK_MS = 2_500
-        private const val BUFFER_AFTER_REBUFFER_MS = 5_000
+        internal const val MIN_PLAYBACK_BUFFER_MS = 30_000
+        internal const val MAX_PLAYBACK_BUFFER_MS = 90_000
+        internal const val BUFFER_FOR_PLAYBACK_MS = 2_500
+        internal const val BUFFER_AFTER_REBUFFER_MS = 8_000
         private const val ANALYTICS_COUNTER_GENERATIONS = 8L
 
         // Probe snapshot response extras
@@ -1317,7 +1317,7 @@ class HPrePlaybackService : MediaSessionService() {
         recoveryJob?.cancel()
         readinessTracker.cancel()
 
-        // Synchronously-safe persist final snapshot before player release
+        // Capture final state without blocking service teardown on DataStore I/O.
         persistFinalSnapshotSync()
 
         serviceScope.cancel()
