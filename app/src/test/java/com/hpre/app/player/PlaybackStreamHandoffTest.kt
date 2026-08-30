@@ -55,9 +55,8 @@ class PlaybackStreamHandoffTest {
         for (i in 1..25) {
             PlaybackStreamHandoff.put(StreamInfo(ContentKey(0, "video_$i"), "Title $i"), currentTimeMs = 1000L)
         }
-        // Oldest entries should be evicted or bounded to maxSize (e.g., 16)
-        val stats = PlaybackStreamHandoff.size()
-        org.junit.Assert.assertTrue(stats <= 16)
+        // Oldest entries are evicted so the handoff keeps the most recent 16 entries.
+        assertEquals(16, PlaybackStreamHandoff.size())
 
         // TTL expiration test
         val token = PlaybackStreamHandoff.put(StreamInfo(ContentKey(0, "video_exp"), "Title"), currentTimeMs = 1000L)

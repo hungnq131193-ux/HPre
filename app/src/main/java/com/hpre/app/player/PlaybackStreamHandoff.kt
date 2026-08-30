@@ -5,7 +5,7 @@ import java.util.UUID
 import java.util.concurrent.ConcurrentHashMap
 
 internal object PlaybackStreamHandoff {
-    private const val MAX_ENTRIES = 4
+    private const val MAX_ENTRIES = 16
     private const val DEFAULT_TTL_MS = 60_000L // 60 seconds TTL
 
     private data class HandoffEntry(

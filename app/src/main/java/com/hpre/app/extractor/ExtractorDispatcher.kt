@@ -13,23 +13,24 @@ import java.util.concurrent.atomic.AtomicInteger
  * Uses an ExecutorService backed CoroutineDispatcher so worker threads can be tracked and interrupted/cancelled.
  *
  * Concurrency & queue bounds:
- * - maxWorkers = 4 active workers to prevent overloading device resources and upstream servers.
- * - queueCapacity = 16 (finite queue backed by [ArrayBlockingQueue] with default [ThreadPoolExecutor.AbortPolicy]).
+ * - maxWorkers = 8 active workers to absorb concurrent Home, Search, and Watch work.
+ * - queueCapacity = 32 (finite queue backed by [ArrayBlockingQueue] with default [ThreadPoolExecutor.AbortPolicy]).
  *   Chosen above normal app fan-out (currently <= 6 topic queries during recommendation loads) to allow normal
  *   bursts to queue safely while preventing unbounded accumulation of stale tasks.
  * - allowCoreThreadTimeOut(true) ensures idle worker threads terminate after keepAliveTime.
  */
 object ExtractorDispatcher {
     /**
-     * Default finite queue capacity. Set to 16, well above normal fan-out of 6 topic queries,
+     * Default finite queue capacity. Set to 32, above normal fan-out of 6 topic queries,
      * to absorb bursts while rejecting stale task accumulation under sustained overload.
      */
-    const val DEFAULT_QUEUE_CAPACITY: Int = 16
+    const val DEFAULT_MAX_WORKERS: Int = 8
+    const val DEFAULT_QUEUE_CAPACITY: Int = 32
 
     private val threadIndex = AtomicInteger(0)
 
     internal fun createBoundedExtractorExecutor(
-        maxWorkers: Int = 4,
+        maxWorkers: Int = DEFAULT_MAX_WORKERS,
         queueCapacity: Int = DEFAULT_QUEUE_CAPACITY,
         keepAliveTime: Long = 60L,
         timeUnit: TimeUnit = TimeUnit.SECONDS

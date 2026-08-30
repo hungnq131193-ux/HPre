@@ -36,8 +36,8 @@ class CatalogRepository(
 ) {
     private val mutex = Mutex()
     private val trendingCache = MetadataCache<String, CatalogCacheValue.Trending>(ttlMs = ttlMs, maxEntries = 2)
-    private val searchCache = MetadataCache<String, CatalogCacheValue.Search>(ttlMs = ttlMs, maxEntries = 24)
-    private val videoCache = MetadataCache<ContentKey, CatalogCacheValue.Details>(ttlMs = ttlMs, maxEntries = 32)
+    private val searchCache = MetadataCache<String, CatalogCacheValue.Search>(ttlMs = ttlMs, maxEntries = 50)
+    private val videoCache = MetadataCache<ContentKey, CatalogCacheValue.Details>(ttlMs = ttlMs, maxEntries = 100)
 
     private var trendingGeneration: Long = 0L
     private val searchGenerations = mutableMapOf<String, Long>()
