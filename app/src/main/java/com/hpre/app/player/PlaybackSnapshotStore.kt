@@ -20,6 +20,8 @@ import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.flow.firstOrNull
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.withContext
 import java.io.File
 import java.io.IOException
 import java.util.concurrent.locks.ReentrantLock
@@ -274,7 +276,7 @@ class SnapshotWriter(
             inMemorySnapshot = snapshot
             try {
                 storageDir?.mkdirs()
-                val file = legacySnapshotFile
+                val file = legacySnapshotFile.takeIf { dataStore == null }
                 if (file != null) {
                     val qualityPart = if (snapshot.selectedQuality != null) {
                         val q = snapshot.selectedQuality
@@ -297,19 +299,16 @@ class SnapshotWriter(
                 throw ce
             } catch (_: Exception) {}
 
-            if (dataStore != null) {
-                ioScope.launch {
-                    try {
-                        dataStore.edit { prefs ->
-                            lock.withLock {
-                                if (targetGen == snapshotVersion) {
-                                    writeToPreferences(prefs, snapshot, targetGen)
-                                }
-                            }
+        }
+        val store = dataStore ?: return
+        runBlocking {
+            withContext(Dispatchers.IO) {
+                store.edit { prefs ->
+                    lock.withLock {
+                        if (targetGen == snapshotVersion) {
+                            writeToPreferences(prefs, snapshot, targetGen)
                         }
-                    } catch (ce: kotlinx.coroutines.CancellationException) {
-                        throw ce
-                    } catch (_: Exception) {}
+                    }
                 }
             }
         }
@@ -337,7 +336,7 @@ class SnapshotWriter(
             // If storageDir exists, write atomic fallback/datastore-compatible file representation
             try {
                 storageDir?.mkdirs()
-                val file = legacySnapshotFile
+                val file = legacySnapshotFile.takeIf { dataStore == null }
                 if (file != null) {
                     val qualityPart = if (snapshotToWrite.selectedQuality != null) {
                         val q = snapshotToWrite.selectedQuality

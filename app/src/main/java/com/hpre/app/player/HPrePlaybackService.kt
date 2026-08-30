@@ -13,6 +13,7 @@ import androidx.media3.common.PlaybackException
 import androidx.media3.common.Player
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.datasource.HttpDataSource
+import androidx.media3.exoplayer.DefaultLoadControl
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.trackselection.DefaultTrackSelector
 import androidx.media3.exoplayer.analytics.AnalyticsListener
@@ -79,6 +80,12 @@ class HPrePlaybackService : MediaSessionService() {
         const val EXTRA_POLICY_MAX_HEIGHT = "extra_policy_max_height"
         const val EXTRA_POLICY_MAX_BITRATE = "extra_policy_max_bitrate"
 
+        private const val MIN_PLAYBACK_BUFFER_MS = 20_000
+        private const val MAX_PLAYBACK_BUFFER_MS = 50_000
+        private const val BUFFER_FOR_PLAYBACK_MS = 2_500
+        private const val BUFFER_AFTER_REBUFFER_MS = 5_000
+        private const val ANALYTICS_COUNTER_GENERATIONS = 8L
+
         // Probe snapshot response extras
         const val EXTRA_PROBE_MEDIA_GEN = "extra_probe_media_gen"
         const val EXTRA_PROBE_SESSION_GEN = "extra_probe_session_gen"
@@ -94,6 +101,7 @@ class HPrePlaybackService : MediaSessionService() {
 
         /** Minimum gap between coalesced snapshot writes. */
         internal const val SNAPSHOT_THROTTLE_MS = 1_000L
+
     }
 
     private var exoPlayer: ExoPlayer? = null
@@ -101,11 +109,7 @@ class HPrePlaybackService : MediaSessionService() {
     private var mediaSession: MediaSession? = null
     private val serviceScope = CoroutineScope(Dispatchers.Main + Job())
     private val historyScheduler by lazy {
-        PlaybackHistoryScheduler(serviceScope) {
-            if (exoPlayer?.isPlaying == true) {
-                recordCurrentHistory()
-            }
-        }
+        PlaybackHistoryScheduler(serviceScope, onWrite = ::recordCurrentHistory)
     }
 
     private var mediaSourceFactory: MediaSourceCreator? = null
@@ -148,6 +152,7 @@ class HPrePlaybackService : MediaSessionService() {
     private val audioDecoderInitCounters = mutableMapOf<Long, Int>()
     private val videoDecoderInitCounters = mutableMapOf<Long, Int>()
     private var activeAnalyticsListener: AnalyticsListener? = null
+    private val readinessTracker = PlaybackReadinessTracker()
     private var metricsReadySessionGeneration: Long = -1L
     private var metricsFirstFrameMediaGeneration: Long = -1L
     private var activeMetricsSession: VideoOpenSession? = null
@@ -164,7 +169,8 @@ class HPrePlaybackService : MediaSessionService() {
         val okHttpClient = container?.okHttpClient
         mediaSourceFactory = container?.mediaSourceFactory ?: MediaSourceFactory(this)
         recoveryCoordinator = container?.let { StreamRecoveryCoordinator(it.videoService) }
-        snapshotStore = PlaybackSnapshotStore(this)
+        snapshotStore = (application as? HPreApplication)?.container?.playbackSnapshotStore
+            ?: PlaybackSnapshotStore(this)
 
         // Propagate PlaybackPreferences / DataStore policy synchronously/cached before restore
         val prefs = container?.playbackPreferences
@@ -176,6 +182,13 @@ class HPrePlaybackService : MediaSessionService() {
             }
         }
 
+        ensurePlayerAndSessionInitialized()
+        restorePersistedSession(prefs)
+    }
+
+    private fun ensurePlayerAndSessionInitialized() {
+        if (exoPlayer != null && mediaSession != null) return
+
         val audioAttributes = AudioAttributes.Builder()
             .setUsage(C.USAGE_MEDIA)
             .setContentType(C.AUDIO_CONTENT_TYPE_MOVIE)
@@ -183,8 +196,17 @@ class HPrePlaybackService : MediaSessionService() {
 
         val selector = DefaultTrackSelector(this)
         trackSelector = selector
+        val loadControl = DefaultLoadControl.Builder()
+            .setBufferDurationsMs(
+                MIN_PLAYBACK_BUFFER_MS,
+                MAX_PLAYBACK_BUFFER_MS,
+                BUFFER_FOR_PLAYBACK_MS,
+                BUFFER_AFTER_REBUFFER_MS
+            )
+            .build()
         val player = ExoPlayer.Builder(this)
             .setTrackSelector(selector)
+            .setLoadControl(loadControl)
             .setAudioAttributes(audioAttributes, true)
             .setHandleAudioBecomingNoisy(true)
             .build()
@@ -207,8 +229,6 @@ class HPrePlaybackService : MediaSessionService() {
             .setSessionActivity(sessionActivityPendingIntent)
             .setCallback(SessionCallback())
             .build()
-
-        restorePersistedSession(prefs)
     }
 
     private fun restorePersistedSession(
@@ -277,11 +297,16 @@ class HPrePlaybackService : MediaSessionService() {
     }
 
     override fun onGetSession(controllerInfo: MediaSession.ControllerInfo): MediaSession? {
+        ensurePlayerAndSessionInitialized()
         return mediaSession
     }
 
     private fun registerAnalyticsListener(player: ExoPlayer, token: Long) {
         activeAnalyticsListener?.let { player.removeAnalyticsListener(it) }
+        val oldestRetainedToken = (token - ANALYTICS_COUNTER_GENERATIONS + 1L).coerceAtLeast(0L)
+        renderedFirstFrameCounters.keys.removeAll { it < oldestRetainedToken }
+        audioDecoderInitCounters.keys.removeAll { it < oldestRetainedToken }
+        videoDecoderInitCounters.keys.removeAll { it < oldestRetainedToken }
         val listener = object : AnalyticsListener {
             private val boundToken = token
             override fun onRenderedFirstFrame(
@@ -350,6 +375,8 @@ class HPrePlaybackService : MediaSessionService() {
             }
 
             lastReportedAppError = appError
+            val currentMediaId = exoPlayer?.currentMediaItem?.mediaId
+            readinessTracker.onError(playbackSessionGeneration, currentMediaId)
             val key = currentKey
             val currentSession = playbackSessionGeneration
 
@@ -445,6 +472,8 @@ class HPrePlaybackService : MediaSessionService() {
         }
 
         override fun onPlaybackStateChanged(playbackState: Int) {
+            val currentMediaId = exoPlayer?.currentMediaItem?.mediaId
+            readinessTracker.onPlaybackStateChanged(playbackSessionGeneration, currentMediaId, playbackState)
             // Buffering flips this repeatedly during normal playback. Each write is a DataStore edit
             // plus an atomic file rename, so unthrottled writes here produce steady IO churn while
             // watching. Position/speed are captured by the other callbacks and by onDestroy.
@@ -462,7 +491,7 @@ class HPrePlaybackService : MediaSessionService() {
 
         override fun onIsPlayingChanged(isPlaying: Boolean) {
             persistCurrentSnapshot()
-            historyScheduler.update(isPlaying)
+            historyScheduler.update(isPlaying && currentStreamInfo?.isLive != true)
         }
 
         override fun onTracksChanged(tracks: androidx.media3.common.Tracks) {
@@ -507,6 +536,7 @@ class HPrePlaybackService : MediaSessionService() {
     private fun cancelFastStartEscalation() {
         fastStartJob?.cancel()
         fastStartJob = null
+        readinessTracker.cancel(playbackSessionGeneration)
         val constraints = StartupQualityPolicy.constraintsAfterManualSelection(
             currentCapHeight = fastStartCapHeight,
             currentlyForcingLowestBitrate = fastStartForceLowestBitrate
@@ -553,8 +583,10 @@ class HPrePlaybackService : MediaSessionService() {
         }
 
         fastStartJob?.cancel()
+        val mediaId = PlaybackMediaId.encode(key)
+        val readyDeferred = readinessTracker.registerSession(sessionGeneration, mediaId)
         fastStartJob = serviceScope.launch(Dispatchers.Main) {
-            if (!awaitPlaybackReady(key, sessionGeneration)) {
+            if (!awaitPlaybackReady(readyDeferred, key, sessionGeneration)) {
                 if (isReleased || playbackSessionGeneration != sessionGeneration) return@launch
                 // Never leave a startup cap behind if playback never got going.
                 fastStartCapHeight = null
@@ -589,19 +621,25 @@ class HPrePlaybackService : MediaSessionService() {
 
     /**
      * Suspends until the player reports READY for this session, returning false on timeout or if the
-     * session was superseded.
+     * session was superseded or errored.
      */
-    private suspend fun awaitPlaybackReady(key: ContentKey, sessionGeneration: Long): Boolean {
-        var waitedMs = 0L
-        while (waitedMs < StartupQualityPolicy.READY_TIMEOUT_MS) {
-            if (isReleased || currentKey != key || playbackSessionGeneration != sessionGeneration) return false
-            val player = exoPlayer ?: return false
-            if (player.playbackState == Player.STATE_READY) return true
-            if (player.playbackState == Player.STATE_IDLE && lastReportedAppError != null) return false
-            kotlinx.coroutines.delay(StartupQualityPolicy.READY_POLL_INTERVAL_MS)
-            waitedMs += StartupQualityPolicy.READY_POLL_INTERVAL_MS
+    private suspend fun awaitPlaybackReady(
+        readyDeferred: kotlinx.coroutines.CompletableDeferred<Boolean>,
+        key: ContentKey,
+        sessionGeneration: Long
+    ): Boolean {
+        if (isReleased || currentKey != key || playbackSessionGeneration != sessionGeneration) return false
+
+        return try {
+            kotlinx.coroutines.withTimeout(StartupQualityPolicy.READY_TIMEOUT_MS) {
+                readyDeferred.await()
+            }
+        } catch (_: kotlinx.coroutines.TimeoutCancellationException) {
+            readinessTracker.cancel(sessionGeneration)
+            false
+        } catch (_: CancellationException) {
+            false
         }
-        return false
     }
 
     private inline fun <reified T : Throwable> findCause(throwable: Throwable?): T? {
@@ -669,6 +707,12 @@ class HPrePlaybackService : MediaSessionService() {
         preserveSourceAttempts: Boolean = false
     ) {
         if (isReleased) return
+        ensurePlayerAndSessionInitialized()
+
+        val effectiveStartPositionMs = PlaybackPolicy.resolveStartPosition(
+            isLive = streamInfo.isLive,
+            requestedPositionMs = startPositionMs
+        )
 
         cancelActiveQuality()
         cancelFastStartEscalation()
@@ -770,8 +814,8 @@ class HPrePlaybackService : MediaSessionService() {
                     exoPlayer?.let { player ->
                         registerAnalyticsListener(player, currentToken)
                         player.setMediaSource(mediaSource)
-                        if (startPositionMs > 0L) {
-                            player.seekTo(startPositionMs)
+                        if (effectiveStartPositionMs > 0L) {
+                            player.seekTo(effectiveStartPositionMs)
                         }
                         player.playWhenReady = playWhenReady
                         player.playbackParameters = androidx.media3.common.PlaybackParameters(
@@ -834,6 +878,10 @@ class HPrePlaybackService : MediaSessionService() {
             }
             currentQualityPolicy = UserQualityPolicy.Fixed(matched)
             val currentPos = player.currentPosition
+            val effectiveSwitchPositionMs = PlaybackPolicy.resolveStartPosition(
+                isLive = streamInfo.isLive,
+                requestedPositionMs = currentPos
+            )
             val wasPlaying = player.isPlaying || player.playWhenReady
 
             val pref = QualityPreference.SpecificOption(matched)
@@ -893,7 +941,9 @@ class HPrePlaybackService : MediaSessionService() {
 
                     registerAnalyticsListener(player, currentToken)
                     player.setMediaSource(mediaSource)
-                    player.seekTo(currentPos)
+                    if (effectiveSwitchPositionMs > 0L) {
+                        player.seekTo(effectiveSwitchPositionMs)
+                    }
                     player.playWhenReady = wasPlaying
                     player.prepare()
                     persistCurrentSnapshot()
@@ -944,7 +994,8 @@ class HPrePlaybackService : MediaSessionService() {
                     thumbnailUrl = null,
                     durationSeconds = if (player.duration > 0) player.duration / 1000L else null,
                     viewCount = null,
-                    publishedTimestamp = null
+                    publishedTimestamp = null,
+                    isLive = streamInfo?.isLive == true
                 )
                 serviceScope.launch(Dispatchers.IO) {
                     historyRepo.recordHistory(summary, pos)
@@ -955,7 +1006,6 @@ class HPrePlaybackService : MediaSessionService() {
 
     private fun clearMediaInternal() {
         historyScheduler.stop()
-        recordCurrentHistory()
 
         currentKey = null
         currentStreamInfo = null
@@ -971,11 +1021,21 @@ class HPrePlaybackService : MediaSessionService() {
         mediaOpJob?.cancel()
         recoveryJob?.cancel()
         PlaybackStreamHandoff.clear()
+        snapshotStore?.clear()
+        activeAnalyticsListener?.let { exoPlayer?.removeAnalyticsListener(it) }
+        activeAnalyticsListener = null
+
         exoPlayer?.stop()
         exoPlayer?.clearMediaItems()
-        snapshotStore?.clear()
         stopForeground(STOP_FOREGROUND_REMOVE)
+        mediaSession?.run {
+            player.removeListener(playerListener)
+            player.release()
+            release()
+        }
         stopSelf()
+        mediaSession = null
+        exoPlayer = null
     }
 
     private inner class SessionCallback : MediaSession.Callback {
@@ -1255,12 +1315,14 @@ class HPrePlaybackService : MediaSessionService() {
         cancelFastStartEscalation()
         mediaOpJob?.cancel()
         recoveryJob?.cancel()
+        readinessTracker.cancel()
 
         // Synchronously-safe persist final snapshot before player release
         persistFinalSnapshotSync()
 
         serviceScope.cancel()
 
+        stopForeground(STOP_FOREGROUND_REMOVE)
         activeAnalyticsListener?.let { exoPlayer?.removeAnalyticsListener(it) }
         activeAnalyticsListener = null
 

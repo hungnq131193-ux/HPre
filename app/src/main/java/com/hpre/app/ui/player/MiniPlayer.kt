@@ -24,8 +24,9 @@ import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -41,10 +42,14 @@ import com.hpre.app.core.designsystem.HPreSpacing
 import com.hpre.app.core.designsystem.MinimumTouchTarget
 import com.hpre.app.model.ContentKey
 import com.hpre.app.player.PlaybackState
+import com.hpre.app.player.toProgress
+import com.hpre.app.player.toStructuralState
 import com.hpre.app.player.PlayerController
 import com.hpre.app.player.PlaybackUiCoordinator
 import com.hpre.app.player.SurfaceOwner
 import com.hpre.app.ui.watch.PlayerSurface
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.map
 
 @Composable
 fun MiniPlayer(
@@ -54,7 +59,12 @@ fun MiniPlayer(
     modifier: Modifier = Modifier,
     coordinator: PlaybackUiCoordinator? = null
 ) {
-    val state by playerController.state.collectAsStateWithLifecycle()
+    val structuralFlow = remember(playerController) {
+        playerController.state.map(PlaybackState::toStructuralState).distinctUntilChanged()
+    }
+    val state by structuralFlow.collectAsStateWithLifecycle(
+        initialValue = PlaybackState()
+    )
     val currentKey = state.key
 
     if (currentKey == null) {
@@ -79,21 +89,7 @@ fun MiniPlayer(
                 .fillMaxWidth()
                 .testTag("mini-player")
         ) {
-            val progress = if (state.durationMs > 0L) {
-                (state.currentPositionMs.toFloat() / state.durationMs.toFloat()).coerceIn(0f, 1f)
-            } else {
-                0f
-            }
-
-            LinearProgressIndicator(
-                progress = { progress },
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(3.dp)
-                    .testTag("mini_player_progress"),
-                color = MaterialTheme.colorScheme.primary,
-                trackColor = Color.Transparent
-            )
+            MiniPlayerProgress(playerController)
 
             Row(
                 verticalAlignment = Alignment.CenterVertically,
@@ -171,4 +167,28 @@ fun MiniPlayer(
             }
         }
     }
+}
+
+@Composable
+private fun MiniPlayerProgress(playerController: PlayerController) {
+    val progressFlow = remember(playerController) {
+        playerController.state.map(PlaybackState::toProgress).distinctUntilChanged()
+    }
+    val progressState by progressFlow.collectAsStateWithLifecycle(
+        initialValue = com.hpre.app.player.PlaybackProgress()
+    )
+    val progress = if (progressState.durationMs > 0L) {
+        (progressState.positionMs.toFloat() / progressState.durationMs.toFloat()).coerceIn(0f, 1f)
+    } else {
+        0f
+    }
+    LinearProgressIndicator(
+        progress = { progress },
+        modifier = Modifier
+            .fillMaxWidth()
+            .height(3.dp)
+            .testTag("mini_player_progress"),
+        color = MaterialTheme.colorScheme.primary,
+        trackColor = Color.Transparent
+    )
 }

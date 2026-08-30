@@ -16,6 +16,7 @@ import com.hpre.app.extractor.NewPipeVideoService
 import com.hpre.app.extractor.OkHttpDownloader
 import com.hpre.app.player.MediaSourceFactory
 import com.hpre.app.player.PlaybackState
+import com.hpre.app.player.PlaybackSnapshotStore
 import com.hpre.app.player.PlayerController
 import com.hpre.app.player.PlayerHttpConfig
 import com.hpre.app.player.SessionPlayerController
@@ -71,6 +72,8 @@ interface AppContainer {
     val playbackPreferences: com.hpre.app.settings.PlaybackPreferences
     val settingsRepository: com.hpre.app.settings.SettingsRepository
     val watchStateCache: WatchStateCache
+    val playbackSnapshotStore: PlaybackSnapshotStore?
+        get() = null
     val appUpdateChecker: AppUpdateChecker
         get() = AppUpdateChecker {
             UpdateCheckResult.Unavailable(UpdateUnavailableReason.NETWORK)
@@ -199,7 +202,11 @@ class DefaultAppContainer(
     }
 
     override val watchStateCache: WatchStateCache by lazy {
-        WatchStateCache(ttlMs = 300_000L, maxEntries = 10)
+        WatchStateCache(ttlMs = 300_000L, maxEntries = 5)
+    }
+
+    override val playbackSnapshotStore: PlaybackSnapshotStore by lazy {
+        PlaybackSnapshotStore(appContext)
     }
 
     override val appUpdateChecker: AppUpdateChecker by lazy {
@@ -228,6 +235,7 @@ class DefaultAppContainer(
             context = appContext,
             mediaSourceFactory = mediaSourceFactory,
             recoveryCoordinator = coordinator,
+            snapshotStore = playbackSnapshotStore,
             externalScope = applicationScope
         ).also { controller ->
             controller.updateLifecyclePolicy(

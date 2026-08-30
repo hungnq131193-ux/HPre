@@ -46,12 +46,17 @@ class PlaybackHistorySchedulerTest {
         scheduler.update(false)
         advanceTimeBy(20_000L)
         runCurrent()
-        assertEquals(1, writes)
+        assertEquals(2, writes)
 
         scheduler.update(true)
         scheduler.stop()
         advanceTimeBy(20_000L)
         runCurrent()
-        assertEquals(1, writes)
+        assertEquals(3, writes)
+    }
+
+    @Test
+    fun default_interval_is_thirty_seconds() {
+        assertEquals(30_000L, PlaybackHistoryScheduler.HISTORY_WRITE_INTERVAL_MS)
     }
 }

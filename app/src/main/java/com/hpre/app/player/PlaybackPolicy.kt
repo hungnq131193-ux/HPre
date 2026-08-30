@@ -21,6 +21,14 @@ interface PlaybackPolicyBridge {
 }
 
 object PlaybackPolicy {
+    /**
+     * A live stream must start from Media3's default live position. Reusing a history or retry
+     * position can otherwise land the viewer near the beginning of the DVR window.
+     */
+    fun resolveStartPosition(isLive: Boolean, requestedPositionMs: Long): Long {
+        return if (isLive) 0L else requestedPositionMs.coerceAtLeast(0L)
+    }
+
     fun prepareSnapshotPosition(
         existing: PlaybackSnapshot?,
         key: ContentKey,
@@ -40,6 +48,21 @@ object PlaybackPolicy {
         isChangingConfigurations: Boolean = false
     ): Boolean {
         return backgroundEnabled || enteringPip || isChangingConfigurations
+    }
+
+    fun shouldTrackUiProgress(isLifecycleStarted: Boolean, isInPip: Boolean): Boolean =
+        isLifecycleStarted || isInPip
+
+    /**
+     * Keep video decoding only while pixels can be visible. Audio continues in the background when
+     * enabled, while PiP and configuration changes retain the video renderer without interruption.
+     */
+    fun shouldEnableVideoTrack(
+        lifecycleStarted: Boolean,
+        pipActiveOrEntering: Boolean,
+        isChangingConfigurations: Boolean = false
+    ): Boolean {
+        return lifecycleStarted || pipActiveOrEntering || isChangingConfigurations
     }
 
     fun canEnterPip(value: PipEligibility): Boolean {
@@ -76,4 +99,3 @@ object PlaybackPolicy {
         return (samePackage && sameUid) || sameUid
     }
 }
-

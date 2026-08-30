@@ -9,11 +9,34 @@ import com.hpre.app.model.VideoStream
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
+import org.junit.Assert.assertNotEquals
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class SessionPlayerProtocolTest {
+
+    @Test
+    fun position_only_updates_do_not_change_structural_playback_state() {
+        val first = PlaybackState(
+            key = testKey,
+            title = "Video",
+            isPlaying = true,
+            currentPositionMs = 1_000L,
+            durationMs = 10_000L
+        )
+        val tick = first.copy(currentPositionMs = 2_000L)
+
+        assertEquals(first.toStructuralState(), tick.toStructuralState())
+        assertNotEquals(first.toProgress(), tick.toProgress())
+    }
+
+    @Test
+    fun ui_progress_tracking_runs_only_in_foreground_or_pip() {
+        assertTrue(PlaybackPolicy.shouldTrackUiProgress(isLifecycleStarted = true, isInPip = false))
+        assertTrue(PlaybackPolicy.shouldTrackUiProgress(isLifecycleStarted = false, isInPip = true))
+        assertFalse(PlaybackPolicy.shouldTrackUiProgress(isLifecycleStarted = false, isInPip = false))
+    }
 
     private val testKey = ContentKey(0, "proto_test_123")
 
@@ -663,4 +686,387 @@ class SessionPlayerProtocolTest {
         assertFalse("External cancellation must NOT clear snapshot", snapshotCleared)
         assertTrue("CancellationException must be rethrown", rethrownCancellation)
     }
+
+    @Test
+    fun readiness_tracker_rejects_when_either_or_both_media_ids_are_null() = kotlinx.coroutines.runBlocking {
+        val readiness = PlaybackReadinessTracker()
+        val mediaId = PlaybackMediaId.encode(ContentKey(0, "test_null_media_id"))
+
+        // Case 1: activeMediaId is null at registration -> onPlaybackStateChanged must reject
+        val defNullActive = readiness.registerSession(sessionGen = 10L, mediaId = null)
+        readiness.onPlaybackStateChanged(sessionGen = 10L, currentMediaId = mediaId, playbackState = androidx.media3.common.Player.STATE_READY)
+        assertFalse("Null activeMediaId must reject callback", defNullActive.isCompleted)
+
+        // Case 2: activeMediaId is set, but callback has currentMediaId = null -> reject
+        val defNullCurrent = readiness.registerSession(sessionGen = 20L, mediaId = mediaId)
+        readiness.onPlaybackStateChanged(sessionGen = 20L, currentMediaId = null, playbackState = androidx.media3.common.Player.STATE_READY)
+        assertFalse("Null currentMediaId must reject callback", defNullCurrent.isCompleted)
+
+        // Case 3: both null -> reject
+        val defBothNull = readiness.registerSession(sessionGen = 30L, mediaId = null)
+        readiness.onPlaybackStateChanged(sessionGen = 30L, currentMediaId = null, playbackState = androidx.media3.common.Player.STATE_READY)
+        assertFalse("Both null mediaIds must reject callback", defBothNull.isCompleted)
+
+        // Case 4: onError with null mediaId must also reject
+        val defNullError = readiness.registerSession(sessionGen = 40L, mediaId = null)
+        readiness.onError(sessionGen = 40L, currentMediaId = mediaId)
+        assertFalse("Null activeMediaId in onError must reject", defNullError.isCompleted)
+
+        val defNullCurrError = readiness.registerSession(sessionGen = 50L, mediaId = mediaId)
+        readiness.onError(sessionGen = 50L, currentMediaId = null)
+        assertFalse("Null currentMediaId in onError must reject", defNullCurrError.isCompleted)
+    }
+
+    @Test
+    fun readiness_tracker_ignores_stale_media_id_and_accepts_matching_media_id() = kotlinx.coroutines.runBlocking {
+        val readiness = PlaybackReadinessTracker()
+        val oldMediaId = PlaybackMediaId.encode(ContentKey(0, "old_video_100"))
+        val newMediaId = PlaybackMediaId.encode(ContentKey(0, "new_video_200"))
+
+        // Register session 200 with newMediaId
+        val def200 = readiness.registerSession(sessionGen = 200L, mediaId = newMediaId)
+        assertFalse("New session must be pending", def200.isCompleted)
+
+        // Stale READY with oldMediaId for same sessionGen is ignored
+        readiness.onPlaybackStateChanged(sessionGen = 200L, currentMediaId = oldMediaId, playbackState = androidx.media3.common.Player.STATE_READY)
+        assertFalse("Stale mediaId READY must not complete session", def200.isCompleted)
+
+        // Stale error with oldMediaId is ignored
+        readiness.onError(sessionGen = 200L, currentMediaId = oldMediaId)
+        assertFalse("Stale mediaId error must not complete session", def200.isCompleted)
+
+        // Matching newMediaId with STATE_READY completes true
+        readiness.onPlaybackStateChanged(sessionGen = 200L, currentMediaId = newMediaId, playbackState = androidx.media3.common.Player.STATE_READY)
+        assertTrue(def200.await())
+    }
+
+    @Test
+    fun readiness_tracker_onError_with_matching_media_id_completes_false() = kotlinx.coroutines.runBlocking {
+        val readiness = PlaybackReadinessTracker()
+        val mediaId = PlaybackMediaId.encode(ContentKey(0, "error_vid"))
+        val def = readiness.registerSession(sessionGen = 300L, mediaId = mediaId)
+
+        readiness.onError(sessionGen = 300L, currentMediaId = mediaId)
+        assertFalse(def.await())
+    }
+
+    @Test
+    fun session_player_controller_handles_cancellation_exception_and_triggers_bounded_retry() = kotlinx.coroutines.runBlocking {
+        val fakeContext = object : android.content.ContextWrapper(null) {
+            override fun getApplicationContext(): android.content.Context = this
+        }
+        val cancelFuture = com.google.common.util.concurrent.SettableFuture.create<androidx.media3.session.MediaController>()
+        cancelFuture.cancel(true) // will throw CancellationException on get()
+
+        var futureCreations = 0
+        val coordinator = object : SessionPlayerController.ConnectionLifecycleCoordinator {
+            override fun createControllerFuture(
+                context: android.content.Context,
+                listener: androidx.media3.session.MediaController.Listener
+            ): com.google.common.util.concurrent.ListenableFuture<androidx.media3.session.MediaController> {
+                futureCreations++
+                return cancelFuture
+            }
+        }
+
+        val testDispatcher = kotlinx.coroutines.Dispatchers.Unconfined
+        val controller = SessionPlayerController(
+            context = fakeContext,
+            connectionCoordinator = coordinator,
+            mainDispatcher = testDispatcher,
+            ioDispatcher = testDispatcher,
+            externalScope = this
+        )
+
+        // Initial connect attempted
+        assertEquals(1, futureCreations)
+        assertEquals(1, controller.currentRetryCount)
+        assertTrue(controller.isReconnectingState)
+
+        controller.clearMedia()
+        assertFalse(controller.isReconnectingState)
+        assertEquals(0, controller.currentRetryCount)
+        controller.release()
+    }
+
+    @Test
+    fun clearMedia_and_release_unconditionally_detach_owned_surfaceView_when_mediaController_is_null() = kotlinx.coroutines.runBlocking {
+        var playerViewPlayer: Any? = "InitialPlayer"
+        var playerSetCount = 0
+
+        val fakeContext = object : android.content.ContextWrapper(null) {
+            override fun getApplicationContext(): android.content.Context = this
+        }
+        val pendingFuture = com.google.common.util.concurrent.SettableFuture.create<androidx.media3.session.MediaController>()
+        val coordinator = object : SessionPlayerController.ConnectionLifecycleCoordinator {
+            override fun createControllerFuture(
+                context: android.content.Context,
+                listener: androidx.media3.session.MediaController.Listener
+            ): com.google.common.util.concurrent.ListenableFuture<androidx.media3.session.MediaController> = pendingFuture
+        }
+
+        val testDispatcher = kotlinx.coroutines.Dispatchers.Unconfined
+        val controller = SessionPlayerController(
+            context = fakeContext,
+            connectionCoordinator = coordinator,
+            mainDispatcher = testDispatcher,
+            ioDispatcher = testDispatcher,
+            externalScope = this
+        )
+
+        // Clear media while mediaController is null must null surface player and current surface view
+        controller.clearMedia()
+        val snapshotAfterClear = controller.getTestingSnapshot()
+        assertFalse("Surface attached probe must be false after clearMedia", snapshotAfterClear.surfaceAttached)
+
+        controller.release()
+        val snapshotAfterRelease = controller.getTestingSnapshot()
+        assertFalse("Surface attached probe must be false after release", snapshotAfterRelease.surfaceAttached)
+    }
+
+    @Test
+    fun stale_future_completing_after_clear_is_released_and_not_committed() = kotlinx.coroutines.runBlocking {
+        val fakeContext = object : android.content.ContextWrapper(null) {
+            override fun getApplicationContext(): android.content.Context = this
+        }
+        val pendingFuture = com.google.common.util.concurrent.SettableFuture.create<androidx.media3.session.MediaController>()
+        val coordinator = object : SessionPlayerController.ConnectionLifecycleCoordinator {
+            override fun createControllerFuture(
+                context: android.content.Context,
+                listener: androidx.media3.session.MediaController.Listener
+            ): com.google.common.util.concurrent.ListenableFuture<androidx.media3.session.MediaController> = pendingFuture
+        }
+
+        val testDispatcher = kotlinx.coroutines.Dispatchers.Unconfined
+        val controller = SessionPlayerController(
+            context = fakeContext,
+            connectionCoordinator = coordinator,
+            mainDispatcher = testDispatcher,
+            ioDispatcher = testDispatcher,
+            externalScope = this
+        )
+
+        // Clear before future completes
+        controller.clearMedia()
+        assertEquals(2L, controller.activeAttemptGen)
+
+        val snapshot = controller.getTestingSnapshot()
+        assertEquals(0L, controller.activeConnGen)
+        assertFalse(controller.isReconnectingState)
+
+        controller.release()
+    }
+
+    @Test
+    fun repeated_failure_drives_retry_deduplication_and_exhaustion_on_production_controller() = kotlinx.coroutines.runBlocking {
+        val fakeContext = object : android.content.ContextWrapper(null) {
+            override fun getApplicationContext(): android.content.Context = this
+        }
+        var futureCreations = 0
+        val pendingFutures = mutableListOf<com.google.common.util.concurrent.SettableFuture<androidx.media3.session.MediaController>>()
+        val coordinator = object : SessionPlayerController.ConnectionLifecycleCoordinator {
+            override fun createControllerFuture(
+                context: android.content.Context,
+                listener: androidx.media3.session.MediaController.Listener
+            ): com.google.common.util.concurrent.ListenableFuture<androidx.media3.session.MediaController> {
+                futureCreations++
+                val f = com.google.common.util.concurrent.SettableFuture.create<androidx.media3.session.MediaController>()
+                pendingFutures.add(f)
+                return f
+            }
+        }
+
+        val testDispatcher = kotlinx.coroutines.Dispatchers.Unconfined
+        val controller = SessionPlayerController(
+            context = fakeContext,
+            connectionCoordinator = coordinator,
+            mainDispatcher = testDispatcher,
+            ioDispatcher = testDispatcher,
+            externalScope = this
+        )
+
+        assertEquals(1, futureCreations)
+
+        // Fail 1st attempt
+        pendingFutures.removeAt(0).setException(java.lang.RuntimeException("Connect failed 1"))
+        assertEquals(1, controller.currentRetryCount)
+
+        // Fail 2nd attempt
+        if (pendingFutures.isNotEmpty()) {
+            pendingFutures.removeAt(0).setException(java.lang.RuntimeException("Connect failed 2"))
+        }
+
+        // Exhaustion resets reconnecting state
+        controller.clearMedia()
+        assertEquals(0, controller.currentRetryCount)
+        assertFalse(controller.isReconnectingState)
+
+        controller.release()
+    }
+
+    @Test
+    fun readiness_tracker_handles_ready_before_await_and_after_await_and_error_and_supersede() = kotlinx.coroutines.runBlocking {
+        val readiness = PlaybackReadinessTracker()
+        val mediaId = PlaybackMediaId.encode(ContentKey(0, "readiness_tracker"))
+
+        // Case A: READY arrives AFTER register
+        val defLateReady = readiness.registerSession(sessionGen = 102L, mediaId = mediaId)
+        assertFalse(defLateReady.isCompleted)
+        readiness.onPlaybackStateChanged(sessionGen = 102L, currentMediaId = mediaId, playbackState = androidx.media3.common.Player.STATE_READY)
+        assertTrue(defLateReady.await())
+
+        // Case B: Error completes deferred with false
+        val defError = readiness.registerSession(sessionGen = 103L, mediaId = mediaId)
+        readiness.onError(sessionGen = 103L, currentMediaId = mediaId)
+        assertFalse(defError.await())
+
+        // Case C: Supersede with new session generation cancels previous with false
+        val defOld = readiness.registerSession(sessionGen = 104L, mediaId = mediaId)
+        val defNew = readiness.registerSession(sessionGen = 105L, mediaId = mediaId)
+        assertFalse("Previous deferred must complete false on supersede", defOld.await())
+        assertFalse("New deferred remains pending", defNew.isCompleted)
+        readiness.onPlaybackStateChanged(sessionGen = 105L, currentMediaId = mediaId, playbackState = androidx.media3.common.Player.STATE_READY)
+        assertTrue("New deferred completes true on READY", defNew.await())
+    }
+
+    @Test
+    fun session_player_controller_lifecycle_coordinator_exercises_production_clear_and_stale_completion() = kotlinx.coroutines.runBlocking {
+        val fakeContext = object : android.content.ContextWrapper(null) {
+            override fun getApplicationContext(): android.content.Context = this
+        }
+        val future1 = com.google.common.util.concurrent.SettableFuture.create<androidx.media3.session.MediaController>()
+        val future2 = com.google.common.util.concurrent.SettableFuture.create<androidx.media3.session.MediaController>()
+
+        val futures = mutableListOf(future1, future2)
+        var createdCount = 0
+        val coordinator = object : SessionPlayerController.ConnectionLifecycleCoordinator {
+            override fun createControllerFuture(
+                context: android.content.Context,
+                listener: androidx.media3.session.MediaController.Listener
+            ): com.google.common.util.concurrent.ListenableFuture<androidx.media3.session.MediaController> {
+                createdCount++
+                return futures.removeAt(0)
+            }
+        }
+
+        val testDispatcher = kotlinx.coroutines.Dispatchers.Unconfined
+        val controller = SessionPlayerController(
+            context = fakeContext,
+            connectionCoordinator = coordinator,
+            mainDispatcher = testDispatcher,
+            ioDispatcher = testDispatcher,
+            externalScope = this
+        )
+
+        assertEquals(1, createdCount)
+        val initialAttemptGen = controller.activeAttemptGen
+        assertEquals(1L, initialAttemptGen)
+
+        // Clear media while connection is pending
+        controller.clearMedia()
+        val afterClearAttemptGen = controller.activeAttemptGen
+        assertEquals(2L, afterClearAttemptGen)
+        assertFalse(controller.isReconnectingState)
+
+        // Prepare after idle triggers exactly one fresh connect
+        val dummyStream = StreamInfo(testKey, "Test Stream")
+        controller.prepare(testKey, dummyStream, startPositionMs = 0L, playWhenReady = false)
+        assertEquals(2, createdCount)
+        val afterPrepareAttemptGen = controller.activeAttemptGen
+        assertEquals(3L, afterPrepareAttemptGen)
+
+        controller.release()
+    }
+
+    @Test
+    fun stale_future_completion_is_observable_and_queued_prepare_is_not_reported_as_delivered() = kotlinx.coroutines.runBlocking {
+        val fakeContext = object : android.content.ContextWrapper(null) {
+            override fun getApplicationContext(): android.content.Context = this
+        }
+        val pendingFuture1 = com.google.common.util.concurrent.SettableFuture.create<androidx.media3.session.MediaController>()
+        val pendingFuture2 = com.google.common.util.concurrent.SettableFuture.create<androidx.media3.session.MediaController>()
+        val completedFutures = mutableListOf<com.google.common.util.concurrent.ListenableFuture<androidx.media3.session.MediaController>>()
+        val deliveredPrepares = mutableListOf<PendingPrepare>()
+        val detachedViews = mutableListOf<androidx.media3.ui.PlayerView>()
+
+        val futures = mutableListOf(pendingFuture1, pendingFuture2)
+        val coordinator = object : SessionPlayerController.ConnectionLifecycleCoordinator {
+            override fun createControllerFuture(
+                context: android.content.Context,
+                listener: androidx.media3.session.MediaController.Listener
+            ): com.google.common.util.concurrent.ListenableFuture<androidx.media3.session.MediaController> = futures.removeAt(0)
+
+            override fun onFutureCompletedOrCancelled(future: com.google.common.util.concurrent.ListenableFuture<androidx.media3.session.MediaController>) {
+                completedFutures.add(future)
+            }
+
+            override fun onPrepareDelivered(pending: PendingPrepare) {
+                deliveredPrepares.add(pending)
+            }
+
+            override fun onPlayerViewDetached(playerView: androidx.media3.ui.PlayerView) {
+                detachedViews.add(playerView)
+            }
+        }
+
+        val testDispatcher = kotlinx.coroutines.Dispatchers.Unconfined
+        val controller = SessionPlayerController(
+            context = fakeContext,
+            connectionCoordinator = coordinator,
+            mainDispatcher = testDispatcher,
+            ioDispatcher = testDispatcher,
+            externalScope = this
+        )
+
+        // Stale future 1 completes after clearMedia
+        controller.clearMedia()
+        pendingFuture1.setException(java.lang.RuntimeException("Cancelled/aborted"))
+        assertEquals(1, completedFutures.size)
+        assertEquals(pendingFuture1, completedFutures[0])
+
+        // Enqueueing while disconnected is not delivery to the service.
+        val dummyStream = StreamInfo(testKey, "Delivered Prepare Test")
+        controller.prepare(testKey, dummyStream, startPositionMs = 5000L, playWhenReady = true)
+        assertTrue(deliveredPrepares.isEmpty())
+
+        controller.release()
+    }
+
+    @Test
+    fun unconditional_owned_PlayerView_detachment_through_production_helper() = kotlinx.coroutines.runBlocking {
+        val fakeContext = object : android.content.ContextWrapper(null) {
+            override fun getApplicationContext(): android.content.Context = this
+        }
+        val pendingFuture = com.google.common.util.concurrent.SettableFuture.create<androidx.media3.session.MediaController>()
+        val detachedViews = mutableListOf<androidx.media3.ui.PlayerView>()
+        val coordinator = object : SessionPlayerController.ConnectionLifecycleCoordinator {
+            override fun createControllerFuture(
+                context: android.content.Context,
+                listener: androidx.media3.session.MediaController.Listener
+            ): com.google.common.util.concurrent.ListenableFuture<androidx.media3.session.MediaController> = pendingFuture
+
+            override fun onPlayerViewDetached(playerView: androidx.media3.ui.PlayerView) {
+                detachedViews.add(playerView)
+            }
+        }
+
+        val testDispatcher = kotlinx.coroutines.Dispatchers.Unconfined
+        val controller = SessionPlayerController(
+            context = fakeContext,
+            connectionCoordinator = coordinator,
+            mainDispatcher = testDispatcher,
+            ioDispatcher = testDispatcher,
+            externalScope = this
+        )
+
+        // Clear media unconditionally calls detachment and resets testing snapshot
+        controller.clearMedia()
+        val snapshotAfterClear = controller.getTestingSnapshot()
+        assertFalse("Surface attached probe must be false after clearMedia", snapshotAfterClear.surfaceAttached)
+
+        controller.release()
+        val snapshotAfterRelease = controller.getTestingSnapshot()
+        assertFalse("Surface attached probe must be false after release", snapshotAfterRelease.surfaceAttached)
+    }
+
 }

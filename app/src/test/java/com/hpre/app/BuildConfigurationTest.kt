@@ -10,9 +10,14 @@ class BuildConfigurationTest {
         assertEquals("com.hpre.app", BuildConfig.APPLICATION_ID)
     }
 
-    @Test fun release_version_is_1_0_6_code_7() {
-        assertEquals("1.0.6", BuildConfig.VERSION_NAME)
-        assertEquals(7, BuildConfig.VERSION_CODE)
+    @Test fun release_version_is_1_0_9_code_10_and_shrinks_resources() {
+        assertEquals("1.0.9", BuildConfig.VERSION_NAME)
+        assertEquals(10, BuildConfig.VERSION_CODE)
+
+        val root = generateSequence(File(".").canonicalFile) { it.parentFile }
+            .first { File(it, "settings.gradle.kts").isFile }
+        val buildScript = File(root, "app/build.gradle.kts").readText()
+        assertTrue(buildScript.contains("isShrinkResources = true"))
     }
 
     @Test fun compose_host_is_edge_to_edge() {

@@ -19,8 +19,11 @@ import com.hpre.app.model.StreamInfo
 import com.hpre.app.model.VideoDetails
 import com.hpre.app.model.VideoSummary
 import com.hpre.app.player.PlaybackState
+import com.hpre.app.player.PlaybackProgress
 import com.hpre.app.player.PlayerController
 import com.hpre.app.player.QualityOption
+import com.hpre.app.player.toProgress
+import com.hpre.app.player.toStructuralState
 import com.hpre.app.repository.CatalogRepository
 import com.hpre.app.repository.HistoryRepository
 import com.hpre.app.repository.RecommendationRequest
@@ -40,6 +43,8 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.flowOf
+import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
@@ -230,6 +235,14 @@ class WatchViewModel(
         ) ?: MutableStateFlow(emptyList<com.hpre.app.repository.LocalPlaylist>()).asStateFlow()
 
     val playbackState: StateFlow<PlaybackState> = playerController.state
+    val structuralPlaybackState: StateFlow<PlaybackState> = playerController.state
+        .map(PlaybackState::toStructuralState)
+        .distinctUntilChanged()
+        .stateIn(viewModelScope, SharingStarted.Eagerly, playerController.state.value.toStructuralState())
+    val playbackProgress: StateFlow<PlaybackProgress> = playerController.state
+        .map(PlaybackState::toProgress)
+        .distinctUntilChanged()
+        .stateIn(viewModelScope, SharingStarted.Eagerly, playerController.state.value.toProgress())
 
     @Volatile
     private var currentKey: ContentKey? = null

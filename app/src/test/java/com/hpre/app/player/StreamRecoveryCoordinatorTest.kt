@@ -31,7 +31,8 @@ class StreamRecoveryCoordinatorTest {
     private fun sampleStreamInfo(
         key: ContentKey = testKey,
         progressiveUrl: String = "https://fresh.example.com/stream.mp4",
-        height: Int = 720
+        height: Int = 720,
+        isLive: Boolean = false
     ): StreamInfo {
         return StreamInfo(
             key = key,
@@ -57,8 +58,27 @@ class StreamRecoveryCoordinatorTest {
                     codec = "mp4a.40.2",
                     bitrate = 128_000
                 )
-            )
+            ),
+            isLive = isLive
         )
+    }
+
+    @Test
+    fun live_recovery_returns_to_live_edge_instead_of_stale_dvr_position() = runTest {
+        val fakeService = FakeVideoService(
+            streamResponses = mapOf(testKey.nativeId to sampleStreamInfo(isLive = true))
+        )
+        val coordinator = StreamRecoveryCoordinator(fakeService)
+
+        val result = coordinator.recoverExpiredStream(
+            key = testKey,
+            positionMs = 42_000L,
+            wasPlaying = true,
+            preference = QualityPreference.Auto
+        )
+
+        assertTrue(result is RecoveryResult.Recovered)
+        assertEquals(0L, (result as RecoveryResult.Recovered).resumePositionMs)
     }
 
     @Test

@@ -14,14 +14,25 @@ import androidx.annotation.RequiresApi
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.SideEffect
 import androidx.compose.ui.Modifier
 import com.hpre.app.core.designsystem.HPreTheme
+import com.hpre.app.model.ContentKey
 import com.hpre.app.navigation.RootScaffold
 import com.hpre.app.player.PlaybackStreamType
 import com.hpre.app.player.PlayerController
 import com.hpre.app.settings.AppLocaleProvider
 import com.hpre.app.ui.watch.PlayerSurface
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.map
+
+private data class AutoPipPlaybackSnapshot(
+    val key: ContentKey?,
+    val streamType: PlaybackStreamType?,
+    val isPlaying: Boolean,
+    val isReady: Boolean
+)
 
 open class MainActivity : ComponentActivity() {
     private val app: HPreApplication
@@ -77,7 +88,29 @@ open class MainActivity : ComponentActivity() {
             AppLocaleProvider(language = settings.language) {
                 HPreTheme(darkTheme = darkTheme) {
                     val playbackUiState by app.playbackUiCoordinator.state.collectAsStateWithLifecycle()
-                    val playbackState by app.container.playbackState.collectAsStateWithLifecycle()
+                    // Auto-PiP only depends on four playback facts. Project the frequently-updating
+                    // PlaybackState to those facts so position/buffering/quality ticks do not
+                    // recompose the activity root and all of its navigation content.
+                    val autoPipPlaybackFlow = remember(app.container) {
+                        app.container.playbackState
+                            .map { state ->
+                                AutoPipPlaybackSnapshot(
+                                    key = state.key,
+                                    streamType = state.streamType,
+                                    isPlaying = state.isPlaying,
+                                    isReady = state.isReady
+                                )
+                            }
+                            .distinctUntilChanged()
+                    }
+                    val autoPipPlayback by autoPipPlaybackFlow.collectAsStateWithLifecycle(
+                        initialValue = AutoPipPlaybackSnapshot(
+                            key = null,
+                            streamType = null,
+                            isPlaying = false,
+                            isReady = false
+                        )
+                    )
 
                     androidx.compose.runtime.LaunchedEffect(playbackUiState.backgroundPlaybackEnabled, playbackUiState.isInPip) {
                         app.container.updatePlayerLifecyclePolicy(
@@ -88,10 +121,10 @@ open class MainActivity : ComponentActivity() {
                     androidx.compose.runtime.LaunchedEffect(
                         playbackUiState.watchVisible,
                         playbackUiState.pipEnabled,
-                        playbackState.key,
-                        playbackState.streamType,
-                        playbackState.isPlaying,
-                        playbackState.isReady
+                        autoPipPlayback.key,
+                        autoPipPlayback.streamType,
+                        autoPipPlayback.isPlaying,
+                        autoPipPlayback.isReady
                     ) {
                         updateAutoPipEligibility()
                     }
