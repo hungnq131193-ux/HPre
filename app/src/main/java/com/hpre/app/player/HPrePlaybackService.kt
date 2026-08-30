@@ -1317,7 +1317,7 @@ class HPrePlaybackService : MediaSessionService() {
         recoveryJob?.cancel()
         readinessTracker.cancel()
 
-        // Synchronously-safe persist final snapshot before player release
+        // Capture final state without blocking service teardown on DataStore I/O.
         persistFinalSnapshotSync()
 
         serviceScope.cancel()

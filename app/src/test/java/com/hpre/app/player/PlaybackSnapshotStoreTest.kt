@@ -1,11 +1,18 @@
 package com.hpre.app.player
 
+import androidx.datastore.core.DataStore
+import androidx.datastore.preferences.core.Preferences
+import androidx.datastore.preferences.core.emptyPreferences
 import com.hpre.app.model.ContentKey
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
@@ -16,6 +23,9 @@ import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
 import java.io.File
+import java.util.concurrent.CountDownLatch
+import java.util.concurrent.Executors
+import java.util.concurrent.TimeUnit
 
 class PlaybackSnapshotStoreTest {
 
@@ -204,7 +214,7 @@ class PlaybackSnapshotStoreTest {
     }
 
     @Test
-    fun saveSync_persists_synchronously_and_loads_immediately() {
+    fun saveSync_updates_memory_without_waiting_for_slow_datastore_write() {
         val key = ContentKey(0, "sync_video")
         val snapshot = PlaybackSnapshot(
             key = key,
@@ -212,14 +222,25 @@ class PlaybackSnapshotStoreTest {
             playWhenReady = false,
             playbackSpeed = 1.75f
         )
-        store.saveSync(snapshot)
+        val dataStore = BlockingPreferenceDataStore()
+        val ioScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+        val asyncStore = PlaybackSnapshotStore(
+            storageDir = null,
+            dataStore = dataStore,
+            ioScope = ioScope
+        )
+        val caller = Executors.newSingleThreadExecutor()
 
-        val loaded = store.load()
-        assertNotNull(loaded)
-        assertEquals(key, loaded?.key)
-        assertEquals(99_000L, loaded?.positionMs)
-        assertEquals(false, loaded?.playWhenReady)
-        assertEquals(1.75f, loaded?.playbackSpeed ?: 0f, 0.001f)
+        try {
+            caller.submit { asyncStore.saveSync(snapshot) }.get(250L, TimeUnit.MILLISECONDS)
+
+            assertTrue(dataStore.writeStarted.await(5L, TimeUnit.SECONDS))
+            assertEquals(snapshot, asyncStore.load())
+        } finally {
+            dataStore.allowWrite.countDown()
+            caller.shutdownNow()
+            ioScope.cancel()
+        }
     }
 
     @Test
@@ -285,6 +306,19 @@ class PlaybackSnapshotStoreTest {
         }
 
         assertNull(store.load())
+    }
+
+    private class BlockingPreferenceDataStore : DataStore<Preferences> {
+        val writeStarted = CountDownLatch(1)
+        val allowWrite = CountDownLatch(1)
+
+        override val data: Flow<Preferences> = flowOf(emptyPreferences())
+
+        override suspend fun updateData(transform: suspend (t: Preferences) -> Preferences): Preferences {
+            writeStarted.countDown()
+            allowWrite.await()
+            return transform(emptyPreferences())
+        }
     }
 }
 
