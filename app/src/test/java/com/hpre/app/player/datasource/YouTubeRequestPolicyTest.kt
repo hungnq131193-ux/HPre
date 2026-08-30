@@ -107,4 +107,15 @@ class YouTubeRequestPolicyTest {
         assertFalse(transformed.isEligibleYouTube)
         assertEquals(DataSpec.HTTP_METHOD_GET, transformed.httpMethod)
     }
+
+    @Test
+    fun lookalikeVideoPlaybackPath_isNotEligible() {
+        val uri = Uri.parse("https://rr1.googlevideo.com/videoplaybackevil?expire=123")
+        val dataSpec = DataSpec.Builder().setUri(uri).build()
+
+        val transformed = YouTubeRequestPolicy.transformDataSpec(dataSpec, YouTubeRequestProfile.DASH, requestNumber = 0)
+
+        assertFalse(transformed.isEligibleYouTube)
+        assertEquals(uri.toString(), transformed.uriString)
+    }
 }

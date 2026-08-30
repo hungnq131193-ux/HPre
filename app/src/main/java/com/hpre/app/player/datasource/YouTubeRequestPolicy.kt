@@ -65,7 +65,7 @@ object YouTubeRequestPolicy {
             val isYtHost = host == "googlevideo.com" || host.endsWith(".googlevideo.com") ||
                     host == "youtube.com" || host.endsWith(".youtube.com")
 
-            isYtHost && path.startsWith("/videoplayback")
+            isYtHost && (path == "/videoplayback" || path.startsWith("/videoplayback/"))
         } catch (_: Throwable) {
             false
         }
