@@ -30,6 +30,7 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import java.util.concurrent.atomic.AtomicLong
 import java.util.concurrent.ExecutionException
 
 internal fun restoreConnectedPlaybackState(
@@ -113,7 +114,7 @@ class SessionPlayerController internal constructor(
 
     private var localMediaGen: Long = 0L
     private var localSessionGen: Long = 0L
-    private var localPrepareRequestGeneration: Long = 0L
+    private val localPrepareRequestGeneration = AtomicLong(0L)
     private var localQualityRequestGen: Long = 0L
     private var localRenderedCount: Int = 0
     private var localAudioDecoderCount: Int = 0
@@ -682,9 +683,9 @@ class SessionPlayerController internal constructor(
         }
 
         val pending = PendingPrepare(key, effectiveStartPositionMs, playWhenReady, initialQuality, clampedSpeed)
-        val prepareRequestGeneration = ++localPrepareRequestGeneration
+        val prepareRequestGeneration = localPrepareRequestGeneration.incrementAndGet()
         scope.launch(mainDispatcher) {
-            if (isReleased || prepareRequestGeneration != localPrepareRequestGeneration) return@launch
+            if (isReleased || prepareRequestGeneration != localPrepareRequestGeneration.get()) return@launch
             if (mediaController == null) {
                 pendingCommands.setPrepare(pending)
                 if (controllerFuture == null && !isReconnecting) {
@@ -957,7 +958,7 @@ class SessionPlayerController internal constructor(
         connectRetryCount = 0
         connectionAttemptGeneration++
         activeConnectionGeneration = 0L
-        localPrepareRequestGeneration++
+        localPrepareRequestGeneration.incrementAndGet()
 
         snapshotStore.clear()
         pendingCommands.clearPrepare()
@@ -1005,7 +1006,7 @@ class SessionPlayerController internal constructor(
         connectRetryCount = 0
         connectionAttemptGeneration++
         activeConnectionGeneration = 0L
-        localPrepareRequestGeneration++
+        localPrepareRequestGeneration.incrementAndGet()
 
         val surfaceView = currentSurfaceView
         currentSurfaceView = null

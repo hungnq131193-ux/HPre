@@ -24,6 +24,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.contentDescription
@@ -109,14 +110,15 @@ fun LazyListScope.commentsItems(
 
 @Composable
 private fun CommentRow(comment: Comment) {
-    val age = remember(comment.publishedTimestamp) {
-        VideoFormat.age(comment.publishedTimestamp, System.currentTimeMillis())
+    val locale = LocalConfiguration.current.locales[0]
+    val age = remember(comment.publishedTimestamp, locale) {
+        VideoFormat.age(comment.publishedTimestamp, System.currentTimeMillis(), locale)
     }
     val initial = remember(comment.authorName) {
         comment.authorName.trim().firstOrNull()?.uppercaseChar()?.toString() ?: "?"
     }
-    val likes = remember(comment.likeCount) {
-        comment.likeCount?.takeIf { it >= 0L }?.let(NumberFormat.getIntegerInstance()::format)
+    val likes = remember(comment.likeCount, locale) {
+        comment.likeCount?.takeIf { it >= 0L }?.let(NumberFormat.getIntegerInstance(locale)::format)
     }
     val replyCount = comment.replyCount?.takeIf { it > 0L }
     val avatarDescription = stringResource(R.string.comments_author_avatar, comment.authorName)
