@@ -769,5 +769,11 @@ class HomeViewModelTest {
         assertEquals(0, registered.size)
         assertEquals(1, removed.size)
         assertEquals(false, executed)
+
+        // Invoking registered handler after removal should not happen because it's removed
+        if (registered.isNotEmpty()) {
+            registered[0]()
+        }
+        assertEquals(false, executed)
     }
 }

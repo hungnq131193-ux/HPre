@@ -248,6 +248,78 @@ class HomeToWatchNavigationTest {
     }
 
     @Test
+    fun home_idle_disposal_removes_idle_handler_and_prevents_callback() {
+        val fakeService = FakeVideoService(
+            trendingResponse = com.hpre.app.core.error.AppResult.Success(listOf(summary("item999"))),
+            videoHandler = { com.hpre.app.core.error.AppResult.Success(details(it.nativeId)) }
+        )
+        val container = TestContainer(fakeService)
+
+        var heldHandler: (() -> Boolean)? = null
+        var removeCalled = false
+        var removedToken: Any? = null
+        val expectedToken = Any()
+
+        val fakeRegistry = object : com.hpre.app.ui.home.IdleQueueRegistry {
+            override fun addIdleHandler(handler: () -> Boolean): Any {
+                heldHandler = handler
+                return expectedToken
+            }
+
+            override fun removeIdleHandler(token: Any) {
+                removeCalled = true
+                removedToken = token
+            }
+        }
+
+        var callbackInvoked = false
+        var showHomeScreen by androidx.compose.runtime.mutableStateOf(true)
+
+        composeTestRule.setContent {
+            HPreTheme {
+                if (showHomeScreen) {
+                    val homeViewModel: com.hpre.app.ui.home.HomeViewModel = androidx.lifecycle.viewmodel.compose.viewModel(
+                        factory = com.hpre.app.ui.home.HomeViewModel.provideFactory(
+                            repository = container.recommendationRepository,
+                            topicFeedSource = container.topicFeedSource
+                        )
+                    )
+                    com.hpre.app.ui.home.HomeScreen(
+                        viewModel = homeViewModel,
+                        onVideoClick = {},
+                        onContentIdle = { callbackInvoked = true },
+                        idleQueueRegistry = fakeRegistry
+                    )
+                }
+            }
+        }
+
+        composeTestRule.waitUntil(5000) {
+            composeTestRule.onAllNodes(androidx.compose.ui.test.hasTestTag("video_card_item999"))
+                .fetchSemanticsNodes().isNotEmpty()
+        }
+
+        org.junit.Assert.assertNotNull("Idle handler must have been registered", heldHandler)
+        org.junit.Assert.assertFalse("Remove must not be called while composed", removeCalled)
+        org.junit.Assert.assertFalse("Callback not invoked before handler runs", callbackInvoked)
+
+        // Capture held handler without firing and dispose composition
+        val handlerToFire = heldHandler!!
+        composeTestRule.runOnUiThread {
+            showHomeScreen = false
+        }
+        composeTestRule.waitForIdle()
+
+        org.junit.Assert.assertTrue("removeIdleHandler must be called on disposal", removeCalled)
+        org.junit.Assert.assertSame("removeIdleHandler must be called with token", expectedToken, removedToken)
+
+        // Invoking held handler after disposal must not trigger callback
+        val keepAlive = handlerToFire.invoke()
+        org.junit.Assert.assertFalse("IdleHandler must return false", keepAlive)
+        org.junit.Assert.assertFalse("Callback must not be invoked after disposal", callbackInvoked)
+    }
+
+    @Test
     fun clicking_home_video_card_navigates_to_watch_screen_with_content_key() {
         var streamInfoCallCount = 0
         val fakeService = FakeVideoService(

@@ -88,17 +88,6 @@ interface AppContainer {
     fun prewarmPlaybackInfrastructure(): Unit = Unit
 
     /**
-     * Marks the next playback service startup as an infrastructure-only prewarm,
-     * preventing automatic restoration of persisted playback sessions.
-     */
-    fun markServiceStartupAsPrewarm(): Unit = Unit
-
-    /**
-     * Consumes the prewarm flag if set, returning true if this startup should skip session restore.
-     */
-    fun consumeServiceStartupPrewarm(): Boolean = false
-
-    /**
      * Playback state that can be observed without constructing the player.
      *
      * UI that merely reacts to playback (mini player visibility, PiP eligibility) collects this
@@ -271,15 +260,6 @@ class DefaultAppContainer(
     }
 
     private val prewarmed = AtomicBoolean(false)
-    private val servicePrewarmPending = AtomicBoolean(false)
-
-    override fun markServiceStartupAsPrewarm() {
-        servicePrewarmPending.set(true)
-    }
-
-    override fun consumeServiceStartupPrewarm(): Boolean {
-        return servicePrewarmPending.getAndSet(false)
-    }
 
     override fun prewarmPlaybackInfrastructure() {
         orchestratePlaybackPrewarm(
@@ -289,7 +269,6 @@ class DefaultAppContainer(
             mainDispatcher = mainDispatcher,
             initMediaSourceFactory = { mediaSourceFactory },
             initPlayerController = {
-                markServiceStartupAsPrewarm()
                 createPlayerController()
             }
         )
@@ -318,7 +297,8 @@ class DefaultAppContainer(
             mediaSourceFactory = mediaSourceFactory,
             recoveryCoordinator = coordinator,
             snapshotStore = playbackSnapshotStore,
-            externalScope = applicationScope
+            externalScope = applicationScope,
+            prewarmConnection = true
         ).also { controller ->
             controller.updateLifecyclePolicy(
                 backgroundEnabled = backgroundPlaybackEnabled,

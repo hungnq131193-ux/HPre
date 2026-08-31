@@ -242,29 +242,14 @@ class AppContainerSeamTest {
 
             // Assert state remains default empty state: no active content key, no duration, not prepared, not playing
             assertEquals(com.hpre.app.player.PlaybackState(), controller!!.state.value)
+
+            val prewarmField = com.hpre.app.player.SessionPlayerController::class.java.getDeclaredField("prewarmConnection")
+            prewarmField.isAccessible = true
+            val isPrewarm = prewarmField.getBoolean(controller)
+            assertTrue("DefaultAppContainer controller must have prewarmConnection=true", isPrewarm)
         } finally {
             Dispatchers.resetMain()
         }
-    }
-
-    @Test
-    fun service_startup_prewarm_gate_is_consumed_once() {
-        val fakeContext = object : android.content.ContextWrapper(null) {
-            override fun getApplicationContext(): android.content.Context = this
-        }
-        val container = DefaultAppContainer(context = fakeContext)
-
-        // By default, no prewarm is marked
-        assertFalse(container.consumeServiceStartupPrewarm())
-
-        // Mark prewarm
-        container.markServiceStartupAsPrewarm()
-
-        // First consume returns true
-        assertTrue(container.consumeServiceStartupPrewarm())
-
-        // Subsequent consume returns false (consumed once)
-        assertFalse(container.consumeServiceStartupPrewarm())
     }
 
     @Test

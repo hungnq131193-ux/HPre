@@ -65,7 +65,8 @@ class SessionPlayerController internal constructor(
     private val mainDispatcher: CoroutineDispatcher = Dispatchers.Main,
     private val ioDispatcher: CoroutineDispatcher = Dispatchers.IO,
     private val externalScope: CoroutineScope? = null,
-    internal val connectionCoordinator: ConnectionLifecycleCoordinator? = null
+    internal val connectionCoordinator: ConnectionLifecycleCoordinator? = null,
+    private val prewarmConnection: Boolean = false
 ) : PlayerController, PlayerIntegrationProbe {
 
     constructor(
@@ -75,7 +76,8 @@ class SessionPlayerController internal constructor(
         snapshotStore: PlaybackSnapshotStore = PlaybackSnapshotStore(context),
         mainDispatcher: CoroutineDispatcher = Dispatchers.Main,
         ioDispatcher: CoroutineDispatcher = Dispatchers.IO,
-        externalScope: CoroutineScope? = null
+        externalScope: CoroutineScope? = null,
+        prewarmConnection: Boolean = false
     ) : this(
         context = context,
         mediaSourceFactory = mediaSourceFactory,
@@ -84,7 +86,8 @@ class SessionPlayerController internal constructor(
         mainDispatcher = mainDispatcher,
         ioDispatcher = ioDispatcher,
         externalScope = externalScope,
-        connectionCoordinator = null
+        connectionCoordinator = null,
+        prewarmConnection = prewarmConnection
     )
 
     private val scope = externalScope ?: CoroutineScope(mainDispatcher + Job())
@@ -323,7 +326,11 @@ class SessionPlayerController internal constructor(
                     context.applicationContext,
                     ComponentName(context.applicationContext, HPrePlaybackService::class.java)
                 )
+                val connectionHints = Bundle().apply {
+                    putBoolean(HPrePlaybackService.KEY_INFRASTRUCTURE_PREWARM, prewarmConnection)
+                }
                 MediaController.Builder(context.applicationContext, sessionToken)
+                    .setConnectionHints(connectionHints)
                     .setListener(controllerListener)
                     .buildAsync()
             }

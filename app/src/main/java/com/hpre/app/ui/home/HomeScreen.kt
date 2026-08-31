@@ -39,7 +39,7 @@ import com.hpre.app.ui.common.EmptyPane
 import com.hpre.app.ui.common.ErrorPane
 import com.hpre.app.ui.common.VideoCard
 
-interface IdleQueueRegistry {
+internal interface IdleQueueRegistry {
     fun addIdleHandler(handler: () -> Boolean): Any
     fun removeIdleHandler(token: Any)
 
@@ -63,7 +63,7 @@ interface IdleQueueRegistry {
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun HomeScreen(
+internal fun HomeScreen(
     viewModel: HomeViewModel,
     onVideoClick: (ContentKey) -> Unit,
     modifier: Modifier = Modifier,
@@ -118,11 +118,15 @@ fun HomeScreen(
             }
             is HomeUiState.Content -> {
                 DisposableEffect(Unit) {
+                    var disposed = false
                     val token = idleQueueRegistry.addIdleHandler {
-                        currentOnContentIdle()
+                        if (!disposed) {
+                            currentOnContentIdle()
+                        }
                         false
                     }
                     onDispose {
+                        disposed = true
                         idleQueueRegistry.removeIdleHandler(token)
                     }
                 }
