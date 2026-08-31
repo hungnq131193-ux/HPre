@@ -40,9 +40,11 @@ import com.hpre.app.model.ContentKey
 import com.hpre.app.model.StreamInfo
 import com.hpre.app.model.VideoDetails
 import com.hpre.app.model.VideoSummary
+import com.hpre.app.player.PlaybackProgress
 import com.hpre.app.player.PlaybackState
 import com.hpre.app.player.PlayerController
 import com.hpre.app.player.QualityOption
+import com.hpre.app.player.toProgress
 import com.hpre.app.testing.FakeVideoService
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -169,6 +171,7 @@ class WatchScreenTest {
         }
 
         override fun release() {}
+        override suspend fun readProgress(): PlaybackProgress = _state.value.toProgress()
     }
 
     private fun testDetails(key: ContentKey) = VideoDetails(

@@ -573,6 +573,15 @@ class PlaybackServiceTest {
         delay(500)
         controller.release()
     }
+
+    @Test
+    fun sessionPlayerController_connection_hints_production_bundle_format() {
+        val prewarmHints = SessionPlayerController.createConnectionHints(isPrewarm = true)
+        assertTrue(prewarmHints.getBoolean(HPrePlaybackService.KEY_INFRASTRUCTURE_PREWARM, false))
+
+        val normalHints = SessionPlayerController.createConnectionHints(isPrewarm = false)
+        org.junit.Assert.assertFalse(normalHints.getBoolean(HPrePlaybackService.KEY_INFRASTRUCTURE_PREWARM, true))
+    }
 }
 
 

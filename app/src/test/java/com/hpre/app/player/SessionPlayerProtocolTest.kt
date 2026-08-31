@@ -1144,6 +1144,8 @@ class SessionPlayerProtocolTest {
             override fun getApplicationContext(): android.content.Context = this
         }
         val pendingFuture = com.google.common.util.concurrent.SettableFuture.create<androidx.media3.session.MediaController>()
+        var readToken: Long? = null
+        var readThreadName: String? = null
         val coordinator = object : SessionPlayerController.ConnectionLifecycleCoordinator {
             override fun createControllerFuture(
                 context: android.content.Context,
@@ -1153,8 +1155,10 @@ class SessionPlayerProtocolTest {
                 return pendingFuture
             }
 
-            override suspend fun readProgress(controller: androidx.media3.session.MediaController?): PlaybackProgress? {
-                return PlaybackProgress(positionMs = 35_000L, durationMs = 120_000L)
+            override suspend fun readProgress(controller: androidx.media3.session.MediaController?, connectionToken: Long): PlaybackProgress? {
+                readToken = connectionToken
+                readThreadName = Thread.currentThread().name
+                return if (connectionToken > 0L) PlaybackProgress(positionMs = 35_000L, durationMs = 120_000L) else null
             }
         }
 
@@ -1172,11 +1176,22 @@ class SessionPlayerProtocolTest {
         )
 
         testScheduler.runCurrent()
+        // Unconnected before future returns
+        val beforeConnect = controller.readProgress()
+        assertEquals(0L, beforeConnect.positionMs)
+
+        // Connected through coordinator seam token
+        controller.simulateConnectedForTesting(1L)
+        testScheduler.runCurrent()
+
         val progress = controller.readProgress()
         assertEquals(35_000L, progress.positionMs)
         assertEquals(120_000L, progress.durationMs)
+        assertTrue(readToken != null && readToken!! > 0L)
 
         controller.release()
+        val afterRelease = controller.readProgress()
+        assertEquals(0L, afterRelease.positionMs)
     }
 
     @Test
@@ -1246,6 +1261,9 @@ class SessionPlayerProtocolTest {
         )
 
         testScheduler.runCurrent()
+        controller.simulateConnectedForTesting(1L)
+        testScheduler.runCurrent()
+
         controller.onLifecycleStart()
         testScheduler.runCurrent()
 

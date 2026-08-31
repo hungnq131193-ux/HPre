@@ -9,9 +9,11 @@ import androidx.test.ext.junit.runners.AndroidJUnit4
 import com.hpre.app.core.designsystem.HPreTheme
 import com.hpre.app.model.ContentKey
 import com.hpre.app.model.StreamInfo
+import com.hpre.app.player.PlaybackProgress
 import com.hpre.app.player.PlaybackState
 import com.hpre.app.player.PlayerController
 import com.hpre.app.player.QualityOption
+import com.hpre.app.player.toProgress
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import org.junit.Assert.assertEquals
@@ -56,6 +58,7 @@ class MiniPlayerTest {
         override fun setPlaybackSpeed(speed: Float) {}
         override fun selectQuality(quality: QualityOption) {}
         override fun release() {}
+        override suspend fun readProgress(): PlaybackProgress = _state.value.toProgress()
     }
 
     @Test

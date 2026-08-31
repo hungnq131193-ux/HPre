@@ -41,7 +41,15 @@ interface PlayerController {
     fun clearMedia() = Unit
     fun release()
 
-    suspend fun readProgress(): PlaybackProgress = state.value.toProgress()
+    /**
+     * Reads current authoritative playback progress (position and duration).
+     *
+     * Production implementations dispatch to the main dispatcher and read directly from the
+     * active underlying player (e.g. MediaController/ExoPlayer), falling back to last known
+     * shared state when disconnected or unattached. Callers on any dispatcher (e.g. IO) can
+     * safely invoke this suspend function.
+     */
+    suspend fun readProgress(): PlaybackProgress
 }
 
 /**

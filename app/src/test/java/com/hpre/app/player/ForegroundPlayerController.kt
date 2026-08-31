@@ -67,7 +67,6 @@ class ForegroundPlayerController(
     )
 
     private val scope = CoroutineScope(mainDispatcher + Job())
-    private var progressJob: Job? = null
     private var mediaOpJob: Job? = null
     private var recoveryJob: Job? = null
     private var mediaOperationGeneration: Long = 0L
@@ -151,11 +150,6 @@ class ForegroundPlayerController(
                     isPlaying = isPlaying,
                     playWhenReady = exoPlayer?.playWhenReady ?: false
                 )
-            }
-            if (isPlaying) {
-                startProgressTracker()
-            } else {
-                stopProgressTracker()
             }
         }
 
@@ -755,7 +749,6 @@ class ForegroundPlayerController(
         recoveryJob?.cancel()
         surfaceGeneration++
         scope.launch(mainDispatcher) {
-            stopProgressTracker()
             activeAnalyticsListener?.let { exoPlayer?.removeAnalyticsListener(it) }
             activeAnalyticsListener = null
             exoPlayer?.removeListener(playerListener)
@@ -770,31 +763,6 @@ class ForegroundPlayerController(
             _state.update { PlaybackState() }
             scope.cancel()
         }
-    }
-
-    private fun startProgressTracker() {
-        stopProgressTracker()
-        if (isReleased) return
-        progressJob = scope.launch(mainDispatcher) {
-            while (isActive) {
-                exoPlayer?.let { player ->
-                    if (player.isPlaying) {
-                        _state.update {
-                            it.copy(
-                                currentPositionMs = player.currentPosition.coerceAtLeast(0L),
-                                durationMs = player.duration.coerceAtLeast(0L)
-                            )
-                        }
-                    }
-                }
-                delay(500)
-            }
-        }
-    }
-
-    private fun stopProgressTracker() {
-        progressJob?.cancel()
-        progressJob = null
     }
 
     override suspend fun readProgress(): PlaybackProgress = withContext(mainDispatcher) {

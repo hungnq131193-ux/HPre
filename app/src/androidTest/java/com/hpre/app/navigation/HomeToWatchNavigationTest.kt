@@ -22,6 +22,7 @@ import com.hpre.app.model.SearchResultItem
 import com.hpre.app.model.VideoDetails
 import com.hpre.app.model.VideoSummary
 import com.hpre.app.player.PlayerController
+import com.hpre.app.player.toProgress
 import com.hpre.app.repository.CatalogRepository
 import com.hpre.app.repository.VideoService
 import com.hpre.app.testing.FakeVideoService
@@ -196,6 +197,7 @@ class HomeToWatchNavigationTest {
                 _state.value = _state.value.copy(selectedQuality = quality)
             }
             override fun release() {}
+            override suspend fun readProgress(): com.hpre.app.player.PlaybackProgress = _state.value.toProgress()
 
             fun advancePositionForTest(positionMs: Long) {
                 _state.value = _state.value.copy(currentPositionMs = positionMs)

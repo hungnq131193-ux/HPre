@@ -327,7 +327,7 @@ class SessionPlayerController internal constructor(
             return createControllerFuture(context, listener)
         }
 
-        suspend fun readProgress(controller: MediaController?): PlaybackProgress? = null
+        suspend fun readProgress(controller: MediaController?, connectionToken: Long): PlaybackProgress? = null
         fun onFutureCompletedOrCancelled(future: ListenableFuture<MediaController>) {}
         fun onPrepareDelivered(pending: PendingPrepare) {}
         fun onPlayerViewDetached(playerView: PlayerView) {}
@@ -355,12 +355,7 @@ class SessionPlayerController internal constructor(
                     context.applicationContext,
                     ComponentName(context.applicationContext, HPrePlaybackService::class.java)
                 )
-                val connectionHints = Bundle().apply {
-                    putBoolean(
-                        HPrePlaybackService.KEY_INFRASTRUCTURE_PREWARM,
-                        isPrewarm
-                    )
-                }
+                val connectionHints = createConnectionHints(isPrewarm)
                 MediaController.Builder(context.applicationContext, sessionToken)
                     .setConnectionHints(connectionHints)
                     .setListener(controllerListener)
@@ -446,6 +441,10 @@ class SessionPlayerController internal constructor(
 
     internal fun simulateDisconnectedForToken(attemptToken: Long, controller: MediaController? = null) {
         handleControllerDisconnected(attemptToken, controller ?: mediaController)
+    }
+
+    internal fun simulateConnectedForTesting(attemptToken: Long) {
+        activeConnectionGeneration = attemptToken
     }
 
     private fun handleControllerDisconnected(attemptToken: Long, controller: MediaController?) {
@@ -1101,7 +1100,7 @@ class SessionPlayerController internal constructor(
     }
 
     override suspend fun readProgress(): PlaybackProgress = withContext(mainDispatcher) {
-        val coordinatorProgress = connectionCoordinator?.readProgress(mediaController)
+        val coordinatorProgress = connectionCoordinator?.readProgress(mediaController, activeConnectionGeneration)
         if (coordinatorProgress != null) return@withContext coordinatorProgress
 
         val controller = mediaController
@@ -1193,9 +1192,14 @@ class SessionPlayerController internal constructor(
         AppError.LoginRequired::class.java.simpleName -> AppError.LoginRequired
         AppError.StreamExpired::class.java.simpleName -> AppError.StreamExpired
         AppError.UnsupportedFormat::class.java.simpleName -> AppError.UnsupportedFormat
-        AppError.ExtractionFailed::class.java.simpleName -> AppError.ExtractionFailed
         AppError.RateLimited::class.java.simpleName -> AppError.RateLimited
         AppError.Unknown::class.java.simpleName -> AppError.Unknown
         else -> null
+    }
+
+    companion object {
+        internal fun createConnectionHints(isPrewarm: Boolean): Bundle = Bundle().apply {
+            putBoolean(HPrePlaybackService.KEY_INFRASTRUCTURE_PREWARM, isPrewarm)
+        }
     }
 }

@@ -1,6 +1,7 @@
 package com.hpre.app.di
 
 import com.hpre.app.HPreApplication
+import com.hpre.app.player.toProgress
 import com.hpre.app.ui.watch.FullscreenHostHandlerFactory
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -329,6 +330,7 @@ class AppContainerSeamTest {
             override fun setPlaybackSpeed(speed: Float) = Unit
             override fun selectQuality(quality: com.hpre.app.player.QualityOption) = Unit
             override fun release() = Unit
+            override suspend fun readProgress(): com.hpre.app.player.PlaybackProgress = state.value.toProgress()
         }
         val provider = com.hpre.app.player.AppScopedPlayerControllerProvider { purpose ->
             factoryCalls++
@@ -368,6 +370,7 @@ class AppContainerSeamTest {
             override fun setPlaybackSpeed(speed: Float) = Unit
             override fun selectQuality(quality: com.hpre.app.player.QualityOption) = Unit
             override fun release() = Unit
+            override suspend fun readProgress(): com.hpre.app.player.PlaybackProgress = state.value.toProgress()
         }
         val provider = com.hpre.app.player.AppScopedPlayerControllerProvider {
             factoryCalls++

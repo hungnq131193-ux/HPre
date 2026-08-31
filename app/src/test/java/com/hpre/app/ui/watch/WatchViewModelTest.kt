@@ -2212,12 +2212,19 @@ class WatchViewModelTest {
             videoHandler = { AppResult.Success(testDetails(it)) },
             streamInfoHandler = { AppResult.Success(testStreamInfo(it)) }
         )
+        var readProgressCallCount = 0
         val fakePlayer = FakePlayerController().apply {
             stubbedProgress = PlaybackProgress(positionMs = 19_000L, durationMs = 100_000L)
         }
+        val customPlayer = object : PlayerController by fakePlayer {
+            override suspend fun readProgress(): PlaybackProgress {
+                readProgressCallCount++
+                return fakePlayer.readProgress()
+            }
+        }
         val model = WatchViewModel(
             videoService = service,
-            playerController = fakePlayer,
+            playerController = customPlayer,
             savedStateHandle = androidx.lifecycle.SavedStateHandle(),
             historyRepository = history,
             ioDispatcher = testDispatcher
@@ -2227,6 +2234,7 @@ class WatchViewModelTest {
         advanceUntilIdle()
 
         assertEquals(19_000L, recordedPositionMs)
+        assertEquals(1, readProgressCallCount)
     }
 
     // Fix 3 & 4: Retry snapshot preserves paused/playing state, position, and selected quality
