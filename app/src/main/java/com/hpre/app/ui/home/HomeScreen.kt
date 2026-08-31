@@ -19,7 +19,10 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.material3.pulltorefresh.rememberPullToRefreshState
+import android.os.Looper
+import android.os.MessageQueue
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -40,7 +43,8 @@ import com.hpre.app.ui.common.VideoCard
 fun HomeScreen(
     viewModel: HomeViewModel,
     onVideoClick: (ContentKey) -> Unit,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    onContentIdle: () -> Unit = {}
 ) {
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
     val chipsState by viewModel.chipsState.collectAsStateWithLifecycle()
@@ -88,6 +92,18 @@ fun HomeScreen(
                 )
             }
             is HomeUiState.Content -> {
+                DisposableEffect(Unit) {
+                    val queue = Looper.myQueue()
+                    val idleHandler = MessageQueue.IdleHandler {
+                        onContentIdle()
+                        false
+                    }
+                    queue.addIdleHandler(idleHandler)
+                    onDispose {
+                        queue.removeIdleHandler(idleHandler)
+                    }
+                }
+
                 val pullRefreshState = rememberPullToRefreshState()
                 PullToRefreshBox(
                     isRefreshing = state.content.isRefreshing,

@@ -43,6 +43,9 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import okhttp3.OkHttpClient
+import java.util.concurrent.atomic.AtomicBoolean
+import kotlin.coroutines.cancellation.CancellationException
+import kotlinx.coroutines.withContext
 
 /**
  * Dependency injection container for application-level components.
@@ -82,6 +85,8 @@ interface AppContainer {
         }
     fun createPlayerController(): PlayerController
 
+    fun prewarmPlaybackInfrastructure(): Unit = Unit
+
     /**
      * Playback state that can be observed without constructing the player.
      *
@@ -120,7 +125,9 @@ internal fun interface ApplicationContainerFactory {
 class DefaultAppContainer(
     context: Context,
     override val applicationScope: CoroutineScope = CoroutineScope(SupervisorJob() + Dispatchers.Default),
-    override val okHttpClient: OkHttpClient = OkHttpDownloader.defaultClient()
+    override val okHttpClient: OkHttpClient = OkHttpDownloader.defaultClient(),
+    private val ioDispatcher: kotlinx.coroutines.CoroutineDispatcher = Dispatchers.IO,
+    private val mainDispatcher: kotlinx.coroutines.CoroutineDispatcher = Dispatchers.Main
 ) : AppContainer {
     private val appContext = context.applicationContext
 
@@ -218,6 +225,27 @@ class DefaultAppContainer(
 
     override val appUpdateChecker: AppUpdateChecker by lazy {
         GitHubReleaseUpdateChecker(okHttpClient)
+    }
+
+    private val prewarmed = AtomicBoolean(false)
+
+    override fun prewarmPlaybackInfrastructure() {
+        if (!prewarmed.compareAndSet(false, true)) return
+        applicationScope.launch {
+            try {
+                withContext(ioDispatcher) {
+                    // Touch mediaSourceFactory to ensure disk cache and okhttp stack init off Main
+                    mediaSourceFactory
+                }
+                withContext(mainDispatcher) {
+                    createPlayerController()
+                }
+            } catch (e: CancellationException) {
+                throw e
+            } catch (_: Throwable) {
+                // Non-cancellation failures are swallowed so normal lazy video-open remains fallback
+            }
+        }
     }
 
     @Volatile

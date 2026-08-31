@@ -72,7 +72,8 @@ fun HPreNavHost(
                 viewModel = homeViewModel,
                 onVideoClick = { key ->
                     navController.navigate(Screen.Watch.createRoute(key))
-                }
+                },
+                onContentIdle = container::prewarmPlaybackInfrastructure
             )
         }
 

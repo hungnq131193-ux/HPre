@@ -140,6 +140,88 @@ class AppContainerSeamTest {
     }
 
     @Test
+    fun repeated_prewarm_materializes_one_app_scoped_controller_with_io_before_main() {
+        val executionOrder = mutableListOf<String>()
+        val customIoDispatcher = object : kotlinx.coroutines.CoroutineDispatcher() {
+            override fun dispatch(context: kotlin.coroutines.CoroutineContext, block: Runnable) {
+                executionOrder.add("IO")
+                block.run()
+            }
+        }
+        val customMainDispatcher = object : kotlinx.coroutines.CoroutineDispatcher() {
+            override fun dispatch(context: kotlin.coroutines.CoroutineContext, block: Runnable) {
+                executionOrder.add("Main")
+                block.run()
+            }
+        }
+
+        val testDispatcher = StandardTestDispatcher()
+        Dispatchers.setMain(testDispatcher)
+        try {
+            val fakeContext = object : android.content.ContextWrapper(null) {
+                override fun getApplicationContext(): android.content.Context = this
+            }
+            val testScope = kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.SupervisorJob() + testDispatcher)
+            val container = DefaultAppContainer(
+                fakeContext,
+                applicationScope = testScope,
+                ioDispatcher = customIoDispatcher,
+                mainDispatcher = customMainDispatcher
+            )
+
+            assertNull("player must not exist before prewarm", container.peekPlayerController())
+
+            // Trigger prewarm multiple times
+            container.prewarmPlaybackInfrastructure()
+            container.prewarmPlaybackInfrastructure()
+
+            // Run coroutines on testScope
+            testDispatcher.scheduler.advanceUntilIdle()
+
+            val controller = container.peekPlayerController()
+            assertNotNull("prewarm must materialize the controller", controller)
+            org.junit.Assert.assertSame(
+                "repeated prewarm must return the same app-scoped controller",
+                controller,
+                container.createPlayerController()
+            )
+
+            // Assert IO before Main execution order
+            assertEquals(listOf("IO", "Main"), executionOrder)
+        } finally {
+            Dispatchers.resetMain()
+        }
+    }
+
+    @Test
+    fun prewarm_does_not_prepare_controller_or_request_streams() {
+        val testDispatcher = StandardTestDispatcher()
+        Dispatchers.setMain(testDispatcher)
+        try {
+            val fakeContext = object : android.content.ContextWrapper(null) {
+                override fun getApplicationContext(): android.content.Context = this
+            }
+            val testScope = kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.SupervisorJob() + testDispatcher)
+            val container = DefaultAppContainer(
+                fakeContext,
+                applicationScope = testScope,
+                ioDispatcher = testDispatcher,
+                mainDispatcher = testDispatcher
+            )
+
+            container.prewarmPlaybackInfrastructure()
+            testDispatcher.scheduler.advanceUntilIdle()
+
+            val controller = container.peekPlayerController()
+            assertNotNull(controller)
+            // Empty state, no key, no media, not prepared, not playing
+            assertEquals(com.hpre.app.player.PlaybackState(), controller!!.state.value)
+        } finally {
+            Dispatchers.resetMain()
+        }
+    }
+
+    @Test
     fun default_app_container_returns_one_global_session_controller() {
         var factoryCalls = 0
         val controller = object : com.hpre.app.player.PlayerController {

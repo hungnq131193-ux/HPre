@@ -14,7 +14,7 @@ import kotlinx.coroutines.withContext
 import java.io.File
 
 object MediaCacheConstants {
-    const val MAX_CACHE_BYTES = 64L * 1024L * 1024L
+    const val MAX_CACHE_BYTES = 128L * 1024L * 1024L
     const val FRAGMENT_SIZE_BYTES = 2L * 1024L * 1024L
     const val CACHE_DIR_NAME = "video_cache"
 }
