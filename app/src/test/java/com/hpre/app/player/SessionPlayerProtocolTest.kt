@@ -1031,4 +1031,112 @@ class SessionPlayerProtocolTest {
         assertFalse("Surface attached probe must be false after release", snapshotAfterRelease.surfaceAttached)
     }
 
+    @Test
+    fun prepare_promotes_purpose_to_normal_and_connection_hints_reflect_it() = kotlinx.coroutines.runBlocking {
+        val fakeContext = object : android.content.ContextWrapper(null) {
+            override fun getApplicationContext(): android.content.Context = this
+        }
+        val receivedHintsList = mutableListOf<Bundle>()
+        val coordinator = object : SessionPlayerController.ConnectionLifecycleCoordinator {
+            override fun createControllerFuture(
+                context: android.content.Context,
+                listener: androidx.media3.session.MediaController.Listener,
+                connectionHints: Bundle
+            ): com.google.common.util.concurrent.ListenableFuture<androidx.media3.session.MediaController> {
+                receivedHintsList.add(Bundle(connectionHints))
+                return com.google.common.util.concurrent.SettableFuture.create()
+            }
+        }
+
+        val testDispatcher = kotlinx.coroutines.Dispatchers.Unconfined
+        val controller = SessionPlayerController(
+            context = fakeContext,
+            mediaSourceFactory = null,
+            recoveryCoordinator = null,
+            snapshotStore = PlaybackSnapshotStore(fakeContext),
+            mainDispatcher = testDispatcher,
+            ioDispatcher = testDispatcher,
+            externalScope = this,
+            connectionCoordinator = coordinator,
+            initialPurpose = ConnectionPurpose.PREWARM
+        )
+
+        assertEquals(ConnectionPurpose.PREWARM, controller.currentConnectionPurpose)
+        assertEquals("receivedHintsList should have 1 entry from init", 1, receivedHintsList.size)
+        val initialIsPrewarm = receivedHintsList[0].getBoolean(HPrePlaybackService.KEY_INFRASTRUCTURE_PREWARM)
+        assertTrue("first connection hints should have isPrewarm=true", initialIsPrewarm)
+
+        // Calling prepare promotes purpose to NORMAL
+        val streamInfo = StreamInfo(
+            key = ContentKey(0, "promo_test"),
+            title = "Promo Title",
+            videoStreams = emptyList(),
+            audioStreams = emptyList()
+        )
+        controller.prepare(key = streamInfo.key, streamInfo = streamInfo)
+
+        assertEquals(ConnectionPurpose.NORMAL, controller.currentConnectionPurpose)
+        controller.release()
+    }
+
+    @Test
+    fun reconnect_after_prepare_carries_normal_connection_hints() = kotlinx.coroutines.test.runTest {
+        val fakeContext = object : android.content.ContextWrapper(null) {
+            override fun getApplicationContext(): android.content.Context = this
+        }
+        val receivedHintsList = mutableListOf<Bundle>()
+        val pendingFuture1 = com.google.common.util.concurrent.SettableFuture.create<androidx.media3.session.MediaController>()
+        val pendingFuture2 = com.google.common.util.concurrent.SettableFuture.create<androidx.media3.session.MediaController>()
+        val futures = mutableListOf(pendingFuture1, pendingFuture2)
+
+        val coordinator = object : SessionPlayerController.ConnectionLifecycleCoordinator {
+            override fun createControllerFuture(
+                context: android.content.Context,
+                listener: androidx.media3.session.MediaController.Listener,
+                connectionHints: Bundle
+            ): com.google.common.util.concurrent.ListenableFuture<androidx.media3.session.MediaController> {
+                receivedHintsList.add(Bundle(connectionHints))
+                return if (futures.isNotEmpty()) futures.removeAt(0) else com.google.common.util.concurrent.SettableFuture.create()
+            }
+        }
+
+        val testDispatcher = kotlinx.coroutines.test.StandardTestDispatcher(testScheduler)
+        val controller = SessionPlayerController(
+            context = fakeContext,
+            mediaSourceFactory = null,
+            recoveryCoordinator = null,
+            snapshotStore = PlaybackSnapshotStore(fakeContext),
+            mainDispatcher = testDispatcher,
+            ioDispatcher = testDispatcher,
+            externalScope = this,
+            connectionCoordinator = coordinator,
+            initialPurpose = ConnectionPurpose.PREWARM
+        )
+
+        testScheduler.runCurrent()
+
+        // First attempt (init) was PREWARM
+        assertEquals(1, receivedHintsList.size)
+        assertTrue(receivedHintsList[0].getBoolean(HPrePlaybackService.KEY_INFRASTRUCTURE_PREWARM))
+
+        // Trigger prepare
+        val streamInfo = StreamInfo(
+            key = ContentKey(0, "reconnect_test"),
+            title = "Reconnect Title",
+            videoStreams = emptyList(),
+            audioStreams = emptyList()
+        )
+        controller.prepare(key = streamInfo.key, streamInfo = streamInfo)
+
+        // Fail 1st attempt to trigger retry reconnect
+        pendingFuture1.setException(java.lang.RuntimeException("Connection failed"))
+        testScheduler.advanceTimeBy(1000)
+        testScheduler.runCurrent()
+
+        // Reconnect attempt carries NORMAL purpose (isPrewarm == false)
+        assertTrue(receivedHintsList.size >= 2)
+        assertFalse(receivedHintsList.last().getBoolean(HPrePlaybackService.KEY_INFRASTRUCTURE_PREWARM))
+
+        controller.release()
+    }
 }

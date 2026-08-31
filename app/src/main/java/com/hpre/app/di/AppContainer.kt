@@ -21,6 +21,7 @@ import com.hpre.app.player.PlayerController
 import com.hpre.app.player.PlayerHttpConfig
 import com.hpre.app.player.SessionPlayerController
 import com.hpre.app.player.AppScopedPlayerControllerProvider
+import com.hpre.app.player.ConnectionPurpose
 import com.hpre.app.player.StreamRecoveryCoordinator
 import com.hpre.app.repository.CatalogRepository
 import com.hpre.app.repository.RecommendationRepository
@@ -269,10 +270,13 @@ class DefaultAppContainer(
             mainDispatcher = mainDispatcher,
             initMediaSourceFactory = { mediaSourceFactory },
             initPlayerController = {
-                createPlayerController()
+                createPlayerControllerForPrewarm()
             }
         )
     }
+
+    private fun createPlayerControllerForPrewarm(): PlayerController =
+        sessionPlayerController.get(initialPurpose = ConnectionPurpose.PREWARM)
 
     @Volatile
     private var backgroundPlaybackEnabled = true
@@ -290,7 +294,7 @@ class DefaultAppContainer(
 
     override val playbackState: StateFlow<PlaybackState> = mirroredPlaybackState.asStateFlow()
 
-    private val sessionPlayerController = AppScopedPlayerControllerProvider {
+    private val sessionPlayerController = AppScopedPlayerControllerProvider { initialPurpose ->
         val coordinator = StreamRecoveryCoordinator(videoService = videoService)
         SessionPlayerController(
             context = appContext,
@@ -298,7 +302,7 @@ class DefaultAppContainer(
             recoveryCoordinator = coordinator,
             snapshotStore = playbackSnapshotStore,
             externalScope = applicationScope,
-            prewarmConnection = true
+            initialPurpose = initialPurpose
         ).also { controller ->
             controller.updateLifecyclePolicy(
                 backgroundEnabled = backgroundPlaybackEnabled,
@@ -310,7 +314,8 @@ class DefaultAppContainer(
         }
     }
 
-    override fun createPlayerController(): PlayerController = sessionPlayerController.get()
+    override fun createPlayerController(): PlayerController =
+        sessionPlayerController.get(initialPurpose = ConnectionPurpose.NORMAL)
 
     override fun peekPlayerController(): PlayerController? = sessionPlayerController.getIfInitialized()
 

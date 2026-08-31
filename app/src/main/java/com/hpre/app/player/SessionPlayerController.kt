@@ -66,7 +66,7 @@ class SessionPlayerController internal constructor(
     private val ioDispatcher: CoroutineDispatcher = Dispatchers.IO,
     private val externalScope: CoroutineScope? = null,
     internal val connectionCoordinator: ConnectionLifecycleCoordinator? = null,
-    private val prewarmConnection: Boolean = false
+    initialPurpose: ConnectionPurpose = ConnectionPurpose.NORMAL
 ) : PlayerController, PlayerIntegrationProbe {
 
     constructor(
@@ -77,7 +77,7 @@ class SessionPlayerController internal constructor(
         mainDispatcher: CoroutineDispatcher = Dispatchers.Main,
         ioDispatcher: CoroutineDispatcher = Dispatchers.IO,
         externalScope: CoroutineScope? = null,
-        prewarmConnection: Boolean = false
+        initialPurpose: ConnectionPurpose = ConnectionPurpose.NORMAL
     ) : this(
         context = context,
         mediaSourceFactory = mediaSourceFactory,
@@ -87,12 +87,35 @@ class SessionPlayerController internal constructor(
         ioDispatcher = ioDispatcher,
         externalScope = externalScope,
         connectionCoordinator = null,
-        prewarmConnection = prewarmConnection
+        initialPurpose = initialPurpose
+    )
+
+    internal constructor(
+        context: Context,
+        connectionCoordinator: ConnectionLifecycleCoordinator,
+        mainDispatcher: CoroutineDispatcher = Dispatchers.Main,
+        ioDispatcher: CoroutineDispatcher = Dispatchers.IO,
+        externalScope: CoroutineScope? = null,
+        initialPurpose: ConnectionPurpose = ConnectionPurpose.NORMAL
+    ) : this(
+        context = context,
+        mediaSourceFactory = null,
+        recoveryCoordinator = null,
+        snapshotStore = PlaybackSnapshotStore(context),
+        mainDispatcher = mainDispatcher,
+        ioDispatcher = ioDispatcher,
+        externalScope = externalScope,
+        connectionCoordinator = connectionCoordinator,
+        initialPurpose = initialPurpose
     )
 
     private val scope = externalScope ?: CoroutineScope(mainDispatcher + Job())
     private var controllerFuture: ListenableFuture<MediaController>? = null
     private var mediaController: MediaController? = null
+
+    @Volatile
+    private var connectionPurpose: ConnectionPurpose = initialPurpose
+    internal val currentConnectionPurpose: ConnectionPurpose get() = connectionPurpose
 
     private val _state = MutableStateFlow(PlaybackState())
     override val state: StateFlow<PlaybackState> = _state.asStateFlow()
@@ -298,7 +321,17 @@ class SessionPlayerController internal constructor(
         fun createControllerFuture(
             context: Context,
             listener: MediaController.Listener
-        ): ListenableFuture<MediaController>
+        ): ListenableFuture<MediaController> {
+            throw UnsupportedOperationException("Coordinator must implement createControllerFuture")
+        }
+
+        fun createControllerFuture(
+            context: Context,
+            listener: MediaController.Listener,
+            connectionHints: Bundle
+        ): ListenableFuture<MediaController> {
+            return createControllerFuture(context, listener)
+        }
 
         fun onFutureCompletedOrCancelled(future: ListenableFuture<MediaController>) {}
         fun onPrepareDelivered(pending: PendingPrepare) {}
@@ -319,16 +352,20 @@ class SessionPlayerController internal constructor(
                     }
                 }
             }
+            val isPrewarm = connectionPurpose == ConnectionPurpose.PREWARM
+            val connectionHints = Bundle().apply {
+                putBoolean(
+                    HPrePlaybackService.KEY_INFRASTRUCTURE_PREWARM,
+                    isPrewarm
+                )
+            }
             val future = if (connectionCoordinator != null) {
-                connectionCoordinator.createControllerFuture(context.applicationContext, controllerListener)
+                connectionCoordinator.createControllerFuture(context.applicationContext, controllerListener, connectionHints)
             } else {
                 val sessionToken = SessionToken(
                     context.applicationContext,
                     ComponentName(context.applicationContext, HPrePlaybackService::class.java)
                 )
-                val connectionHints = Bundle().apply {
-                    putBoolean(HPrePlaybackService.KEY_INFRASTRUCTURE_PREWARM, prewarmConnection)
-                }
                 MediaController.Builder(context.applicationContext, sessionToken)
                     .setConnectionHints(connectionHints)
                     .setListener(controllerListener)
@@ -657,6 +694,7 @@ class SessionPlayerController internal constructor(
         playWhenReady: Boolean,
         initialQuality: QualityOption?
     ) {
+        connectionPurpose = ConnectionPurpose.NORMAL
         prepareWithSpeed(key, streamInfo, startPositionMs, playWhenReady, initialQuality, _state.value.playbackSpeed)
     }
 
@@ -668,6 +706,7 @@ class SessionPlayerController internal constructor(
         initialQuality: QualityOption?,
         playbackSpeed: Float
     ) {
+        connectionPurpose = ConnectionPurpose.NORMAL
         if (isReleased) return
         currentKey = key
         currentStreamInfo = streamInfo
@@ -710,6 +749,7 @@ class SessionPlayerController internal constructor(
 
         val pending = PendingPrepare(key, effectiveStartPositionMs, playWhenReady, initialQuality, clampedSpeed)
         val prepareRequestGeneration = localPrepareRequestGeneration.incrementAndGet()
+        connectionPurpose = ConnectionPurpose.NORMAL
         scope.launch(mainDispatcher) {
             if (isReleased || prepareRequestGeneration != localPrepareRequestGeneration.get()) return@launch
             if (mediaController == null) {

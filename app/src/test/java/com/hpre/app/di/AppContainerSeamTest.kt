@@ -243,13 +243,111 @@ class AppContainerSeamTest {
             // Assert state remains default empty state: no active content key, no duration, not prepared, not playing
             assertEquals(com.hpre.app.player.PlaybackState(), controller!!.state.value)
 
-            val prewarmField = com.hpre.app.player.SessionPlayerController::class.java.getDeclaredField("prewarmConnection")
-            prewarmField.isAccessible = true
-            val isPrewarm = prewarmField.getBoolean(controller)
-            assertTrue("DefaultAppContainer controller must have prewarmConnection=true", isPrewarm)
+            val sessionController = controller as com.hpre.app.player.SessionPlayerController
+            assertEquals(
+                "DefaultAppContainer controller initialized by prewarm must have PREWARM purpose",
+                com.hpre.app.player.ConnectionPurpose.PREWARM,
+                sessionController.currentConnectionPurpose
+            )
         } finally {
             Dispatchers.resetMain()
         }
+    }
+
+    @Test
+    fun direct_create_before_idle_yields_normal_purpose() {
+        val testDispatcher = StandardTestDispatcher()
+        Dispatchers.setMain(testDispatcher)
+        try {
+            val fakeContext = object : android.content.ContextWrapper(null) {
+                override fun getApplicationContext(): android.content.Context = this
+            }
+            val testScope = kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.SupervisorJob() + testDispatcher)
+            val container = DefaultAppContainer(
+                context = fakeContext,
+                applicationScope = testScope,
+                ioDispatcher = testDispatcher,
+                mainDispatcher = testDispatcher
+            )
+
+            val controller = container.createPlayerController() as com.hpre.app.player.SessionPlayerController
+            assertEquals(
+                "Direct createPlayerController without prewarm must have NORMAL purpose",
+                com.hpre.app.player.ConnectionPurpose.NORMAL,
+                controller.currentConnectionPurpose
+            )
+        } finally {
+            Dispatchers.resetMain()
+        }
+    }
+
+    @Test
+    fun idle_before_direct_yields_one_prewarm_controller() {
+        val testDispatcher = StandardTestDispatcher()
+        Dispatchers.setMain(testDispatcher)
+        try {
+            val fakeContext = object : android.content.ContextWrapper(null) {
+                override fun getApplicationContext(): android.content.Context = this
+            }
+            val testScope = kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.SupervisorJob() + testDispatcher)
+            val container = DefaultAppContainer(
+                context = fakeContext,
+                applicationScope = testScope,
+                ioDispatcher = testDispatcher,
+                mainDispatcher = testDispatcher
+            )
+
+            container.prewarmPlaybackInfrastructure()
+            testDispatcher.scheduler.advanceUntilIdle()
+
+            val prewarmedController = container.peekPlayerController() as com.hpre.app.player.SessionPlayerController
+            assertEquals(com.hpre.app.player.ConnectionPurpose.PREWARM, prewarmedController.currentConnectionPurpose)
+
+            val directController = container.createPlayerController()
+            org.junit.Assert.assertSame("Must return same prewarmed controller instance", prewarmedController, directController)
+        } finally {
+            Dispatchers.resetMain()
+        }
+    }
+
+    @Test
+    fun concurrent_provider_calls_yield_one_controller() {
+        var factoryCalls = 0
+        var recordedPurpose: com.hpre.app.player.ConnectionPurpose? = null
+        val controller = object : com.hpre.app.player.PlayerController {
+            override val state = kotlinx.coroutines.flow.MutableStateFlow(com.hpre.app.player.PlaybackState())
+            override fun attachSurface(playerView: androidx.media3.ui.PlayerView) = Unit
+            override fun detachSurface(playerView: androidx.media3.ui.PlayerView) = Unit
+            override fun onLifecycleStart() = Unit
+            override fun onLifecycleStop() = Unit
+            override fun prepare(key: com.hpre.app.model.ContentKey, streamInfo: com.hpre.app.model.StreamInfo, startPositionMs: Long, playWhenReady: Boolean, initialQuality: com.hpre.app.player.QualityOption?) = Unit
+            override fun play() = Unit
+            override fun pause() = Unit
+            override fun playPause() = Unit
+            override fun seekTo(positionMs: Long) = Unit
+            override fun seekBy(deltaMs: Long) = Unit
+            override fun setPlaybackSpeed(speed: Float) = Unit
+            override fun selectQuality(quality: com.hpre.app.player.QualityOption) = Unit
+            override fun release() = Unit
+        }
+        val provider = com.hpre.app.player.AppScopedPlayerControllerProvider { purpose ->
+            factoryCalls++
+            recordedPurpose = purpose
+            controller
+        }
+
+        val threads = (1..10).map { idx ->
+            Thread {
+                val purpose = if (idx % 2 == 0) com.hpre.app.player.ConnectionPurpose.PREWARM else com.hpre.app.player.ConnectionPurpose.NORMAL
+                provider.get(purpose)
+            }
+        }
+        threads.forEach { it.start() }
+        threads.forEach { it.join() }
+
+        assertEquals(1, factoryCalls)
+        assertNotNull(recordedPurpose)
+        org.junit.Assert.assertSame(controller, provider.get())
     }
 
     @Test
@@ -271,7 +369,7 @@ class AppContainerSeamTest {
             override fun selectQuality(quality: com.hpre.app.player.QualityOption) = Unit
             override fun release() = Unit
         }
-        val provider = com.hpre.app.player.AppScopedPlayerControllerProvider {
+        val provider = com.hpre.app.player.AppScopedPlayerControllerProvider.fromSimple {
             factoryCalls++
             controller
         }

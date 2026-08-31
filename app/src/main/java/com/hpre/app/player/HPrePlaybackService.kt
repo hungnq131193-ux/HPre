@@ -56,6 +56,12 @@ internal fun decideSessionRestore(
     return !isPrewarm
 }
 
+/**
+ * Service session restore decision.
+ *
+ * Connection hints from the same UID are trusted because only app-internal authorized controllers
+ * (verified via PlaybackPolicy.isControllerAuthorized matching packageName and Process.myUid()) are accepted.
+ */
 internal fun decideSessionRestore(
     alreadyEvaluated: Boolean,
     connectionHints: Bundle?
