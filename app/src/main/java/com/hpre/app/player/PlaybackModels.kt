@@ -96,7 +96,8 @@ data class PlaybackState(
     val streamType: PlaybackStreamType? = null,
     val isEnded: Boolean = false,
     val error: com.hpre.app.core.error.AppError? = null,
-    val retrySnapshot: RetrySnapshot? = null
+    val retrySnapshot: RetrySnapshot? = null,
+    val hasRenderedFirstFrame: Boolean = false
 )
 
 data class PlaybackProgress(

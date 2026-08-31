@@ -352,6 +352,7 @@ fun WatchScreen(
 
             WatchPlayerControls(
                 structuralState = playbackState,
+                isPlayerLoading = uiState.isPlayerLoading,
                 progress = viewModel.playbackProgress,
                 isFullscreen = true,
                 onPlayPause = { viewModel.playPause() },
@@ -392,6 +393,7 @@ fun WatchScreen(
 
                     WatchPlayerControls(
                         structuralState = playbackState,
+                        isPlayerLoading = uiState.isPlayerLoading,
                         progress = viewModel.playbackProgress,
                         isFullscreen = false,
                         onPlayPause = { viewModel.playPause() },
@@ -458,6 +460,7 @@ fun WatchScreen(
 @Composable
 private fun WatchPlayerControls(
     structuralState: com.hpre.app.player.PlaybackState,
+    isPlayerLoading: Boolean,
     progress: kotlinx.coroutines.flow.StateFlow<com.hpre.app.player.PlaybackProgress>,
     isFullscreen: Boolean,
     onPlayPause: () -> Unit,
@@ -473,6 +476,7 @@ private fun WatchPlayerControls(
     val playbackProgress by progress.collectAsStateWithLifecycle()
     PlayerControlsOverlay(
         playbackState = structuralState.copy(
+            isLoading = structuralState.isLoading || isPlayerLoading,
             currentPositionMs = playbackProgress.positionMs,
             durationMs = playbackProgress.durationMs
         ),

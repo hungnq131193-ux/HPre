@@ -127,6 +127,8 @@ class HPrePlaybackService : MediaSessionService() {
 
     private var mediaOpJob: Job? = null
     private var recoveryJob: Job? = null
+    private var prepareStreamJob: Job? = null
+    private var prepareStreamCompletion: SettableFuture<SessionResult>? = null
     private var mediaOperationGeneration: Long = 0L
     private var playbackSessionGeneration: Long = 0L
     // Automatic source rebuilds belong to the same user playback request and share its retry budget.
@@ -863,6 +865,13 @@ class HPrePlaybackService : MediaSessionService() {
         }
     }
 
+    private fun cancelPendingStreamResolve() {
+        prepareStreamJob?.cancel()
+        prepareStreamJob = null
+        prepareStreamCompletion?.set(SessionResult(SessionError.ERROR_INVALID_STATE))
+        prepareStreamCompletion = null
+    }
+
     private fun clearMediaInternal(releaseResources: Boolean = true) {
         historyScheduler.stop()
 
@@ -874,6 +883,7 @@ class HPrePlaybackService : MediaSessionService() {
         lastReportedAppError = null
         cancelActiveQuality()
         prepareRequestGeneration++
+        cancelPendingStreamResolve()
         playbackSessionGeneration++
         mediaOperationGeneration++
         mediaOpJob?.cancel()
@@ -954,6 +964,7 @@ class HPrePlaybackService : MediaSessionService() {
                     val nativeId = args.getString(EXTRA_NATIVE_ID, "")
                     val completion = SettableFuture.create<SessionResult>()
                     if (nativeId.isNotBlank()) {
+                        cancelPendingStreamResolve()
                         val requestGeneration = ++prepareRequestGeneration
                         val key = ContentKey(serviceId, nativeId)
                         val startPos = args.getLong(EXTRA_POSITION_MS, 0L)
@@ -1021,7 +1032,11 @@ class HPrePlaybackService : MediaSessionService() {
                                 completion.set(SessionResult(SessionError.ERROR_UNKNOWN, errBundle))
                                 return completion
                             }
-                            serviceScope.launch(Dispatchers.Main) {
+                            prepareStreamCompletion = completion
+                            val resolveJob = serviceScope.launch(
+                                Dispatchers.Main,
+                                start = kotlinx.coroutines.CoroutineStart.LAZY
+                            ) {
                                 try {
                                     val streamResult = withContext(Dispatchers.IO) {
                                         videoService.streamInfo(key)
@@ -1050,6 +1065,7 @@ class HPrePlaybackService : MediaSessionService() {
                                         completion.set(SessionResult(SessionError.ERROR_BAD_VALUE, errBundle))
                                     }
                                 } catch (ce: CancellationException) {
+                                    completion.set(SessionResult(SessionError.ERROR_INVALID_STATE))
                                     throw ce
                                 } catch (_: Exception) {
                                     if (!completion.isDone) {
@@ -1059,8 +1075,15 @@ class HPrePlaybackService : MediaSessionService() {
                                         }
                                         completion.set(SessionResult(SessionError.ERROR_UNKNOWN, errBundle))
                                     }
+                                } finally {
+                                    if (prepareStreamCompletion === completion) {
+                                        prepareStreamJob = null
+                                        prepareStreamCompletion = null
+                                    }
                                 }
                             }
+                            prepareStreamJob = resolveJob
+                            resolveJob.start()
                         }
                     } else {
                         val errBundle = Bundle().apply {
@@ -1176,6 +1199,7 @@ class HPrePlaybackService : MediaSessionService() {
 
     override fun onDestroy() {
         isReleased = true
+        cancelPendingStreamResolve()
         historyScheduler.stop()
         cancelActiveQuality()
         mediaOpJob?.cancel()

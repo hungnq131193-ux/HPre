@@ -190,6 +190,11 @@ class SessionPlayerController internal constructor(
             _state.update { it.copy(playbackSpeed = playbackParameters.speed) }
         }
 
+        override fun onRenderedFirstFrame() {
+            if (!acceptsCurrentPlaybackCallback()) return
+            _state.update { it.copy(hasRenderedFirstFrame = true) }
+        }
+
         override fun onPlaybackStateChanged(playbackState: Int) {
             if (!acceptsCurrentPlaybackCallback()) return
             when (playbackState) {
@@ -682,6 +687,7 @@ class SessionPlayerController internal constructor(
                 title = streamInfo.title,
                 isLoading = true,
                 isReady = false,
+                hasRenderedFirstFrame = false,
                 error = null,
                 retrySnapshot = null,
                 isEnded = false,

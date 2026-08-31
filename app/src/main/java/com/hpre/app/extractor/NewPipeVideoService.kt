@@ -2,6 +2,8 @@ package com.hpre.app.extractor
 
 import com.hpre.app.core.error.AppError
 import com.hpre.app.core.error.AppResult
+import com.hpre.app.core.performance.VideoOpenEvent
+import com.hpre.app.core.performance.VideoOpenMetrics
 import com.hpre.app.model.ChannelDetails
 import com.hpre.app.model.CommentPage
 import com.hpre.app.model.ContentKey
@@ -36,7 +38,8 @@ class NewPipeVideoService internal constructor(
     private val ioDispatcher: CoroutineDispatcher = ExtractorDispatcher.IO,
     private val operations: ExtractorOperations = DefaultExtractorOperations(),
     serviceScope: CoroutineScope = CoroutineScope(SupervisorJob() + ioDispatcher),
-    private val extractionCoordinator: VideoExtractionCoordinator = VideoExtractionCoordinator(serviceScope)
+    private val extractionCoordinator: VideoExtractionCoordinator = VideoExtractionCoordinator(serviceScope),
+    private val videoOpenMetrics: VideoOpenMetrics = VideoOpenMetrics.Default
 ) : VideoService {
 
     constructor(ioDispatcher: CoroutineDispatcher = ExtractorDispatcher.IO) : this(
@@ -152,10 +155,16 @@ class NewPipeVideoService internal constructor(
         }
     }
 
-    private suspend fun bundle(key: ContentKey, forceRefresh: Boolean = false): AppResult<ExtractedVideoBundle> =
-        extractionCoordinator.execute(key, forceRefresh) {
-            extract { operations.videoBundle(key) }
+    private suspend fun bundle(key: ContentKey, forceRefresh: Boolean = false): AppResult<ExtractedVideoBundle> {
+        val metricsSession = videoOpenMetrics.activeSession(key)
+        return extractionCoordinator.execute(key, forceRefresh) {
+            // Only the shared cache-miss loader emits these events, not each subscriber.
+            metricsSession?.let { videoOpenMetrics.mark(it, VideoOpenEvent.EXTRACTOR_START) }
+            val result = extract { operations.videoBundle(key) }
+            metricsSession?.let { videoOpenMetrics.mark(it, VideoOpenEvent.EXTRACTOR_FINISH) }
+            result
         }
+    }
 
     override suspend fun playlist(key: ContentKey): AppResult<PlaylistDetails> {
         if (key.serviceId != serviceId) {

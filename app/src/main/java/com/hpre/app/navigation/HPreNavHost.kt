@@ -310,15 +310,18 @@ fun HPreNavHost(
                     viewModel = watchViewModel,
                     fullscreenHostHandlerFactory = container.fullscreenHostHandlerFactory,
                     onNavigateBack = {
+                        watchViewModel.cancelPendingLoads()
                         navController.navigateToHomeFromWatch()
                     },
                     onRelatedVideoClick = { nextKey ->
                         if (nextKey != key && navController.currentBackStackEntry?.id == backStackEntry.id) {
+                            watchViewModel.cancelPendingLoads()
                             navController.replaceWatch(Screen.Watch.createRoute(nextKey))
                         }
                     },
                     onMinimizeToHome = {
                         effectiveCoordinator.requestMinimizeToHome()
+                        watchViewModel.cancelPendingLoads()
                         navController.navigateToHomeFromWatch()
                     },
                     isInPip = playbackUiState.isInPip,

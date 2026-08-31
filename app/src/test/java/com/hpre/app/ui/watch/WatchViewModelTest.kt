@@ -582,6 +582,433 @@ class WatchViewModelTest {
     )
 
     @Test
+    fun repeated_load_resolves_once_and_keeps_player_loading_until_first_frame() = runTest(testDispatcher) {
+        var detailsCalls = 0
+        val stream = CompletableDeferred<AppResult<StreamInfo>>()
+        val service = FakeVideoService(
+            videoHandler = { detailsCalls++; AppResult.Success(testDetails(it)) },
+            streamInfoHandler = { stream.await() },
+            relatedHandler = { AppResult.Success(emptyList()) }
+        )
+        val player = FakePlayerController()
+        val model = WatchViewModel(service, player, androidx.lifecycle.SavedStateHandle(), ioDispatcher = testDispatcher)
+
+        model.load(testKey)
+        model.load(testKey) // Also deduplicate before the lazy job reaches its dispatcher.
+        model.setFullscreen(true)
+        runCurrent()
+
+        assertEquals(testDetails(testKey), model.uiState.value.details)
+        assertFalse(model.uiState.value.isLoading)
+        assertTrue(model.uiState.value.isPlayerLoading)
+        assertEquals(0, player.prepareCount)
+
+        model.load(testKey)
+        model.setFullscreen(false)
+        model.load(testKey)
+        runCurrent()
+        assertEquals(1, detailsCalls)
+        assertEquals(1, service.streamInfoCallCount)
+
+        stream.complete(AppResult.Success(testStreamInfo(testKey)))
+        runCurrent()
+        assertEquals(1, player.prepareCount)
+        assertTrue(model.uiState.value.isPlayerLoading)
+
+        player.markReady(testKey)
+        runCurrent()
+        advanceTimeBy(WatchViewModel.FIRST_FRAME_READY_FALLBACK_MS - 1)
+        runCurrent()
+        assertTrue("READY alone must not hide loading before the first-frame grace period", model.uiState.value.isPlayerLoading)
+
+        player._state.value = player._state.value.copy(hasRenderedFirstFrame = true)
+        runCurrent()
+        assertFalse(model.uiState.value.isPlayerLoading)
+        model.load(testKey)
+        runCurrent()
+        assertEquals(1, service.streamInfoCallCount)
+        assertEquals(1, player.prepareCount)
+    }
+
+    @Test
+    fun ready_fallback_restarts_after_buffering_but_not_after_position_ticks() = runTest(testDispatcher) {
+        val service = FakeVideoService(
+            videoHandler = { AppResult.Success(testDetails(it)) },
+            streamInfoHandler = { AppResult.Success(testStreamInfo(it)) },
+            relatedHandler = { AppResult.Success(emptyList()) }
+        )
+        val player = FakePlayerController()
+        val model = WatchViewModel(service, player, androidx.lifecycle.SavedStateHandle(), ioDispatcher = testDispatcher)
+        model.load(testKey)
+        runCurrent()
+        player.markReady(testKey)
+        runCurrent()
+        advanceTimeBy(200)
+        player._state.value = player._state.value.copy(isReady = false, isBuffering = true)
+        runCurrent()
+        advanceTimeBy(1_000)
+        runCurrent()
+        assertTrue(model.uiState.value.isPlayerLoading)
+
+        player._state.value = player._state.value.copy(isReady = true, isBuffering = false)
+        runCurrent()
+        advanceTimeBy(100)
+        player._state.value = player._state.value.copy(currentPositionMs = 100)
+        runCurrent()
+        advanceTimeBy(WatchViewModel.FIRST_FRAME_READY_FALLBACK_MS - 101)
+        runCurrent()
+        assertTrue(model.uiState.value.isPlayerLoading)
+        advanceTimeBy(1)
+        runCurrent()
+        assertFalse("Progress updates must not extend the READY fallback", model.uiState.value.isPlayerLoading)
+    }
+
+    @Test
+    fun audio_only_ready_and_player_error_do_not_wait_for_a_video_frame() = runTest(testDispatcher) {
+        val service = FakeVideoService(
+            videoHandler = { AppResult.Success(testDetails(it)) },
+            streamInfoHandler = { AppResult.Success(testStreamInfo(it)) },
+            relatedHandler = { AppResult.Success(emptyList()) }
+        )
+        val player = FakePlayerController()
+        val model = WatchViewModel(service, player, androidx.lifecycle.SavedStateHandle(), ioDispatcher = testDispatcher)
+        model.load(testKey)
+        runCurrent()
+        player._state.value = player._state.value.copy(
+            isReady = true,
+            streamType = com.hpre.app.player.PlaybackStreamType.AUDIO_ONLY
+        )
+        runCurrent()
+        assertFalse(model.uiState.value.isPlayerLoading)
+
+        model.load(ContentKey(0, "startup_error"))
+        runCurrent()
+        assertTrue(model.uiState.value.isPlayerLoading)
+        player.setPlayerErrorForTest(AppError.NetworkError)
+        runCurrent()
+        assertFalse(model.uiState.value.isPlayerLoading)
+        assertEquals(AppError.NetworkError, model.playbackState.value.error)
+    }
+
+    @Test
+    fun late_stream_from_first_A_cannot_prepare_after_A_B_A() = runTest(testDispatcher) {
+        val keyB = ContentKey(0, "pipeline_B")
+        val oldStream = CompletableDeferred<AppResult<StreamInfo>>()
+        var aCalls = 0
+        val freshStream = testStreamInfo(testKey).copy(hlsManifestUrl = "https://fresh.test/A.m3u8")
+        val service = FakeVideoService(
+            videoHandler = { AppResult.Success(testDetails(it)) },
+            streamInfoHandler = { key ->
+                if (key == testKey && ++aCalls == 1) withContext(NonCancellable) { oldStream.await() }
+                else AppResult.Success(if (key == testKey) freshStream else testStreamInfo(key))
+            },
+            relatedHandler = { AppResult.Success(emptyList()) }
+        )
+        val player = FakePlayerController()
+        val model = WatchViewModel(service, player, androidx.lifecycle.SavedStateHandle(), ioDispatcher = testDispatcher)
+        model.load(testKey)
+        runCurrent()
+        model.load(keyB)
+        runCurrent()
+        model.load(testKey)
+        runCurrent()
+        assertEquals(2, player.prepareCount)
+        assertEquals(freshStream, player.preparedStreamInfo)
+
+        oldStream.complete(AppResult.Success(testStreamInfo(testKey)))
+        runCurrent()
+        assertEquals(2, aCalls)
+        assertEquals(2, player.prepareCount)
+        assertEquals(testKey, player.preparedKey)
+        assertEquals(freshStream, player.preparedStreamInfo)
+        assertNull(model.uiState.value.error)
+    }
+
+    @Test
+    fun cleared_view_model_rejects_late_details_and_stream_without_releasing_shared_player() = runTest(testDispatcher) {
+        val details = CompletableDeferred<AppResult<VideoDetails>>()
+        val stream = CompletableDeferred<AppResult<StreamInfo>>()
+        var relatedCalls = 0
+        val service = FakeVideoService(
+            videoHandler = { withContext(NonCancellable) { details.await() } },
+            streamInfoHandler = { withContext(NonCancellable) { stream.await() } },
+            relatedHandler = { relatedCalls++; AppResult.Success(emptyList()) }
+        )
+        val player = FakePlayerController()
+        val model = WatchViewModel(service, player, androidx.lifecycle.SavedStateHandle(), ioDispatcher = testDispatcher)
+        val store = androidx.lifecycle.ViewModelStore().apply { put("watch", model) }
+        model.load(testKey)
+        runCurrent()
+        val stateAtExit = model.uiState.value
+        store.clear()
+
+        details.complete(AppResult.Success(testDetails(testKey)))
+        stream.complete(AppResult.Success(testStreamInfo(testKey)))
+        runCurrent()
+        model.load(ContentKey(0, "must_not_open_after_clear"))
+        runCurrent()
+
+        assertEquals(stateAtExit, model.uiState.value)
+        assertEquals(0, player.prepareCount)
+        assertEquals(0, relatedCalls)
+        assertEquals(1, service.streamInfoCallCount)
+        assertFalse(player.isReleased)
+    }
+
+    @Test
+    fun navigation_cancels_old_entry_before_its_view_model_is_cleared() = runTest(testDispatcher) {
+        val nextKey = ContentKey(0, "next_watch_entry")
+        val oldStream = CompletableDeferred<AppResult<StreamInfo>>()
+        val service = FakeVideoService(
+            videoHandler = { AppResult.Success(testDetails(it)) },
+            streamInfoHandler = { key ->
+                if (key == testKey) withContext(NonCancellable) { oldStream.await() }
+                else AppResult.Success(testStreamInfo(key))
+            },
+            relatedHandler = { AppResult.Success(emptyList()) }
+        )
+        val sharedPlayer = FakePlayerController()
+        val outgoing = WatchViewModel(service, sharedPlayer, androidx.lifecycle.SavedStateHandle(), ioDispatcher = testDispatcher)
+        val incoming = WatchViewModel(service, sharedPlayer, androidx.lifecycle.SavedStateHandle(), ioDispatcher = testDispatcher)
+        val store = androidx.lifecycle.ViewModelStore().apply {
+            put("outgoing", outgoing)
+            put("incoming", incoming)
+        }
+        outgoing.load(testKey)
+        runCurrent()
+        outgoing.cancelPendingLoads()
+        incoming.load(nextKey)
+        runCurrent()
+
+        // The old route still exists during NavHost's exit animation.
+        oldStream.complete(AppResult.Success(testStreamInfo(testKey)))
+        runCurrent()
+        assertEquals(1, sharedPlayer.prepareCount)
+        assertEquals(nextKey, sharedPlayer.preparedKey)
+        assertFalse(sharedPlayer.isReleased)
+        store.clear()
+    }
+
+    @Test
+    fun switching_video_cancels_in_flight_related_and_comments_requests() = runTest(testDispatcher) {
+        var relatedCancelled = false
+        var commentsCancelled = false
+        var commentsStarted = false
+        val service = FakeVideoService(
+            supportsComments = true,
+            videoHandler = { AppResult.Success(testDetails(it)) },
+            streamInfoHandler = { AppResult.Success(testStreamInfo(it)) },
+            relatedHandler = { key ->
+                if (key == testKey) {
+                    try { kotlinx.coroutines.awaitCancellation() }
+                    finally { relatedCancelled = true }
+                } else AppResult.Success(emptyList())
+            },
+            commentsHandler = { _, _ ->
+                commentsStarted = true
+                try { kotlinx.coroutines.awaitCancellation() }
+                finally { commentsCancelled = true }
+            }
+        )
+        val player = FakePlayerController()
+        val model = WatchViewModel(service, player, androidx.lifecycle.SavedStateHandle(), ioDispatcher = testDispatcher)
+        model.load(testKey)
+        model.setCommentsExpanded(true)
+        runCurrent()
+        player.markReady(testKey)
+        runCurrent()
+        assertTrue(commentsStarted)
+
+        val nextKey = ContentKey(0, "cancel_previous_sections")
+        model.load(nextKey)
+        runCurrent()
+        assertTrue(relatedCancelled)
+        assertTrue(commentsCancelled)
+        assertEquals(nextKey, player.preparedKey)
+        assertFalse(model.uiState.value.commentsExpanded)
+    }
+
+    @Test
+    fun clearing_watch_cancels_the_comments_readiness_gate() = runTest(testDispatcher) {
+        var commentsCalls = 0
+        val service = FakeVideoService(
+            supportsComments = true,
+            videoHandler = { AppResult.Success(testDetails(it)) },
+            streamInfoHandler = { AppResult.Success(testStreamInfo(it)) },
+            relatedHandler = { AppResult.Success(emptyList()) },
+            commentsHandler = { _, _ -> commentsCalls++; AppResult.Success(CommentPage(emptyList())) }
+        )
+        val player = FakePlayerController()
+        val model = WatchViewModel(service, player, androidx.lifecycle.SavedStateHandle(), ioDispatcher = testDispatcher)
+        val store = androidx.lifecycle.ViewModelStore().apply { put("watch", model) }
+        model.load(testKey)
+        model.setCommentsExpanded(true)
+        runCurrent()
+        assertEquals(0, commentsCalls)
+
+        store.clear()
+        player.markReady(testKey)
+        advanceTimeBy(WatchViewModel.COMMENTS_READY_FALLBACK_MS)
+        runCurrent()
+        assertEquals(0, commentsCalls)
+        assertFalse(player.isReleased)
+    }
+
+    @Test
+    fun stream_failure_is_not_overwritten_by_late_metadata() = runTest(testDispatcher) {
+        val details = CompletableDeferred<AppResult<VideoDetails>>()
+        val stream = CompletableDeferred<AppResult<StreamInfo>>()
+        val service = FakeVideoService(
+            videoHandler = { withContext(NonCancellable) { details.await() } },
+            streamInfoHandler = { stream.await() }
+        )
+        val player = FakePlayerController()
+        val model = WatchViewModel(service, player, androidx.lifecycle.SavedStateHandle(), ioDispatcher = testDispatcher)
+        model.load(testKey)
+        runCurrent()
+        stream.complete(AppResult.Failure(AppError.NetworkError))
+        runCurrent()
+        assertFalse(model.uiState.value.isPlayerLoading)
+        assertEquals(AppError.NetworkError, model.uiState.value.error)
+
+        details.complete(AppResult.Success(testDetails(testKey)))
+        runCurrent()
+        assertEquals(AppError.NetworkError, model.uiState.value.error)
+        assertFalse(model.uiState.value.isLoading)
+        assertFalse(model.uiState.value.isPlayerLoading)
+        assertEquals(0, player.prepareCount)
+    }
+
+    @Test
+    fun repeated_playback_retry_resolves_once_and_preserves_playback_snapshot() = runTest(testDispatcher) {
+        var streamCalls = 0
+        val retryStream = CompletableDeferred<AppResult<StreamInfo>>()
+        val service = FakeVideoService(
+            videoHandler = { AppResult.Success(testDetails(it)) },
+            streamInfoHandler = {
+                if (++streamCalls == 1) AppResult.Success(testStreamInfo(it)) else retryStream.await()
+            },
+            relatedHandler = { AppResult.Success(emptyList()) }
+        )
+        val player = FakePlayerController()
+        val model = WatchViewModel(service, player, androidx.lifecycle.SavedStateHandle(), ioDispatcher = testDispatcher)
+        model.load(testKey)
+        runCurrent()
+        val quality = QualityOption(720, "720p", true)
+        player._state.value = player._state.value.copy(
+            isPlaying = false, playWhenReady = false, currentPositionMs = 42_000, selectedQuality = quality
+        )
+        player.setPlayerErrorForTest(AppError.StreamExpired)
+
+        model.retry()
+        model.retry()
+        runCurrent()
+        model.retry()
+        runCurrent()
+        assertEquals(2, streamCalls)
+        assertEquals(1, player.prepareCount)
+        assertTrue(model.uiState.value.isPlayerLoading)
+
+        val fresh = testStreamInfo(testKey).copy(hlsManifestUrl = "https://fresh.test/retry.m3u8")
+        retryStream.complete(AppResult.Success(fresh))
+        runCurrent()
+        assertEquals(2, player.prepareCount)
+        assertEquals(fresh, player.preparedStreamInfo)
+        assertEquals(42_000L, player.startPositionMs)
+        assertEquals(false, player.playWhenReady)
+        assertEquals(quality, player.initialQuality)
+        assertTrue(model.uiState.value.isPlayerLoading)
+        player._state.value = player._state.value.copy(isReady = true, hasRenderedFirstFrame = true)
+        runCurrent()
+        assertFalse(model.uiState.value.isPlayerLoading)
+    }
+
+    @Test
+    fun repeated_retry_after_initial_stream_failure_deduplicates_fresh_load() = runTest(testDispatcher) {
+        var streamCalls = 0
+        val retryStream = CompletableDeferred<AppResult<StreamInfo>>()
+        val service = FakeVideoService(
+            videoHandler = { AppResult.Success(testDetails(it)) },
+            streamInfoHandler = {
+                if (++streamCalls == 1) AppResult.Failure(AppError.NetworkError) else retryStream.await()
+            },
+            relatedHandler = { AppResult.Success(emptyList()) }
+        )
+        val player = FakePlayerController()
+        val model = WatchViewModel(service, player, androidx.lifecycle.SavedStateHandle(), ioDispatcher = testDispatcher)
+        model.load(testKey)
+        runCurrent()
+        model.retry()
+        model.retry()
+        runCurrent()
+        model.retry()
+        runCurrent()
+        assertEquals(2, streamCalls)
+
+        retryStream.complete(AppResult.Success(testStreamInfo(testKey)))
+        runCurrent()
+        assertEquals(1, player.prepareCount)
+        assertNull(model.uiState.value.error)
+    }
+
+    @Test
+    fun forced_reload_prepares_fresh_stream_before_requesting_metadata() = runTest(testDispatcher) {
+        val events = mutableListOf<String>()
+        val stream = CompletableDeferred<AppResult<StreamInfo>>()
+        val service = FakeVideoService(
+            videoHandler = { events += "details"; AppResult.Success(testDetails(it)) },
+            streamInfoHandler = { events += "stream"; stream.await() },
+            relatedHandler = { AppResult.Success(emptyList()) }
+        )
+        val player = FakePlayerController().apply { onPrepare = { events += "prepare" } }
+        val model = WatchViewModel(service, player, androidx.lifecycle.SavedStateHandle(), ioDispatcher = testDispatcher)
+        model.load(testKey, forceRefresh = true)
+        runCurrent()
+        assertEquals(listOf("stream"), events)
+        assertTrue(model.uiState.value.isPlayerLoading)
+
+        stream.complete(AppResult.Success(testStreamInfo(testKey)))
+        runCurrent()
+        assertEquals(listOf("stream", "prepare", "details"), events)
+        assertEquals(1, player.prepareCount)
+        assertEquals(testDetails(testKey), model.uiState.value.details)
+        assertNull(model.uiState.value.error)
+    }
+
+    @Test
+    fun history_storage_exceptions_do_not_cancel_stream_resolution() = runTest(testDispatcher) {
+        val history = object : com.hpre.app.repository.HistoryRepository {
+            override fun observeHistory() = kotlinx.coroutines.flow.emptyFlow<List<com.hpre.app.repository.WatchHistoryItem>>()
+            override suspend fun getHistoryItem(key: ContentKey): AppResult<com.hpre.app.repository.WatchHistoryItem?> =
+                throw java.io.IOException("History read unavailable")
+            override suspend fun recordHistory(summary: VideoSummary, positionMs: Long, watchedTimestamp: Long): AppResult<Unit> =
+                throw java.io.IOException("History write unavailable")
+            override suspend fun deleteHistoryItem(key: ContentKey) = AppResult.Success(Unit)
+            override suspend fun clearHistory() = AppResult.Success(Unit)
+        }
+        val stream = CompletableDeferred<AppResult<StreamInfo>>()
+        val service = FakeVideoService(
+            videoHandler = { AppResult.Success(testDetails(it)) },
+            streamInfoHandler = { stream.await() },
+            relatedHandler = { AppResult.Success(emptyList()) }
+        )
+        val player = FakePlayerController()
+        val model = WatchViewModel(
+            service, player, androidx.lifecycle.SavedStateHandle(),
+            historyRepository = history, ioDispatcher = testDispatcher
+        )
+        model.load(testKey)
+        runCurrent()
+        assertEquals(testDetails(testKey), model.uiState.value.details)
+        assertTrue(model.uiState.value.isPlayerLoading)
+        stream.complete(AppResult.Success(testStreamInfo(testKey)))
+        runCurrent()
+        assertEquals(1, player.prepareCount)
+        assertEquals(0L, player.startPositionMs)
+        assertNull(model.uiState.value.error)
+    }
+
+    @Test
     fun load_success_prepares_player_and_loads_details() = runTest(testDispatcher) {
         val fakeService = FakeVideoService(
             videoHandler = { AppResult.Success(testDetails(it)) },

@@ -16,8 +16,9 @@ import com.hpre.app.player.PlaybackUiCoordinator
 import com.hpre.app.player.SurfaceOwner
 
 /**
- * Fits the complete video frame by default. Fullscreen can opt into filling the available bounds
- * with an aspect-preserving center crop; Media3 recalculates the size when those bounds change.
+ * Fits the complete video frame by default. Fullscreen stretches the whole frame to fill the
+ * available bounds without cropping. This can change the video's proportions when its aspect
+ * ratio differs from the display; Media3 recalculates the size when those bounds change.
  */
 @OptIn(UnstableApi::class)
 @Composable
@@ -30,7 +31,7 @@ fun PlayerSurface(
     fillScreen: Boolean = false
 ) {
     val surfaceResizeMode = if (fillScreen) {
-        AspectRatioFrameLayout.RESIZE_MODE_ZOOM
+        AspectRatioFrameLayout.RESIZE_MODE_FILL
     } else {
         AspectRatioFrameLayout.RESIZE_MODE_FIT
     }
