@@ -1242,19 +1242,27 @@ class SessionPlayerProtocolTest {
 
     @Test
     fun sessionPlayerController_has_no_periodic_progress_job_or_tracker_methods() {
-        // Structural invariant ceiling test: JVM unit tests cannot instantiate final Media3 MediaController
-        // without introducing heavy test mock frameworks or shadowing classes.
-        // Therefore, we enforce that no periodic tracker coroutine or methods exist in SessionPlayerController.
-        val fields = SessionPlayerController::class.java.declaredFields.map { it.name }
-        assertFalse("SessionPlayerController must not contain progressJob field", fields.contains("progressJob"))
+        // Strong allowlist invariant over all Job-typed declared fields in SessionPlayerController:
+        // Reconnect/runtime operations are permitted, but no UI/progress polling Job is allowed.
+        val allowedJobFieldNames = setOf("reconnectJob")
+        val jobFields = SessionPlayerController::class.java.declaredFields.filter {
+            kotlinx.coroutines.Job::class.java.isAssignableFrom(it.type)
+        }
+        for (field in jobFields) {
+            assertTrue(
+                "Unrecognized Job field '${field.name}' in SessionPlayerController. Only approved runtime jobs $allowedJobFieldNames are allowed; no UI/progress polling Job.",
+                allowedJobFieldNames.contains(field.name)
+            )
+        }
 
+        // Structural invariant ceiling defense: verify no deprecated tracker methods exist
         val methods = SessionPlayerController::class.java.declaredMethods.map { it.name }
         assertFalse("SessionPlayerController must not contain startProgressTracker", methods.contains("startProgressTracker"))
         assertFalse("SessionPlayerController must not contain stopProgressTracker", methods.contains("stopProgressTracker"))
     }
 
     @Test
-    fun repeated_readProgress_calls_do_not_mutate_shared_state_or_emit_ticks() = kotlinx.coroutines.test.runTest {
+    fun structural_events_emit_shared_state_while_repeated_readProgress_does_not() = kotlinx.coroutines.test.runTest {
         val fakeContext = object : android.content.ContextWrapper(null) {
             override fun getApplicationContext(): android.content.Context = this
         }
@@ -1302,11 +1310,10 @@ class SessionPlayerProtocolTest {
         testScheduler.runCurrent()
         val baseCount = emissionCount
 
-        // Verify initial authoritative read
+        // 1. Authoritative progress reads and time progression do NOT emit or mutate state
         val initialProgress = controller.readProgress()
         assertEquals(10_000L, initialProgress.positionMs)
 
-        // Advance simulated time and update authoritative position across intervals
         progressPosition = 11_000L
         testScheduler.advanceTimeBy(1000L)
         testScheduler.runCurrent()
@@ -1315,17 +1322,18 @@ class SessionPlayerProtocolTest {
         testScheduler.advanceTimeBy(1000L)
         testScheduler.runCurrent()
 
-        progressPosition = 13_000L
-        testScheduler.advanceTimeBy(1000L)
+        val updatedProgress = controller.readProgress()
+        assertEquals(12_000L, updatedProgress.positionMs)
+
+        assertEquals("Progress advancement alone must not trigger shared state emissions", baseCount, emissionCount)
+        assertEquals(0L, controller.state.value.currentPositionMs)
+
+        // 2. Structural events (e.g. state transitions / prepare / speed changes) DO emit and update shared state
+        controller.setPlaybackSpeed(1.5f)
         testScheduler.runCurrent()
 
-        // Authoritative read reflects new position
-        val updatedProgress = controller.readProgress()
-        assertEquals(13_000L, updatedProgress.positionMs)
-
-        // Shared state should NOT have received periodic 1s ticks or modified its position
-        assertEquals("Periodic progress should not cause shared state emissions", baseCount, emissionCount)
-        assertEquals("Shared state position should remain untracked by ticks", 0L, controller.state.value.currentPositionMs)
+        assertTrue("Structural change must cause emission", emissionCount > baseCount)
+        assertEquals(1.5f, controller.state.value.playbackSpeed, 0.001f)
 
         collectJob.cancel()
         controller.release()
