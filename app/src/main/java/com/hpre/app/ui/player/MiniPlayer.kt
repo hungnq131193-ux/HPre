@@ -91,7 +91,10 @@ fun MiniPlayer(
                 .fillMaxWidth()
                 .testTag("mini-player")
         ) {
-            MiniPlayerProgress(playerController)
+            MiniPlayerProgress(
+                playerController = playerController,
+                currentKey = currentKey
+            )
 
             Row(
                 verticalAlignment = Alignment.CenterVertically,
@@ -172,13 +175,20 @@ fun MiniPlayer(
 }
 
 @Composable
-private fun MiniPlayerProgress(playerController: PlayerController) {
-    var progressState by remember(playerController) {
+private fun MiniPlayerProgress(
+    playerController: PlayerController,
+    currentKey: ContentKey?
+) {
+    var progressState by remember(currentKey) {
         mutableStateOf(com.hpre.app.player.PlaybackProgress())
     }
-    LaunchedEffect(playerController) {
+    LaunchedEffect(playerController, currentKey) {
         while (true) {
-            progressState = playerController.readProgress()
+            try {
+                progressState = playerController.readProgress()
+            } catch (e: Exception) {
+                if (e is kotlinx.coroutines.CancellationException) throw e
+            }
             kotlinx.coroutines.delay(com.hpre.app.ui.watch.PlayerControlsPolicy.PROGRESS_POLL_INTERVAL_MS)
         }
     }

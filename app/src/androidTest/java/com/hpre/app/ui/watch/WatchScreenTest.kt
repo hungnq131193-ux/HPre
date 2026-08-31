@@ -440,16 +440,78 @@ class WatchScreenTest {
         }
 
         composeTestRule.waitForIdle()
-        assertTrue("Controls should poll progress immediately upon appearing", readCount >= 1)
-        val countAfterFirstRead = readCount
+        assertEquals("Initial immediate read", 1, readCount)
 
-        // Advance Compose main clock by 500ms
-        composeTestRule.mainClock.advanceTimeBy(600L)
+        // Advance 250ms -> should not read a second time yet
+        composeTestRule.mainClock.advanceTimeBy(250L)
         composeTestRule.waitForIdle()
-        assertTrue("Controls should poll progress periodically while visible", readCount > countAfterFirstRead)
+        assertEquals("No second read before 500ms", 1, readCount)
 
-        // Progress slider can seek and immediately updates local progress
-        composeTestRule.onNodeWithTag("player_progress_slider").assertExists()
+        // Advance another 300ms (total 550ms) -> should read second time
+        composeTestRule.mainClock.advanceTimeBy(300L)
+        composeTestRule.waitForIdle()
+        assertEquals("Second read at 500ms", 2, readCount)
+
+        // Perform slider seek action
+        composeTestRule.onNodeWithTag("player_progress_slider")
+            .performSemanticsAction(androidx.compose.ui.semantics.SemanticsActions.SetProgress) {
+                it(30_000f)
+            }
+        composeTestRule.waitForIdle()
+        assertEquals(30_000L, seekedTo)
+        composeTestRule.onNodeWithTag("player_time_text")
+            .assertTextEquals("0:30 / 1:00")
+    }
+
+    @Test
+    fun player_controls_overlay_polls_while_paused_and_recovers_from_exceptions() {
+        var readCount = 0
+        var shouldThrow = false
+
+        composeTestRule.setContent {
+            HPreTheme {
+                PlayerControlsOverlay(
+                    playbackState = PlaybackState(
+                        isPlaying = false,
+                        durationMs = 60_000L
+                    ),
+                    isFullscreen = false,
+                    readProgress = {
+                        readCount++
+                        if (shouldThrow) {
+                            throw IllegalStateException("Transient read error")
+                        }
+                        PlaybackProgress(positionMs = 10_000L, durationMs = 60_000L)
+                    },
+                    onPlayPause = {},
+                    onSeekBy = {},
+                    onSeekTo = {},
+                    onSpeedSelected = {},
+                    onQualitySelected = {},
+                    onToggleFullscreen = {}
+                )
+            }
+        }
+
+        composeTestRule.waitForIdle()
+        assertEquals("Paused controls still read immediately", 1, readCount)
+
+        // Polling continues while paused and controls visible
+        composeTestRule.mainClock.advanceTimeBy(550L)
+        composeTestRule.waitForIdle()
+        assertEquals("Paused controls poll periodically", 2, readCount)
+
+        // Non-cancellation exception does not terminate polling loop
+        shouldThrow = true
+        composeTestRule.mainClock.advanceTimeBy(550L)
+        composeTestRule.waitForIdle()
+        assertEquals("Polling loop attempts read despite exception", 3, readCount)
+
+        // Recovers on next tick
+        shouldThrow = false
+        composeTestRule.mainClock.advanceTimeBy(550L)
+        composeTestRule.waitForIdle()
+        assertEquals("Polling loop continues after exception", 4, readCount)
     }
 
     @Test

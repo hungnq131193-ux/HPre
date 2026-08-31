@@ -128,7 +128,7 @@ fun PlayerControlsOverlay(
     isInPip: Boolean = false
 ) {
     var controlsVisible by remember { mutableStateOf(true) }
-    var localProgress by remember { mutableStateOf(playbackState.toProgress()) }
+    var localProgress by remember(playbackState.key) { mutableStateOf(playbackState.toProgress()) }
     var isSpeedMenuOpen by remember { mutableStateOf(false) }
     var isQualityMenuOpen by remember { mutableStateOf(false) }
     var isDragging by remember { mutableStateOf(false) }
@@ -142,10 +142,14 @@ fun PlayerControlsOverlay(
 
     val currentReadProgress = rememberUpdatedState(readProgress)
 
-    LaunchedEffect(controlsVisible) {
+    LaunchedEffect(controlsVisible, playbackState.key) {
         if (controlsVisible) {
             while (true) {
-                localProgress = currentReadProgress.value()
+                try {
+                    localProgress = currentReadProgress.value()
+                } catch (e: Exception) {
+                    if (e is kotlinx.coroutines.CancellationException) throw e
+                }
                 delay(PlayerControlsPolicy.PROGRESS_POLL_INTERVAL_MS)
             }
         }

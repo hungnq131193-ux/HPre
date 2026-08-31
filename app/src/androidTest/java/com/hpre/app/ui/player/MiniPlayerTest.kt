@@ -1,5 +1,8 @@
 package com.hpre.app.ui.player
 
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithTag
@@ -133,16 +136,16 @@ class MiniPlayerTest {
     fun mini_player_progress_polls_without_state_flow_emission() {
         var readCount = 0
         var currentPos = 10_000L
-        val controller = object : PlayerController by FakeMiniPlayerController() {
-            val _state = MutableStateFlow(
-                PlaybackState(
-                    key = ContentKey(0, "poll_test"),
-                    title = "Polling Test",
-                    isPlaying = true,
-                    durationMs = 100_000L
-                )
+        val fakeState = MutableStateFlow(
+            PlaybackState(
+                key = ContentKey(0, "poll_test"),
+                title = "Polling Test",
+                isPlaying = true,
+                durationMs = 100_000L
             )
-            override val state: StateFlow<PlaybackState> = _state
+        )
+        val controller = object : PlayerController by FakeMiniPlayerController() {
+            override val state: StateFlow<PlaybackState> = fakeState
 
             override suspend fun readProgress(): PlaybackProgress {
                 readCount++
@@ -150,25 +153,47 @@ class MiniPlayerTest {
             }
         }
 
+        var showMiniPlayer by androidx.compose.runtime.mutableStateOf(true)
+
         composeTestRule.setContent {
             HPreTheme {
-                MiniPlayer(
-                    playerController = controller,
-                    onExpandWatch = {},
-                    onDismiss = {}
-                )
+                if (showMiniPlayer) {
+                    MiniPlayer(
+                        playerController = controller,
+                        onExpandWatch = {},
+                        onDismiss = {}
+                    )
+                }
             }
         }
 
         composeTestRule.waitForIdle()
-        // Must read at least once on composition
-        assertTrue("readProgress should be called at least once", readCount >= 1)
-        val initialCount = readCount
+        assertEquals("Initial read on composition", 1, readCount)
 
-        // Advance Compose main clock by 500ms
-        composeTestRule.mainClock.advanceTimeBy(600L)
+        // Advance Compose main clock by 250ms -> no second read yet
+        composeTestRule.mainClock.advanceTimeBy(250L)
         composeTestRule.waitForIdle()
+        assertEquals("No second read before 500ms", 1, readCount)
 
-        assertTrue("readProgress should have polled periodically", readCount > initialCount)
+        // Advance by 300ms -> polled at 500ms
+        currentPos = 50_000L
+        composeTestRule.mainClock.advanceTimeBy(300L)
+        composeTestRule.waitForIdle()
+        assertEquals("Polled at 500ms", 2, readCount)
+
+        // Assert state flow emissions count did not change (controller.state remains untouched)
+        assertEquals(1, fakeState.replayCache.size)
+
+        // Progress bar exists and is displayed
+        composeTestRule.onNodeWithTag("mini_player_progress").assertExists().assertIsDisplayed()
+
+        // Dispose MiniPlayer -> polling stops
+        showMiniPlayer = false
+        composeTestRule.waitForIdle()
+        val countAfterDispose = readCount
+
+        composeTestRule.mainClock.advanceTimeBy(1000L)
+        composeTestRule.waitForIdle()
+        assertEquals("Polling stopped after dispose", countAfterDispose, readCount)
     }
 }
