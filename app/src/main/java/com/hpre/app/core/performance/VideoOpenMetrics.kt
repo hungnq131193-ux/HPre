@@ -8,6 +8,8 @@ import java.util.concurrent.atomic.AtomicLong
 
 enum class VideoOpenEvent {
     VIDEO_OPEN_START,
+    EXTRACTOR_START,
+    EXTRACTOR_FINISH,
     DETAILS_READY,
     STREAM_INFO_READY,
     PLAYER_PREPARE,

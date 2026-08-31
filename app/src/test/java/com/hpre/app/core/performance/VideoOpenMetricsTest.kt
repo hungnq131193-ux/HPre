@@ -13,6 +13,8 @@ class VideoOpenMetricsTest {
         val key = ContentKey(0, "video")
 
         val first = metrics.start(key)
+        now = 110L
+        metrics.mark(first, VideoOpenEvent.EXTRACTOR_START)
         now = 125L
         metrics.mark(first, VideoOpenEvent.STREAM_INFO_READY)
         val second = metrics.start(key)
@@ -21,11 +23,17 @@ class VideoOpenMetricsTest {
         metrics.finish(second, VideoOpenEvent.FIRST_FRAME)
 
         assertEquals(
-            listOf(VideoOpenEvent.VIDEO_OPEN_START, VideoOpenEvent.STREAM_INFO_READY,
-                VideoOpenEvent.VIDEO_OPEN_START, VideoOpenEvent.FIRST_FRAME),
+            listOf(
+                VideoOpenEvent.VIDEO_OPEN_START,
+                VideoOpenEvent.EXTRACTOR_START,
+                VideoOpenEvent.STREAM_INFO_READY,
+                VideoOpenEvent.VIDEO_OPEN_START,
+                VideoOpenEvent.FIRST_FRAME
+            ),
             records.map { it.event }
         )
-        assertEquals(25L, records[1].elapsedMs)
+        assertEquals(10L, records[1].elapsedMs)
+        assertEquals(25L, records[2].elapsedMs)
         assertEquals(25L, records.last().elapsedMs)
         assertTrue(second.generation > first.generation)
     }
