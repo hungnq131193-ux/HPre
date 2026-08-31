@@ -701,69 +701,6 @@ class SessionPlayerProtocolTest {
     }
 
     @Test
-    fun readiness_tracker_rejects_when_either_or_both_media_ids_are_null() = kotlinx.coroutines.runBlocking {
-        val readiness = PlaybackReadinessTracker()
-        val mediaId = PlaybackMediaId.encode(ContentKey(0, "test_null_media_id"))
-
-        // Case 1: activeMediaId is null at registration -> onPlaybackStateChanged must reject
-        val defNullActive = readiness.registerSession(sessionGen = 10L, mediaId = null)
-        readiness.onPlaybackStateChanged(sessionGen = 10L, currentMediaId = mediaId, playbackState = androidx.media3.common.Player.STATE_READY)
-        assertFalse("Null activeMediaId must reject callback", defNullActive.isCompleted)
-
-        // Case 2: activeMediaId is set, but callback has currentMediaId = null -> reject
-        val defNullCurrent = readiness.registerSession(sessionGen = 20L, mediaId = mediaId)
-        readiness.onPlaybackStateChanged(sessionGen = 20L, currentMediaId = null, playbackState = androidx.media3.common.Player.STATE_READY)
-        assertFalse("Null currentMediaId must reject callback", defNullCurrent.isCompleted)
-
-        // Case 3: both null -> reject
-        val defBothNull = readiness.registerSession(sessionGen = 30L, mediaId = null)
-        readiness.onPlaybackStateChanged(sessionGen = 30L, currentMediaId = null, playbackState = androidx.media3.common.Player.STATE_READY)
-        assertFalse("Both null mediaIds must reject callback", defBothNull.isCompleted)
-
-        // Case 4: onError with null mediaId must also reject
-        val defNullError = readiness.registerSession(sessionGen = 40L, mediaId = null)
-        readiness.onError(sessionGen = 40L, currentMediaId = mediaId)
-        assertFalse("Null activeMediaId in onError must reject", defNullError.isCompleted)
-
-        val defNullCurrError = readiness.registerSession(sessionGen = 50L, mediaId = mediaId)
-        readiness.onError(sessionGen = 50L, currentMediaId = null)
-        assertFalse("Null currentMediaId in onError must reject", defNullCurrError.isCompleted)
-    }
-
-    @Test
-    fun readiness_tracker_ignores_stale_media_id_and_accepts_matching_media_id() = kotlinx.coroutines.runBlocking {
-        val readiness = PlaybackReadinessTracker()
-        val oldMediaId = PlaybackMediaId.encode(ContentKey(0, "old_video_100"))
-        val newMediaId = PlaybackMediaId.encode(ContentKey(0, "new_video_200"))
-
-        // Register session 200 with newMediaId
-        val def200 = readiness.registerSession(sessionGen = 200L, mediaId = newMediaId)
-        assertFalse("New session must be pending", def200.isCompleted)
-
-        // Stale READY with oldMediaId for same sessionGen is ignored
-        readiness.onPlaybackStateChanged(sessionGen = 200L, currentMediaId = oldMediaId, playbackState = androidx.media3.common.Player.STATE_READY)
-        assertFalse("Stale mediaId READY must not complete session", def200.isCompleted)
-
-        // Stale error with oldMediaId is ignored
-        readiness.onError(sessionGen = 200L, currentMediaId = oldMediaId)
-        assertFalse("Stale mediaId error must not complete session", def200.isCompleted)
-
-        // Matching newMediaId with STATE_READY completes true
-        readiness.onPlaybackStateChanged(sessionGen = 200L, currentMediaId = newMediaId, playbackState = androidx.media3.common.Player.STATE_READY)
-        assertTrue(def200.await())
-    }
-
-    @Test
-    fun readiness_tracker_onError_with_matching_media_id_completes_false() = kotlinx.coroutines.runBlocking {
-        val readiness = PlaybackReadinessTracker()
-        val mediaId = PlaybackMediaId.encode(ContentKey(0, "error_vid"))
-        val def = readiness.registerSession(sessionGen = 300L, mediaId = mediaId)
-
-        readiness.onError(sessionGen = 300L, currentMediaId = mediaId)
-        assertFalse(def.await())
-    }
-
-    @Test
     fun session_player_controller_handles_cancellation_exception_and_triggers_bounded_retry() = kotlinx.coroutines.runBlocking {
         val fakeContext = object : android.content.ContextWrapper(null) {
             override fun getApplicationContext(): android.content.Context = this
@@ -915,31 +852,6 @@ class SessionPlayerProtocolTest {
         assertFalse(controller.isReconnectingState)
 
         controller.release()
-    }
-
-    @Test
-    fun readiness_tracker_handles_ready_before_await_and_after_await_and_error_and_supersede() = kotlinx.coroutines.runBlocking {
-        val readiness = PlaybackReadinessTracker()
-        val mediaId = PlaybackMediaId.encode(ContentKey(0, "readiness_tracker"))
-
-        // Case A: READY arrives AFTER register
-        val defLateReady = readiness.registerSession(sessionGen = 102L, mediaId = mediaId)
-        assertFalse(defLateReady.isCompleted)
-        readiness.onPlaybackStateChanged(sessionGen = 102L, currentMediaId = mediaId, playbackState = androidx.media3.common.Player.STATE_READY)
-        assertTrue(defLateReady.await())
-
-        // Case B: Error completes deferred with false
-        val defError = readiness.registerSession(sessionGen = 103L, mediaId = mediaId)
-        readiness.onError(sessionGen = 103L, currentMediaId = mediaId)
-        assertFalse(defError.await())
-
-        // Case C: Supersede with new session generation cancels previous with false
-        val defOld = readiness.registerSession(sessionGen = 104L, mediaId = mediaId)
-        val defNew = readiness.registerSession(sessionGen = 105L, mediaId = mediaId)
-        assertFalse("Previous deferred must complete false on supersede", defOld.await())
-        assertFalse("New deferred remains pending", defNew.isCompleted)
-        readiness.onPlaybackStateChanged(sessionGen = 105L, currentMediaId = mediaId, playbackState = androidx.media3.common.Player.STATE_READY)
-        assertTrue("New deferred completes true on READY", defNew.await())
     }
 
     @Test

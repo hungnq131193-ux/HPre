@@ -134,14 +134,6 @@ class HPrePlaybackService : MediaSessionService() {
     private val attemptedSourceTypes = mutableSetOf<PlaybackStreamType>()
     private var prepareRequestGeneration: Long = 0L
 
-    /**
-     * Temporary height ceiling applied on top of [currentQualityPolicy] so startup buffers a small
-     * rendition. Cleared as [StartupQualityPolicy] escalates.
-     */
-    private var fastStartCapHeight: Int? = null
-    private var fastStartForceLowestBitrate = false
-    private var fastStartJob: Job? = null
-
     private var userRequestedPlay: Boolean = true
     private var isReleased: Boolean = false
     private var backgroundPlaybackEnabled: Boolean = false
@@ -155,7 +147,6 @@ class HPrePlaybackService : MediaSessionService() {
     private val audioDecoderInitCounters = mutableMapOf<Long, Int>()
     private val videoDecoderInitCounters = mutableMapOf<Long, Int>()
     private var activeAnalyticsListener: AnalyticsListener? = null
-    private val readinessTracker = PlaybackReadinessTracker()
     private var metricsReadySessionGeneration: Long = -1L
     private var metricsFirstFrameMediaGeneration: Long = -1L
     private var activeMetricsSession: VideoOpenSession? = null
@@ -374,8 +365,6 @@ class HPrePlaybackService : MediaSessionService() {
             }
 
             lastReportedAppError = appError
-            val currentMediaId = exoPlayer?.currentMediaItem?.mediaId
-            readinessTracker.onError(playbackSessionGeneration, currentMediaId)
             val key = currentKey
             val currentSession = playbackSessionGeneration
 
@@ -474,8 +463,6 @@ class HPrePlaybackService : MediaSessionService() {
         }
 
         override fun onPlaybackStateChanged(playbackState: Int) {
-            val currentMediaId = exoPlayer?.currentMediaItem?.mediaId
-            readinessTracker.onPlaybackStateChanged(playbackSessionGeneration, currentMediaId, playbackState)
             // Buffering flips this repeatedly during normal playback. Each write is a DataStore edit
             // plus an atomic file rename, so unthrottled writes here produce steady IO churn while
             // watching. Position/speed are captured by the other callbacks and by onDestroy.
@@ -519,129 +506,19 @@ class HPrePlaybackService : MediaSessionService() {
         currentQualityPolicy = policy
         val player = exoPlayer ?: return
         val builder = player.trackSelectionParameters.buildUpon()
-        val startupCap = fastStartCapHeight ?: Int.MAX_VALUE
-        builder.setForceLowestBitrate(fastStartForceLowestBitrate)
+        builder.setForceLowestBitrate(false)
         when (policy) {
             is UserQualityPolicy.Auto -> {
-                val maxHeight = minOf(policy.maxHeight ?: Int.MAX_VALUE, startupCap)
+                val maxHeight = policy.maxHeight ?: Int.MAX_VALUE
                 builder.setMaxVideoSize(Int.MAX_VALUE, maxHeight)
                 builder.setMaxVideoBitrate(policy.maxBitrate ?: Int.MAX_VALUE)
             }
             is UserQualityPolicy.Fixed -> {
                 val height = policy.option.height
-                if (height > 0) builder.setMaxVideoSize(Int.MAX_VALUE, minOf(height, startupCap))
+                if (height > 0) builder.setMaxVideoSize(Int.MAX_VALUE, height)
             }
         }
         player.trackSelectionParameters = builder.build()
-    }
-
-    private fun cancelFastStartEscalation() {
-        fastStartJob?.cancel()
-        fastStartJob = null
-        readinessTracker.cancel(playbackSessionGeneration)
-        val constraints = StartupQualityPolicy.constraintsAfterManualSelection(
-            currentCapHeight = fastStartCapHeight,
-            currentlyForcingLowestBitrate = fastStartForceLowestBitrate
-        )
-        fastStartCapHeight = constraints.capHeight
-        fastStartForceLowestBitrate = constraints.forceLowestBitrate
-    }
-
-    /**
-     * Raises quality after the startup rendition is actually playing.
-     *
-     * Adaptive sources have their height cap lifted in steps, which ExoPlayer applies at the next
-     * segment boundary without interrupting playback. Progressive/merged sources are switched once to
-     * the target rendition, since each switch costs a media-source rebuild plus a rebuffer.
-     *
-     * The plan is abandoned whenever the session changes (new video, quality picked by hand, error
-     * fallback, recovery) so it can never fight a user decision.
-     */
-    private fun scheduleFastStartEscalation(
-        key: ContentKey,
-        streamType: PlaybackStreamType,
-        startHeight: Int,
-        available: List<QualityOption>,
-        sessionGeneration: Long
-    ) {
-        val policyMaxHeight = (currentQualityPolicy as? UserQualityPolicy.Auto)?.maxHeight
-        val plan = StartupQualityPolicy.planFor(
-            streamType = streamType,
-            startHeight = startHeight,
-            available = available,
-            policyMaxHeight = policyMaxHeight
-        )
-        if (plan == null) {
-            fastStartCapHeight = null
-            fastStartForceLowestBitrate = false
-            return
-        }
-
-        fastStartCapHeight = plan.startCapHeight
-        fastStartForceLowestBitrate = plan.forceLowestBitrate
-        if (plan.isAdaptive) {
-            // Re-apply so the startup cap takes effect on the freshly prepared source.
-            applyQualityPolicy(currentQualityPolicy)
-        }
-
-        fastStartJob?.cancel()
-        val mediaId = PlaybackMediaId.encode(key)
-        val readyDeferred = readinessTracker.registerSession(sessionGeneration, mediaId)
-        fastStartJob = serviceScope.launch(Dispatchers.Main) {
-            if (!awaitPlaybackReady(readyDeferred, key, sessionGeneration)) {
-                if (isReleased || playbackSessionGeneration != sessionGeneration) return@launch
-                // Never leave a startup cap behind if playback never got going.
-                fastStartCapHeight = null
-                fastStartForceLowestBitrate = false
-                applyQualityPolicy(currentQualityPolicy)
-                return@launch
-            }
-
-            if (plan.isAdaptive) {
-                for (step in plan.heightSteps) {
-                    kotlinx.coroutines.delay(StartupQualityPolicy.ESCALATION_STEP_DELAY_MS)
-                    if (isReleased || currentKey != key || playbackSessionGeneration != sessionGeneration) return@launch
-                    fastStartForceLowestBitrate = false
-                    fastStartCapHeight = step.takeIf { it != StartupQualityPolicy.UNLIMITED_HEIGHT }
-                    applyQualityPolicy(currentQualityPolicy)
-                }
-                fastStartCapHeight = null
-                fastStartForceLowestBitrate = false
-                applyQualityPolicy(currentQualityPolicy)
-            } else {
-                kotlinx.coroutines.delay(StartupQualityPolicy.ESCALATION_STEP_DELAY_MS)
-                if (isReleased || currentKey != key || playbackSessionGeneration != sessionGeneration) return@launch
-                // Only escalate while still on the startup selection; a manual pick wins.
-                if (currentSelectedQuality?.height != startHeight) return@launch
-                val target = plan.escalationOption ?: return@launch
-                fastStartCapHeight = null
-                fastStartForceLowestBitrate = false
-                selectQualityInternal(target, fromFastStart = true)
-            }
-        }
-    }
-
-    /**
-     * Suspends until the player reports READY for this session, returning false on timeout or if the
-     * session was superseded or errored.
-     */
-    private suspend fun awaitPlaybackReady(
-        readyDeferred: kotlinx.coroutines.CompletableDeferred<Boolean>,
-        key: ContentKey,
-        sessionGeneration: Long
-    ): Boolean {
-        if (isReleased || currentKey != key || playbackSessionGeneration != sessionGeneration) return false
-
-        return try {
-            kotlinx.coroutines.withTimeout(StartupQualityPolicy.READY_TIMEOUT_MS) {
-                readyDeferred.await()
-            }
-        } catch (_: kotlinx.coroutines.TimeoutCancellationException) {
-            readinessTracker.cancel(sessionGeneration)
-            false
-        } catch (_: CancellationException) {
-            false
-        }
     }
 
     private inline fun <reified T : Throwable> findCause(throwable: Throwable?): T? {
@@ -718,7 +595,6 @@ class HPrePlaybackService : MediaSessionService() {
         )
 
         cancelActiveQuality()
-        cancelFastStartEscalation()
         mediaOpJob?.cancel()
         recoveryJob?.cancel()
         val currentToken = ++mediaOperationGeneration
@@ -803,18 +679,6 @@ class HPrePlaybackService : MediaSessionService() {
                         PlaybackStreamType.AUDIO_ONLY -> null
                     }
 
-                    // Install the startup constraints before Media3 selects or starts loading a
-                    // track for the new source. The escalation coroutine waits for READY.
-                    if (explicitPreference == null) {
-                        scheduleFastStartEscalation(
-                            key = key,
-                            streamType = selected.streamType,
-                            startHeight = selected.videoStream?.height ?: 0,
-                            available = available,
-                            sessionGeneration = currentSession
-                        )
-                    }
-
                     exoPlayer?.let { player ->
                         registerAnalyticsListener(player, currentToken)
                         player.setMediaSource(mediaSource)
@@ -837,22 +701,13 @@ class HPrePlaybackService : MediaSessionService() {
         }
     }
 
-    /**
-     * @param fromFastStart true when invoked by [scheduleFastStartEscalation]. Skips cancelling the
-     * escalation job, which is the very coroutine making this call.
-     */
     private fun selectQualityInternal(
         quality: QualityOption,
-        completion: SettableFuture<SessionResult>? = null,
-        fromFastStart: Boolean = false
+        completion: SettableFuture<SessionResult>? = null
     ) {
         // Complete any previously active quality future with invalid/cancelled state
         cancelActiveQuality()
-        // A hand-picked quality supersedes any pending startup escalation.
-        if (!fromFastStart) {
-            cancelFastStartEscalation()
-            applyQualityPolicy(currentQualityPolicy)
-        }
+        applyQualityPolicy(currentQualityPolicy)
         activeQualityFuture = completion
 
         if (isReleased) {
@@ -880,7 +735,7 @@ class HPrePlaybackService : MediaSessionService() {
                 completion?.set(SessionResult(SessionError.ERROR_BAD_VALUE))
                 return@launch
             }
-            if (!fromFastStart) currentQualityPolicy = UserQualityPolicy.Fixed(matched)
+            currentQualityPolicy = UserQualityPolicy.Fixed(matched)
             val currentPos = player.currentPosition
             val effectiveSwitchPositionMs = PlaybackPolicy.resolveStartPosition(
                 isLive = streamInfo.isLive,
@@ -1018,7 +873,6 @@ class HPrePlaybackService : MediaSessionService() {
         currentStreamType = null
         lastReportedAppError = null
         cancelActiveQuality()
-        cancelFastStartEscalation()
         prepareRequestGeneration++
         playbackSessionGeneration++
         mediaOperationGeneration++
@@ -1273,7 +1127,6 @@ class HPrePlaybackService : MediaSessionService() {
                             ?: return Futures.immediateFuture(SessionResult(SessionError.ERROR_BAD_VALUE))
                         UserQualityPolicy.Fixed(option)
                     }
-                    cancelFastStartEscalation()
                     applyQualityPolicy(policy)
                     persistCurrentSnapshot()
                     return Futures.immediateFuture(SessionResult(SessionResult.RESULT_SUCCESS))
@@ -1325,10 +1178,8 @@ class HPrePlaybackService : MediaSessionService() {
         isReleased = true
         historyScheduler.stop()
         cancelActiveQuality()
-        cancelFastStartEscalation()
         mediaOpJob?.cancel()
         recoveryJob?.cancel()
-        readinessTracker.cancel()
 
         // Capture final state without blocking service teardown on DataStore I/O.
         persistFinalSnapshotSync()
