@@ -15,6 +15,10 @@ import com.hpre.app.player.PlayerController
 import com.hpre.app.player.PlaybackUiCoordinator
 import com.hpre.app.player.SurfaceOwner
 
+/**
+ * Fits the complete video frame by default. Fullscreen can opt into filling the available bounds
+ * with an aspect-preserving center crop; Media3 recalculates the size when those bounds change.
+ */
 @OptIn(UnstableApi::class)
 @Composable
 fun PlayerSurface(
@@ -22,8 +26,14 @@ fun PlayerSurface(
     modifier: Modifier = Modifier,
     useController: Boolean = false,
     coordinator: PlaybackUiCoordinator? = null,
-    owner: SurfaceOwner = SurfaceOwner.WATCH
+    owner: SurfaceOwner = SurfaceOwner.WATCH,
+    fillScreen: Boolean = false
 ) {
+    val surfaceResizeMode = if (fillScreen) {
+        AspectRatioFrameLayout.RESIZE_MODE_ZOOM
+    } else {
+        AspectRatioFrameLayout.RESIZE_MODE_FIT
+    }
     val lease = remember(coordinator, owner) { coordinator?.beginSurfaceHandoff(owner) }
     AndroidView(
         factory = { ctx ->
@@ -33,11 +43,15 @@ fun PlayerSurface(
                     ViewGroup.LayoutParams.MATCH_PARENT
                 )
                 this.useController = useController
-                resizeMode = AspectRatioFrameLayout.RESIZE_MODE_FIT
+                resizeMode = surfaceResizeMode
                 setShowBuffering(PlayerView.SHOW_BUFFERING_NEVER) // Handled by custom Compose overlay
             }
         },
         update = { playerView ->
+            // A reused AndroidView must also switch back to FIT without restarting playback.
+            if (playerView.resizeMode != surfaceResizeMode) {
+                playerView.resizeMode = surfaceResizeMode
+            }
             if (lease == null) {
                 playerController.attachSurface(playerView)
             } else if (playerController.attachSurface(playerView, lease)) {

@@ -346,6 +346,7 @@ fun WatchScreen(
                 playerController = viewModel.playerController,
                 coordinator = playbackUiCoordinator,
                 owner = com.hpre.app.player.SurfaceOwner.WATCH,
+                fillScreen = !isInPip,
                 modifier = Modifier.fillMaxSize()
             )
 
