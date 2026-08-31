@@ -516,32 +516,28 @@ class WatchScreenTest {
     }
 
     @Test
-    fun player_controls_overlay_polling_stops_when_auto_hidden_or_disposed() {
+    fun player_controls_overlay_polling_stops_when_auto_hidden() {
         var readCount = 0
-        var isPlaying by mutableStateOf(true)
-        var showControls by mutableStateOf(true)
 
         composeTestRule.setContent {
             HPreTheme {
-                if (showControls) {
-                    PlayerControlsOverlay(
-                        playbackState = PlaybackState(
-                            isPlaying = isPlaying,
-                            durationMs = 60_000L
-                        ),
-                        isFullscreen = false,
-                        readProgress = {
-                            readCount++
-                            PlaybackProgress(positionMs = 10_000L, durationMs = 60_000L)
-                        },
-                        onPlayPause = {},
-                        onSeekBy = {},
-                        onSeekTo = {},
-                        onSpeedSelected = {},
-                        onQualitySelected = {},
-                        onToggleFullscreen = {}
-                    )
-                }
+                PlayerControlsOverlay(
+                    playbackState = PlaybackState(
+                        isPlaying = true,
+                        durationMs = 60_000L
+                    ),
+                    isFullscreen = false,
+                    readProgress = {
+                        readCount++
+                        PlaybackProgress(positionMs = 10_000L, durationMs = 60_000L)
+                    },
+                    onPlayPause = {},
+                    onSeekBy = {},
+                    onSeekTo = {},
+                    onSpeedSelected = {},
+                    onQualitySelected = {},
+                    onToggleFullscreen = {}
+                )
             }
         }
 
@@ -563,13 +559,55 @@ class WatchScreenTest {
         composeTestRule.mainClock.advanceTimeBy(1500L)
         composeTestRule.waitForIdle()
         assertEquals("No more reads after auto-hide", countAfterAutoHide, readCount)
+    }
 
-        // Toggle disposal
-        showControls = false
+    @Test
+    fun player_controls_overlay_polling_stops_when_disposed_before_auto_hide() {
+        var readCount = 0
+        var showControls by mutableStateOf(true)
+
+        composeTestRule.setContent {
+            HPreTheme {
+                if (showControls) {
+                    PlayerControlsOverlay(
+                        playbackState = PlaybackState(
+                            isPlaying = true,
+                            durationMs = 60_000L
+                        ),
+                        isFullscreen = false,
+                        readProgress = {
+                            readCount++
+                            PlaybackProgress(positionMs = 10_000L, durationMs = 60_000L)
+                        },
+                        onPlayPause = {},
+                        onSeekBy = {},
+                        onSeekTo = {},
+                        onSpeedSelected = {},
+                        onQualitySelected = {},
+                        onToggleFullscreen = {}
+                    )
+                }
+            }
+        }
+
         composeTestRule.waitForIdle()
+        assertEquals("Initial immediate read on compose", 1, readCount)
+
+        // Advance 1000ms (well before AUTO_HIDE_DELAY_MS of 3500ms)
         composeTestRule.mainClock.advanceTimeBy(1000L)
         composeTestRule.waitForIdle()
-        assertEquals("No more reads after disposal", countAfterAutoHide, readCount)
+        val countBeforeDispose = readCount
+        assertTrue("Polled while visible before auto-hide", countBeforeDispose > 1)
+
+        // Explicitly dispose before auto-hide timer elapses
+        showControls = false
+        composeTestRule.waitForIdle()
+        val countAtDispose = readCount
+
+        // Advance > 1000ms after disposal -> verify polling stopped completely
+        composeTestRule.mainClock.advanceTimeBy(1500L)
+        composeTestRule.waitForIdle()
+        assertEquals("No additional reads after explicit disposal", countAtDispose, readCount)
     }
 
     @Test
