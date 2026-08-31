@@ -30,6 +30,7 @@ import androidx.compose.ui.test.doubleClick
 import androidx.compose.ui.test.click
 import androidx.compose.ui.unit.dp
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.test.core.app.ApplicationProvider
 import androidx.test.ext.junit.runners.AndroidJUnit4
@@ -512,6 +513,63 @@ class WatchScreenTest {
         composeTestRule.mainClock.advanceTimeBy(550L)
         composeTestRule.waitForIdle()
         assertEquals("Polling loop continues after exception", 4, readCount)
+    }
+
+    @Test
+    fun player_controls_overlay_polling_stops_when_auto_hidden_or_disposed() {
+        var readCount = 0
+        var isPlaying by mutableStateOf(true)
+        var showControls by mutableStateOf(true)
+
+        composeTestRule.setContent {
+            HPreTheme {
+                if (showControls) {
+                    PlayerControlsOverlay(
+                        playbackState = PlaybackState(
+                            isPlaying = isPlaying,
+                            durationMs = 60_000L
+                        ),
+                        isFullscreen = false,
+                        readProgress = {
+                            readCount++
+                            PlaybackProgress(positionMs = 10_000L, durationMs = 60_000L)
+                        },
+                        onPlayPause = {},
+                        onSeekBy = {},
+                        onSeekTo = {},
+                        onSpeedSelected = {},
+                        onQualitySelected = {},
+                        onToggleFullscreen = {}
+                    )
+                }
+            }
+        }
+
+        composeTestRule.waitForIdle()
+        assertEquals("Initial read", 1, readCount)
+
+        // Advance 1000ms -> polling happens while visible
+        composeTestRule.mainClock.advanceTimeBy(1000L)
+        composeTestRule.waitForIdle()
+        val countBeforeAutoHide = readCount
+        assertTrue("Polled while visible", countBeforeAutoHide > 1)
+
+        // Advance past AUTO_HIDE_DELAY_MS (3500ms) so controls hide
+        composeTestRule.mainClock.advanceTimeBy(PlayerControlsPolicy.AUTO_HIDE_DELAY_MS + 200L)
+        composeTestRule.waitForIdle()
+
+        val countAfterAutoHide = readCount
+        // Advance > 1500ms while controls auto-hidden -> no more reads
+        composeTestRule.mainClock.advanceTimeBy(1500L)
+        composeTestRule.waitForIdle()
+        assertEquals("No more reads after auto-hide", countAfterAutoHide, readCount)
+
+        // Toggle disposal
+        showControls = false
+        composeTestRule.waitForIdle()
+        composeTestRule.mainClock.advanceTimeBy(1000L)
+        composeTestRule.waitForIdle()
+        assertEquals("No more reads after disposal", countAfterAutoHide, readCount)
     }
 
     @Test
