@@ -128,4 +128,47 @@ class MiniPlayerTest {
         composeTestRule.onNodeWithTag("mini_player_container").performClick()
         assertEquals(key, expandedKey)
     }
+
+    @Test
+    fun mini_player_progress_polls_without_state_flow_emission() {
+        var readCount = 0
+        var currentPos = 10_000L
+        val controller = object : PlayerController by FakeMiniPlayerController() {
+            val _state = MutableStateFlow(
+                PlaybackState(
+                    key = ContentKey(0, "poll_test"),
+                    title = "Polling Test",
+                    isPlaying = true,
+                    durationMs = 100_000L
+                )
+            )
+            override val state: StateFlow<PlaybackState> = _state
+
+            override suspend fun readProgress(): PlaybackProgress {
+                readCount++
+                return PlaybackProgress(positionMs = currentPos, durationMs = 100_000L)
+            }
+        }
+
+        composeTestRule.setContent {
+            HPreTheme {
+                MiniPlayer(
+                    playerController = controller,
+                    onExpandWatch = {},
+                    onDismiss = {}
+                )
+            }
+        }
+
+        composeTestRule.waitForIdle()
+        // Must read at least once on composition
+        assertTrue("readProgress should be called at least once", readCount >= 1)
+        val initialCount = readCount
+
+        // Advance Compose main clock by 500ms
+        composeTestRule.mainClock.advanceTimeBy(600L)
+        composeTestRule.waitForIdle()
+
+        assertTrue("readProgress should have polled periodically", readCount > initialCount)
+    }
 }

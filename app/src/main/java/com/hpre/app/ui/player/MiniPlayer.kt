@@ -24,8 +24,11 @@ import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -42,7 +45,6 @@ import com.hpre.app.core.designsystem.HPreSpacing
 import com.hpre.app.core.designsystem.MinimumTouchTarget
 import com.hpre.app.model.ContentKey
 import com.hpre.app.player.PlaybackState
-import com.hpre.app.player.toProgress
 import com.hpre.app.player.toStructuralState
 import com.hpre.app.player.PlayerController
 import com.hpre.app.player.PlaybackUiCoordinator
@@ -171,12 +173,15 @@ fun MiniPlayer(
 
 @Composable
 private fun MiniPlayerProgress(playerController: PlayerController) {
-    val progressFlow = remember(playerController) {
-        playerController.state.map(PlaybackState::toProgress).distinctUntilChanged()
+    var progressState by remember(playerController) {
+        mutableStateOf(com.hpre.app.player.PlaybackProgress())
     }
-    val progressState by progressFlow.collectAsStateWithLifecycle(
-        initialValue = com.hpre.app.player.PlaybackProgress()
-    )
+    LaunchedEffect(playerController) {
+        while (true) {
+            progressState = playerController.readProgress()
+            kotlinx.coroutines.delay(com.hpre.app.ui.watch.PlayerControlsPolicy.PROGRESS_POLL_INTERVAL_MS)
+        }
+    }
     val progress = if (progressState.durationMs > 0L) {
         (progressState.positionMs.toFloat() / progressState.durationMs.toFloat()).coerceIn(0f, 1f)
     } else {

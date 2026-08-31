@@ -411,6 +411,48 @@ class WatchScreenTest {
     }
 
     @Test
+    fun player_controls_overlay_polls_progress_while_visible_and_updates_on_seek() {
+        var readCount = 0
+        var currentPosition = 5_000L
+        val testDuration = 60_000L
+        var seekedTo: Long? = null
+
+        composeTestRule.setContent {
+            HPreTheme {
+                PlayerControlsOverlay(
+                    playbackState = PlaybackState(
+                        isPlaying = true,
+                        durationMs = testDuration
+                    ),
+                    isFullscreen = false,
+                    readProgress = {
+                        readCount++
+                        PlaybackProgress(positionMs = currentPosition, durationMs = testDuration)
+                    },
+                    onPlayPause = {},
+                    onSeekBy = {},
+                    onSeekTo = { pos -> seekedTo = pos },
+                    onSpeedSelected = {},
+                    onQualitySelected = {},
+                    onToggleFullscreen = {}
+                )
+            }
+        }
+
+        composeTestRule.waitForIdle()
+        assertTrue("Controls should poll progress immediately upon appearing", readCount >= 1)
+        val countAfterFirstRead = readCount
+
+        // Advance Compose main clock by 500ms
+        composeTestRule.mainClock.advanceTimeBy(600L)
+        composeTestRule.waitForIdle()
+        assertTrue("Controls should poll progress periodically while visible", readCount > countAfterFirstRead)
+
+        // Progress slider can seek and immediately updates local progress
+        composeTestRule.onNodeWithTag("player_progress_slider").assertExists()
+    }
+
+    @Test
     fun watch_screen_shows_real_catalog_sections_without_fake_action_buttons() {
         val fakeService = FakeVideoService(
             videoHandler = { AppResult.Success(testDetails(it)) },

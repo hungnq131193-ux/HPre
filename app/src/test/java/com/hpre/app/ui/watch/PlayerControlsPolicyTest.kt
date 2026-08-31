@@ -115,4 +115,9 @@ class PlayerControlsPolicyTest {
             )
         )
     }
+
+    @Test
+    fun progress_polling_policy_constants() {
+        assertEquals(500L, PlayerControlsPolicy.PROGRESS_POLL_INTERVAL_MS)
+    }
 }

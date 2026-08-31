@@ -352,6 +352,7 @@ fun WatchScreen(
 
             WatchPlayerControls(
                 structuralState = playbackState,
+                readProgress = { viewModel.playerController.readProgress() },
                 isPlayerLoading = uiState.isPlayerLoading,
                 isFullscreen = true,
                 onPlayPause = { viewModel.playPause() },
@@ -392,6 +393,7 @@ fun WatchScreen(
 
                     WatchPlayerControls(
                         structuralState = playbackState,
+                        readProgress = { viewModel.playerController.readProgress() },
                         isPlayerLoading = uiState.isPlayerLoading,
                         isFullscreen = false,
                         onPlayPause = { viewModel.playPause() },
@@ -458,6 +460,7 @@ fun WatchScreen(
 @Composable
 private fun WatchPlayerControls(
     structuralState: com.hpre.app.player.PlaybackState,
+    readProgress: suspend () -> com.hpre.app.player.PlaybackProgress,
     isPlayerLoading: Boolean,
     isFullscreen: Boolean,
     onPlayPause: () -> Unit,
@@ -481,6 +484,7 @@ private fun WatchPlayerControls(
         onSpeedSelected = onSpeedSelected,
         onQualitySelected = onQualitySelected,
         onToggleFullscreen = onToggleFullscreen,
+        readProgress = readProgress,
         onMinimizeToHome = onMinimizeToHome,
         minimizeEnabled = minimizeEnabled,
         isInPip = isInPip
