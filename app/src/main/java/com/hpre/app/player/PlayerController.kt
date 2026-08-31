@@ -40,6 +40,8 @@ interface PlayerController {
     fun stopForTransition() = pause()
     fun clearMedia() = Unit
     fun release()
+
+    suspend fun readProgress(): PlaybackProgress = state.value.toProgress()
 }
 
 /**

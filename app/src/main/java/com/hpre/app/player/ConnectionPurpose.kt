@@ -1,6 +1,6 @@
 package com.hpre.app.player
 
-enum class ConnectionPurpose {
+internal enum class ConnectionPurpose {
     NORMAL,
     PREWARM
 }

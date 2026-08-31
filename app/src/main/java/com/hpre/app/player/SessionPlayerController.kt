@@ -69,7 +69,7 @@ class SessionPlayerController internal constructor(
     initialPurpose: ConnectionPurpose = ConnectionPurpose.NORMAL
 ) : PlayerController, PlayerIntegrationProbe {
 
-    constructor(
+    internal constructor(
         context: Context,
         mediaSourceFactory: MediaSourceCreator? = null,
         recoveryCoordinator: StreamRecoveryCoordinator? = null,
@@ -121,7 +121,6 @@ class SessionPlayerController internal constructor(
     override val state: StateFlow<PlaybackState> = _state.asStateFlow()
 
     private var currentSurfaceView: PlayerView? = null
-    private var progressJob: Job? = null
     private var reconnectJob: Job? = null
     private var isReleased: Boolean = false
     private var backgroundPlaybackEnabled: Boolean = true
@@ -277,11 +276,6 @@ class SessionPlayerController internal constructor(
                     playWhenReady = mediaController?.playWhenReady ?: false
                 )
             }
-            if (isPlaying) {
-                startProgressTracker()
-            } else {
-                stopProgressTracker()
-            }
         }
 
         override fun onTracksChanged(tracks: androidx.media3.common.Tracks) {
@@ -328,11 +322,12 @@ class SessionPlayerController internal constructor(
         fun createControllerFuture(
             context: Context,
             listener: MediaController.Listener,
-            connectionHints: Bundle
+            isPrewarm: Boolean
         ): ListenableFuture<MediaController> {
             return createControllerFuture(context, listener)
         }
 
+        suspend fun readProgress(controller: MediaController?): PlaybackProgress? = null
         fun onFutureCompletedOrCancelled(future: ListenableFuture<MediaController>) {}
         fun onPrepareDelivered(pending: PendingPrepare) {}
         fun onPlayerViewDetached(playerView: PlayerView) {}
@@ -353,19 +348,19 @@ class SessionPlayerController internal constructor(
                 }
             }
             val isPrewarm = connectionPurpose == ConnectionPurpose.PREWARM
-            val connectionHints = Bundle().apply {
-                putBoolean(
-                    HPrePlaybackService.KEY_INFRASTRUCTURE_PREWARM,
-                    isPrewarm
-                )
-            }
             val future = if (connectionCoordinator != null) {
-                connectionCoordinator.createControllerFuture(context.applicationContext, controllerListener, connectionHints)
+                connectionCoordinator.createControllerFuture(context.applicationContext, controllerListener, isPrewarm)
             } else {
                 val sessionToken = SessionToken(
                     context.applicationContext,
                     ComponentName(context.applicationContext, HPrePlaybackService::class.java)
                 )
+                val connectionHints = Bundle().apply {
+                    putBoolean(
+                        HPrePlaybackService.KEY_INFRASTRUCTURE_PREWARM,
+                        isPrewarm
+                    )
+                }
                 MediaController.Builder(context.applicationContext, sessionToken)
                     .setConnectionHints(connectionHints)
                     .setListener(controllerListener)
@@ -417,9 +412,6 @@ class SessionPlayerController internal constructor(
                             positionMs = pos,
                             playbackSpeed = controller.playbackParameters.speed
                         )
-                    }
-                    if (controller.isPlaying) {
-                        startProgressTracker()
                     }
                     applyVideoTrackPolicy(controller)
                     val policyArgs = Bundle().apply {
@@ -612,7 +604,6 @@ class SessionPlayerController internal constructor(
     override fun onLifecycleStart() {
         enteringPip = false
         isLifecycleStarted = true
-        if (_state.value.isPlaying) startProgressTracker()
         scope.launch(mainDispatcher) { applyVideoTrackPolicy() }
     }
 
@@ -635,9 +626,6 @@ class SessionPlayerController internal constructor(
             if (!isChangingConfigurations) {
                 isLifecycleStarted = false
             }
-            if (!PlaybackPolicy.shouldTrackUiProgress(isLifecycleStarted, enteringPip)) {
-                stopProgressTracker()
-            }
             scope.launch(mainDispatcher) {
                 applyVideoTrackPolicy(isChangingConfigurations = isChangingConfigurations)
             }
@@ -651,11 +639,6 @@ class SessionPlayerController internal constructor(
     ) {
         backgroundPlaybackEnabled = backgroundEnabled
         enteringPip = pipActiveOrEntering
-        if (PlaybackPolicy.shouldTrackUiProgress(isLifecycleStarted, enteringPip)) {
-            if (_state.value.isPlaying) startProgressTracker()
-        } else {
-            stopProgressTracker()
-        }
         scope.launch(mainDispatcher) {
             val controller = mediaController ?: return@launch
             applyVideoTrackPolicy(controller, isChangingConfigurations)
@@ -1020,7 +1003,6 @@ class SessionPlayerController internal constructor(
     override fun stopForTransition() {
         if (isReleased) return
         transitioning = true
-        stopProgressTracker()
         localPrepareRequestGeneration.incrementAndGet()
         pendingCommands.clearPrepare()
         currentKey = null
@@ -1042,7 +1024,6 @@ class SessionPlayerController internal constructor(
 
     override fun clearMedia() {
         transitioning = true
-        stopProgressTracker()
         reconnectJob?.cancel()
         reconnectJob = null
         isReconnecting = false
@@ -1090,7 +1071,6 @@ class SessionPlayerController internal constructor(
     override fun release() {
         if (isReleased) return
         isReleased = true
-        stopProgressTracker()
         reconnectJob?.cancel()
         reconnectJob = null
         isReconnecting = false
@@ -1120,37 +1100,19 @@ class SessionPlayerController internal constructor(
         }
     }
 
-    private fun startProgressTracker() {
-        stopProgressTracker()
-        if (isReleased || !PlaybackPolicy.shouldTrackUiProgress(isLifecycleStarted, enteringPip)) return
-        progressJob = scope.launch(mainDispatcher) {
-            mediaController?.let { controller ->
-                _state.update {
-                    it.copy(
-                        currentPositionMs = controller.currentPosition.coerceAtLeast(0L),
-                        durationMs = controller.duration.coerceAtLeast(0L)
-                    )
-                }
-            }
-            while (isActive) {
-                mediaController?.let { controller ->
-                    if (controller.isPlaying) {
-                        _state.update {
-                            it.copy(
-                                currentPositionMs = controller.currentPosition.coerceAtLeast(0L),
-                                durationMs = controller.duration.coerceAtLeast(0L)
-                            )
-                        }
-                    }
-                }
-                delay(1000)
-            }
-        }
-    }
+    override suspend fun readProgress(): PlaybackProgress = withContext(mainDispatcher) {
+        val coordinatorProgress = connectionCoordinator?.readProgress(mediaController)
+        if (coordinatorProgress != null) return@withContext coordinatorProgress
 
-    private fun stopProgressTracker() {
-        progressJob?.cancel()
-        progressJob = null
+        val controller = mediaController
+        if (controller != null) {
+            PlaybackProgress(
+                positionMs = controller.currentPosition.coerceAtLeast(0L),
+                durationMs = controller.duration.coerceAtLeast(0L)
+            )
+        } else {
+            _state.value.toProgress()
+        }
     }
 
     override suspend fun getTestingSnapshot(): PlayerTestingSnapshot {

@@ -369,7 +369,7 @@ class AppContainerSeamTest {
             override fun selectQuality(quality: com.hpre.app.player.QualityOption) = Unit
             override fun release() = Unit
         }
-        val provider = com.hpre.app.player.AppScopedPlayerControllerProvider.fromSimple {
+        val provider = com.hpre.app.player.AppScopedPlayerControllerProvider {
             factoryCalls++
             controller
         }

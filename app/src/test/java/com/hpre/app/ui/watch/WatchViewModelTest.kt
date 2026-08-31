@@ -8,9 +8,11 @@ import com.hpre.app.model.CommentPage
 import com.hpre.app.model.StreamInfo
 import com.hpre.app.model.VideoDetails
 import com.hpre.app.model.VideoSummary
+import com.hpre.app.player.PlaybackProgress
 import com.hpre.app.player.PlaybackState
 import com.hpre.app.player.PlayerController
 import com.hpre.app.player.QualityOption
+import com.hpre.app.player.toProgress
 import com.hpre.app.repository.RecommendationRequest
 import com.hpre.app.repository.VideoService
 import com.hpre.app.repository.WatchRecommendationSource
@@ -150,6 +152,12 @@ class WatchViewModelTest {
         override fun release() {
             isReleased = true
             _state.value = PlaybackState()
+        }
+
+        var stubbedProgress: PlaybackProgress? = null
+
+        override suspend fun readProgress(): PlaybackProgress {
+            return stubbedProgress ?: _state.value.toProgress()
         }
 
         override fun clearMedia() {
@@ -2155,6 +2163,70 @@ class WatchViewModelTest {
         assertEquals(testKey, fakePlayer.preparedKey)
         assertFalse(viewModel.uiState.value.isLoading)
         assertNull(viewModel.uiState.value.error)
+    }
+
+    @Test
+    fun retry_on_playback_error_uses_authoritative_progress_when_snapshot_position_absent() = runTest(testDispatcher) {
+        val fakeService = FakeVideoService(
+            videoHandler = { AppResult.Success(testDetails(it)) },
+            streamInfoHandler = { AppResult.Success(testStreamInfo(it)) }
+        )
+        val fakePlayer = FakePlayerController()
+        val viewModel = WatchViewModel(
+            videoService = fakeService,
+            playerController = fakePlayer,
+            savedStateHandle = androidx.lifecycle.SavedStateHandle(),
+            ioDispatcher = testDispatcher
+        )
+
+        viewModel.load(testKey)
+        advanceUntilIdle()
+
+        fakePlayer.stubbedProgress = PlaybackProgress(positionMs = 77_000L, durationMs = 120_000L)
+        fakePlayer._state.value = fakePlayer._state.value.copy(
+            error = AppError.NetworkError,
+            retrySnapshot = null
+        )
+
+        viewModel.retry()
+        advanceUntilIdle()
+
+        assertEquals(testKey, fakePlayer.preparedKey)
+        assertEquals(77_000L, fakePlayer.startPositionMs)
+    }
+
+    @Test
+    fun loaded_details_records_history_using_authoritative_read_progress() = runTest(testDispatcher) {
+        var recordedPositionMs: Long? = null
+        val history = object : com.hpre.app.repository.HistoryRepository {
+            override fun observeHistory() = kotlinx.coroutines.flow.emptyFlow<List<com.hpre.app.repository.WatchHistoryItem>>()
+            override suspend fun getHistoryItem(key: ContentKey) = AppResult.Success(null)
+            override suspend fun recordHistory(summary: VideoSummary, positionMs: Long, watchedTimestamp: Long): AppResult<Unit> {
+                recordedPositionMs = positionMs
+                return AppResult.Success(Unit)
+            }
+            override suspend fun deleteHistoryItem(key: ContentKey) = AppResult.Success(Unit)
+            override suspend fun clearHistory() = AppResult.Success(Unit)
+        }
+        val service = FakeVideoService(
+            videoHandler = { AppResult.Success(testDetails(it)) },
+            streamInfoHandler = { AppResult.Success(testStreamInfo(it)) }
+        )
+        val fakePlayer = FakePlayerController().apply {
+            stubbedProgress = PlaybackProgress(positionMs = 19_000L, durationMs = 100_000L)
+        }
+        val model = WatchViewModel(
+            videoService = service,
+            playerController = fakePlayer,
+            savedStateHandle = androidx.lifecycle.SavedStateHandle(),
+            historyRepository = history,
+            ioDispatcher = testDispatcher
+        )
+
+        model.load(testKey)
+        advanceUntilIdle()
+
+        assertEquals(19_000L, recordedPositionMs)
     }
 
     // Fix 3 & 4: Retry snapshot preserves paused/playing state, position, and selected quality

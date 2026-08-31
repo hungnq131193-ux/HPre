@@ -11,10 +11,5 @@ internal class AppScopedPlayerControllerProvider<T : PlayerController>(
     }
 
     fun getIfInitialized(): T? = instance
-
-    companion object {
-        fun <T : PlayerController> fromSimple(simpleFactory: () -> T): AppScopedPlayerControllerProvider<T> =
-            AppScopedPlayerControllerProvider { _ -> simpleFactory() }
-    }
 }
 

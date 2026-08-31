@@ -797,6 +797,18 @@ class ForegroundPlayerController(
         progressJob = null
     }
 
+    override suspend fun readProgress(): PlaybackProgress = withContext(mainDispatcher) {
+        val player = exoPlayer
+        if (player != null) {
+            PlaybackProgress(
+                positionMs = player.currentPosition.coerceAtLeast(0L),
+                durationMs = player.duration.coerceAtLeast(0L)
+            )
+        } else {
+            _state.value.toProgress()
+        }
+    }
+
     override suspend fun getTestingSnapshot(): PlayerTestingSnapshot {
         return withContext(mainDispatcher) {
             val player = exoPlayer

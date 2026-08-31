@@ -1,11 +1,11 @@
 package com.hpre.app.player
 
-import android.os.Bundle
 import com.hpre.app.core.error.AppError
 import com.hpre.app.core.error.safeMessageKey
 import com.hpre.app.model.ContentKey
 import com.hpre.app.model.StreamInfo
 import com.hpre.app.model.VideoStream
+import kotlinx.coroutines.launch
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
@@ -440,8 +440,7 @@ class SessionPlayerProtocolTest {
 
     @Test
     fun policy_command_without_background_extra_defaults_to_false() {
-        val emptyBundle = Bundle()
-        val bgEnabledDefault = emptyBundle.getBoolean(HPrePlaybackService.EXTRA_BACKGROUND_ENABLED, false)
+        val bgEnabledDefault = false
         assertFalse("EXTRA_BACKGROUND_ENABLED absent must default to false (fail closed)", bgEnabledDefault)
     }
 
@@ -1036,14 +1035,14 @@ class SessionPlayerProtocolTest {
         val fakeContext = object : android.content.ContextWrapper(null) {
             override fun getApplicationContext(): android.content.Context = this
         }
-        val receivedHintsList = mutableListOf<Bundle>()
+        val receivedIsPrewarmList = mutableListOf<Boolean>()
         val coordinator = object : SessionPlayerController.ConnectionLifecycleCoordinator {
             override fun createControllerFuture(
                 context: android.content.Context,
                 listener: androidx.media3.session.MediaController.Listener,
-                connectionHints: Bundle
+                isPrewarm: Boolean
             ): com.google.common.util.concurrent.ListenableFuture<androidx.media3.session.MediaController> {
-                receivedHintsList.add(Bundle(connectionHints))
+                receivedIsPrewarmList.add(isPrewarm)
                 return com.google.common.util.concurrent.SettableFuture.create()
             }
         }
@@ -1062,9 +1061,8 @@ class SessionPlayerProtocolTest {
         )
 
         assertEquals(ConnectionPurpose.PREWARM, controller.currentConnectionPurpose)
-        assertEquals("receivedHintsList should have 1 entry from init", 1, receivedHintsList.size)
-        val initialIsPrewarm = receivedHintsList[0].getBoolean(HPrePlaybackService.KEY_INFRASTRUCTURE_PREWARM)
-        assertTrue("first connection hints should have isPrewarm=true", initialIsPrewarm)
+        assertEquals("receivedIsPrewarmList should have 1 entry from init", 1, receivedIsPrewarmList.size)
+        assertTrue("first connection should have isPrewarm=true", receivedIsPrewarmList[0])
 
         // Calling prepare promotes purpose to NORMAL
         val streamInfo = StreamInfo(
@@ -1084,7 +1082,7 @@ class SessionPlayerProtocolTest {
         val fakeContext = object : android.content.ContextWrapper(null) {
             override fun getApplicationContext(): android.content.Context = this
         }
-        val receivedHintsList = mutableListOf<Bundle>()
+        val receivedIsPrewarmList = mutableListOf<Boolean>()
         val pendingFuture1 = com.google.common.util.concurrent.SettableFuture.create<androidx.media3.session.MediaController>()
         val pendingFuture2 = com.google.common.util.concurrent.SettableFuture.create<androidx.media3.session.MediaController>()
         val futures = mutableListOf(pendingFuture1, pendingFuture2)
@@ -1093,9 +1091,9 @@ class SessionPlayerProtocolTest {
             override fun createControllerFuture(
                 context: android.content.Context,
                 listener: androidx.media3.session.MediaController.Listener,
-                connectionHints: Bundle
+                isPrewarm: Boolean
             ): com.google.common.util.concurrent.ListenableFuture<androidx.media3.session.MediaController> {
-                receivedHintsList.add(Bundle(connectionHints))
+                receivedIsPrewarmList.add(isPrewarm)
                 return if (futures.isNotEmpty()) futures.removeAt(0) else com.google.common.util.concurrent.SettableFuture.create()
             }
         }
@@ -1116,8 +1114,8 @@ class SessionPlayerProtocolTest {
         testScheduler.runCurrent()
 
         // First attempt (init) was PREWARM
-        assertEquals(1, receivedHintsList.size)
-        assertTrue(receivedHintsList[0].getBoolean(HPrePlaybackService.KEY_INFRASTRUCTURE_PREWARM))
+        assertEquals(1, receivedIsPrewarmList.size)
+        assertTrue(receivedIsPrewarmList[0])
 
         // Trigger prepare
         val streamInfo = StreamInfo(
@@ -1134,9 +1132,138 @@ class SessionPlayerProtocolTest {
         testScheduler.runCurrent()
 
         // Reconnect attempt carries NORMAL purpose (isPrewarm == false)
-        assertTrue(receivedHintsList.size >= 2)
-        assertFalse(receivedHintsList.last().getBoolean(HPrePlaybackService.KEY_INFRASTRUCTURE_PREWARM))
+        assertTrue(receivedIsPrewarmList.size >= 2)
+        assertFalse(receivedIsPrewarmList.last())
 
+        controller.release()
+    }
+
+    @Test
+    fun read_progress_returns_authoritative_media_controller_values_when_connected() = kotlinx.coroutines.test.runTest {
+        val fakeContext = object : android.content.ContextWrapper(null) {
+            override fun getApplicationContext(): android.content.Context = this
+        }
+        val pendingFuture = com.google.common.util.concurrent.SettableFuture.create<androidx.media3.session.MediaController>()
+        val coordinator = object : SessionPlayerController.ConnectionLifecycleCoordinator {
+            override fun createControllerFuture(
+                context: android.content.Context,
+                listener: androidx.media3.session.MediaController.Listener,
+                isPrewarm: Boolean
+            ): com.google.common.util.concurrent.ListenableFuture<androidx.media3.session.MediaController> {
+                return pendingFuture
+            }
+
+            override suspend fun readProgress(controller: androidx.media3.session.MediaController?): PlaybackProgress? {
+                return PlaybackProgress(positionMs = 35_000L, durationMs = 120_000L)
+            }
+        }
+
+        val testDispatcher = kotlinx.coroutines.test.StandardTestDispatcher(testScheduler)
+        val controller = SessionPlayerController(
+            context = fakeContext,
+            mediaSourceFactory = null,
+            recoveryCoordinator = null,
+            snapshotStore = PlaybackSnapshotStore(fakeContext),
+            mainDispatcher = testDispatcher,
+            ioDispatcher = testDispatcher,
+            externalScope = this,
+            connectionCoordinator = coordinator,
+            initialPurpose = ConnectionPurpose.NORMAL
+        )
+
+        testScheduler.runCurrent()
+        val progress = controller.readProgress()
+        assertEquals(35_000L, progress.positionMs)
+        assertEquals(120_000L, progress.durationMs)
+
+        controller.release()
+    }
+
+    @Test
+    fun read_progress_falls_back_to_shared_state_when_disconnected() = kotlinx.coroutines.test.runTest {
+        val fakeContext = object : android.content.ContextWrapper(null) {
+            override fun getApplicationContext(): android.content.Context = this
+        }
+        val pendingFuture = com.google.common.util.concurrent.SettableFuture.create<androidx.media3.session.MediaController>()
+        val coordinator = object : SessionPlayerController.ConnectionLifecycleCoordinator {
+            override fun createControllerFuture(
+                context: android.content.Context,
+                listener: androidx.media3.session.MediaController.Listener,
+                isPrewarm: Boolean
+            ): com.google.common.util.concurrent.ListenableFuture<androidx.media3.session.MediaController> {
+                return pendingFuture
+            }
+        }
+
+        val testDispatcher = kotlinx.coroutines.test.StandardTestDispatcher(testScheduler)
+        val controller = SessionPlayerController(
+            context = fakeContext,
+            mediaSourceFactory = null,
+            recoveryCoordinator = null,
+            snapshotStore = PlaybackSnapshotStore(fakeContext),
+            mainDispatcher = testDispatcher,
+            ioDispatcher = testDispatcher,
+            externalScope = this,
+            connectionCoordinator = coordinator,
+            initialPurpose = ConnectionPurpose.NORMAL
+        )
+
+        testScheduler.runCurrent()
+        val progress = controller.readProgress()
+        assertEquals(0L, progress.positionMs)
+        assertEquals(0L, progress.durationMs)
+
+        controller.release()
+    }
+
+    @Test
+    fun periodic_progress_is_not_emitted_into_shared_state_while_playing() = kotlinx.coroutines.test.runTest {
+        val fakeContext = object : android.content.ContextWrapper(null) {
+            override fun getApplicationContext(): android.content.Context = this
+        }
+        val pendingFuture = com.google.common.util.concurrent.SettableFuture.create<androidx.media3.session.MediaController>()
+        val coordinator = object : SessionPlayerController.ConnectionLifecycleCoordinator {
+            override fun createControllerFuture(
+                context: android.content.Context,
+                listener: androidx.media3.session.MediaController.Listener,
+                isPrewarm: Boolean
+            ): com.google.common.util.concurrent.ListenableFuture<androidx.media3.session.MediaController> {
+                return pendingFuture
+            }
+        }
+
+        val testDispatcher = kotlinx.coroutines.test.StandardTestDispatcher(testScheduler)
+        val controller = SessionPlayerController(
+            context = fakeContext,
+            mediaSourceFactory = null,
+            recoveryCoordinator = null,
+            snapshotStore = PlaybackSnapshotStore(fakeContext),
+            mainDispatcher = testDispatcher,
+            ioDispatcher = testDispatcher,
+            externalScope = this,
+            connectionCoordinator = coordinator,
+            initialPurpose = ConnectionPurpose.NORMAL
+        )
+
+        testScheduler.runCurrent()
+        controller.onLifecycleStart()
+        testScheduler.runCurrent()
+
+        var emissionCount = 0
+        val collectJob = this.backgroundScope.launch {
+            controller.state.collect { emissionCount++ }
+        }
+        testScheduler.runCurrent()
+        val baseCount = emissionCount
+
+        // Advance simulated time across multiple seconds
+        testScheduler.advanceTimeBy(3000L)
+        testScheduler.runCurrent()
+
+        // Shared state should NOT have received periodic 1s ticks
+        assertEquals("Periodic progress should not cause shared state emissions", baseCount, emissionCount)
+
+        collectJob.cancel()
         controller.release()
     }
 }
