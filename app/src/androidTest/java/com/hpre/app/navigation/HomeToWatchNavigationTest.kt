@@ -10,6 +10,9 @@ import androidx.compose.ui.test.performScrollTo
 import androidx.compose.ui.test.performTouchInput
 import androidx.compose.ui.test.swipeDown
 import androidx.test.ext.junit.runners.AndroidJUnit4
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.setValue
+import androidx.compose.runtime.mutableStateOf
 import com.hpre.app.core.designsystem.HPreTheme
 import com.hpre.app.di.AppContainer
 import com.hpre.app.model.ContentKey
@@ -211,7 +214,9 @@ class HomeToWatchNavigationTest {
         )
         val container = TestContainer(fakeService)
 
-        var idleCount = 0
+        var idleCount1 = 0
+        var idleCount2 = 0
+        var callbackHolder by androidx.compose.runtime.mutableStateOf<() -> Unit>({ idleCount1++ })
 
         composeTestRule.setContent {
             HPreTheme {
@@ -224,14 +229,22 @@ class HomeToWatchNavigationTest {
                 com.hpre.app.ui.home.HomeScreen(
                     viewModel = homeViewModel,
                     onVideoClick = {},
-                    onContentIdle = { idleCount++ }
+                    onContentIdle = callbackHolder
                 )
             }
         }
 
         composeTestRule.waitForIdle()
         composeTestRule.onNodeWithTag("video_card_item999").assertIsDisplayed()
-        org.junit.Assert.assertTrue("onContentIdle should have executed at least once when idle", idleCount >= 1)
+        org.junit.Assert.assertEquals("onContentIdle should have executed exactly once on initial idle", 1, idleCount1)
+
+        // Force recomposition with a new callback instance; idle handler should NOT re-trigger because it's a one-shot handler that returned false
+        composeTestRule.runOnUiThread {
+            callbackHolder = { idleCount2++ }
+        }
+        composeTestRule.waitForIdle()
+        org.junit.Assert.assertEquals("initial callback count remains 1", 1, idleCount1)
+        org.junit.Assert.assertEquals("new callback must not be invoked for already completed one-shot idle", 0, idleCount2)
     }
 
     @Test

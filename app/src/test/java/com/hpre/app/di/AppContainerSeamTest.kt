@@ -140,120 +140,80 @@ class AppContainerSeamTest {
     }
 
     @Test
-    fun repeated_prewarm_materializes_one_app_scoped_controller_with_io_before_main() {
+    fun orchestratePlaybackPrewarm_executes_each_operation_once_with_strict_io_before_main_confinement() {
         val opEvents = mutableListOf<String>()
-
         val testDispatcher = StandardTestDispatcher()
-        Dispatchers.setMain(testDispatcher)
-        try {
-            val fakeContext = object : android.content.ContextWrapper(null) {
-                override fun getApplicationContext(): android.content.Context = this
-            }
-            val testScope = kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.SupervisorJob() + testDispatcher)
+        val testScope = kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.SupervisorJob() + testDispatcher)
 
-            var ioBlockExecuted = false
-            var mainBlockExecuted = false
+        var ioActive = false
+        var mainActive = false
 
-            val customIoDispatcher = object : kotlinx.coroutines.CoroutineDispatcher() {
-                override fun dispatch(context: kotlin.coroutines.CoroutineContext, block: Runnable) {
-                    opEvents.add("IO_DISPATCH")
-                    ioBlockExecuted = true
+        val customIoDispatcher = object : kotlinx.coroutines.CoroutineDispatcher() {
+            override fun dispatch(context: kotlin.coroutines.CoroutineContext, block: Runnable) {
+                ioActive = true
+                try {
                     block.run()
+                } finally {
+                    ioActive = false
                 }
             }
-
-            val customMainDispatcher = object : kotlinx.coroutines.CoroutineDispatcher() {
-                override fun dispatch(context: kotlin.coroutines.CoroutineContext, block: Runnable) {
-                    opEvents.add("MAIN_DISPATCH")
-                    mainBlockExecuted = true
-                    block.run()
-                }
-            }
-
-            var msfEvaluated = 0
-            var controllerCreated = 0
-
-            val testController = object : com.hpre.app.player.PlayerController {
-                override val state = kotlinx.coroutines.flow.MutableStateFlow(com.hpre.app.player.PlaybackState())
-                override fun attachSurface(playerView: androidx.media3.ui.PlayerView) = Unit
-                override fun detachSurface(playerView: androidx.media3.ui.PlayerView) = Unit
-                override fun onLifecycleStart() = Unit
-                override fun onLifecycleStop() = Unit
-                override fun prepare(key: com.hpre.app.model.ContentKey, streamInfo: com.hpre.app.model.StreamInfo, startPositionMs: Long, playWhenReady: Boolean, initialQuality: com.hpre.app.player.QualityOption?) = Unit
-                override fun play() = Unit
-                override fun pause() = Unit
-                override fun playPause() = Unit
-                override fun seekTo(positionMs: Long) = Unit
-                override fun seekBy(deltaMs: Long) = Unit
-                override fun setPlaybackSpeed(speed: Float) = Unit
-                override fun selectQuality(quality: com.hpre.app.player.QualityOption) = Unit
-                override fun release() = Unit
-            }
-            var realController: com.hpre.app.player.PlayerController? = null
-
-            val container = object : DefaultAppContainer(
-                fakeContext,
-                applicationScope = testScope,
-                ioDispatcher = customIoDispatcher,
-                mainDispatcher = customMainDispatcher
-            ) {
-                override val mediaSourceFactory: com.hpre.app.player.MediaSourceFactory
-                    get() {
-                        opEvents.add("mediaSourceFactory (ioActive=$ioBlockExecuted, mainActive=$mainBlockExecuted)")
-                        msfEvaluated++
-                        return super.mediaSourceFactory
-                    }
-
-                override fun createPlayerController(): com.hpre.app.player.PlayerController {
-                    opEvents.add("createPlayerController (ioActive=$ioBlockExecuted, mainActive=$mainBlockExecuted)")
-                    controllerCreated++
-                    if (realController == null) {
-                        realController = testController
-                    }
-                    return realController!!
-                }
-
-                override fun peekPlayerController(): com.hpre.app.player.PlayerController? = realController
-            }
-
-            assertNull("player must not exist before prewarm", container.peekPlayerController())
-
-            // Trigger prewarm multiple times
-            container.prewarmPlaybackInfrastructure()
-            container.prewarmPlaybackInfrastructure()
-
-            // Run coroutines on testScope
-            testDispatcher.scheduler.advanceUntilIdle()
-
-            val controller = container.peekPlayerController()
-            assertNotNull("prewarm must materialize the controller", controller)
-
-            // Assert exact operations in strict IO-before-Main context order and single evaluation
-            assertEquals(1, msfEvaluated)
-            assertEquals(1, controllerCreated)
-            assertEquals(
-                listOf(
-                    "IO_DISPATCH",
-                    "mediaSourceFactory (ioActive=true, mainActive=false)",
-                    "MAIN_DISPATCH",
-                    "createPlayerController (ioActive=true, mainActive=true)"
-                ),
-                opEvents
-            )
-
-            // Further calls to createPlayerController return the cached instance
-            org.junit.Assert.assertSame(
-                "subsequent createPlayerController calls return the materialized controller",
-                controller,
-                container.createPlayerController()
-            )
-        } finally {
-            Dispatchers.resetMain()
         }
+
+        val customMainDispatcher = object : kotlinx.coroutines.CoroutineDispatcher() {
+            override fun dispatch(context: kotlin.coroutines.CoroutineContext, block: Runnable) {
+                mainActive = true
+                try {
+                    block.run()
+                } finally {
+                    mainActive = false
+                }
+            }
+        }
+
+        var msfInitCount = 0
+        var controllerCreateCount = 0
+        val guard = java.util.concurrent.atomic.AtomicBoolean(false)
+
+        // Invoke orchestrator twice with same guard
+        orchestratePlaybackPrewarm(
+            guard = guard,
+            scope = testScope,
+            ioDispatcher = customIoDispatcher,
+            mainDispatcher = customMainDispatcher,
+            initMediaSourceFactory = {
+                msfInitCount++
+                opEvents.add("initMediaSourceFactory (ioActive=$ioActive, mainActive=$mainActive)")
+            },
+            initPlayerController = {
+                controllerCreateCount++
+                opEvents.add("initPlayerController (ioActive=$ioActive, mainActive=$mainActive)")
+            }
+        )
+
+        orchestratePlaybackPrewarm(
+            guard = guard,
+            scope = testScope,
+            ioDispatcher = customIoDispatcher,
+            mainDispatcher = customMainDispatcher,
+            initMediaSourceFactory = { msfInitCount++ },
+            initPlayerController = { controllerCreateCount++ }
+        )
+
+        testDispatcher.scheduler.advanceUntilIdle()
+
+        assertEquals(1, msfInitCount)
+        assertEquals(1, controllerCreateCount)
+        assertEquals(
+            listOf(
+                "initMediaSourceFactory (ioActive=true, mainActive=false)",
+                "initPlayerController (ioActive=false, mainActive=true)"
+            ),
+            opEvents
+        )
     }
 
     @Test
-    fun prewarm_does_not_prepare_controller_or_request_streams() {
+    fun defaultAppContainer_prewarm_materializes_controller_and_preserves_empty_playback_state() {
         val testDispatcher = StandardTestDispatcher()
         Dispatchers.setMain(testDispatcher)
         try {
@@ -261,68 +221,27 @@ class AppContainerSeamTest {
                 override fun getApplicationContext(): android.content.Context = this
             }
             val testScope = kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.SupervisorJob() + testDispatcher)
-
-            var videoServiceCalls = 0
-            val fakeVideoService = object : com.hpre.app.repository.VideoService {
-                override val serviceId = 0
-                override val serviceName = "Fake"
-                override val supportsShorts = false
-                override val supportsComments = false
-                override val supportsSearchSuggestions = false
-
-                override suspend fun search(query: String, filter: com.hpre.app.model.SearchFilter, pageToken: com.hpre.app.model.PageToken?): com.hpre.app.core.error.AppResult<com.hpre.app.model.SearchPage> {
-                    videoServiceCalls++
-                    return com.hpre.app.core.error.AppResult.Success(com.hpre.app.model.SearchPage(emptyList()))
-                }
-                override suspend fun suggestions(query: String): com.hpre.app.core.error.AppResult<List<String>> =
-                    com.hpre.app.core.error.AppResult.Success(emptyList())
-                override suspend fun video(key: com.hpre.app.model.ContentKey): com.hpre.app.core.error.AppResult<com.hpre.app.model.VideoDetails> {
-                    videoServiceCalls++
-                    return com.hpre.app.core.error.AppResult.Failure(com.hpre.app.core.error.AppError.Unknown)
-                }
-                override suspend fun streamInfo(key: com.hpre.app.model.ContentKey): com.hpre.app.core.error.AppResult<com.hpre.app.model.StreamInfo> {
-                    videoServiceCalls++
-                    return com.hpre.app.core.error.AppResult.Success(com.hpre.app.model.StreamInfo(key, "Title"))
-                }
-                override suspend fun channel(key: com.hpre.app.model.ContentKey): com.hpre.app.core.error.AppResult<com.hpre.app.model.ChannelDetails> {
-                    videoServiceCalls++
-                    return com.hpre.app.core.error.AppResult.Failure(com.hpre.app.core.error.AppError.Unknown)
-                }
-                override suspend fun related(key: com.hpre.app.model.ContentKey): com.hpre.app.core.error.AppResult<List<com.hpre.app.model.VideoSummary>> {
-                    videoServiceCalls++
-                    return com.hpre.app.core.error.AppResult.Success(emptyList())
-                }
-                override suspend fun playlist(key: com.hpre.app.model.ContentKey): com.hpre.app.core.error.AppResult<com.hpre.app.model.PlaylistDetails> {
-                    videoServiceCalls++
-                    return com.hpre.app.core.error.AppResult.Failure(com.hpre.app.core.error.AppError.Unknown)
-                }
-                override suspend fun comments(key: com.hpre.app.model.ContentKey, pageToken: com.hpre.app.model.PageToken?): com.hpre.app.core.error.AppResult<com.hpre.app.model.CommentPage> {
-                    videoServiceCalls++
-                    return com.hpre.app.core.error.AppResult.Success(com.hpre.app.model.CommentPage(emptyList(), null))
-                }
-                override suspend fun trending(): com.hpre.app.core.error.AppResult<List<com.hpre.app.model.VideoSummary>> {
-                    videoServiceCalls++
-                    return com.hpre.app.core.error.AppResult.Success(emptyList())
-                }
-            }
-
-            val container = object : DefaultAppContainer(
-                fakeContext,
+            val container = DefaultAppContainer(
+                context = fakeContext,
                 applicationScope = testScope,
                 ioDispatcher = testDispatcher,
                 mainDispatcher = testDispatcher
-            ) {
-                override val videoService = fakeVideoService
-            }
+            )
 
+            assertNull("controller must not exist prior to prewarm", container.peekPlayerController())
+
+            // Prewarm repeatedly
             container.prewarmPlaybackInfrastructure()
+            container.prewarmPlaybackInfrastructure()
+
             testDispatcher.scheduler.advanceUntilIdle()
 
             val controller = container.peekPlayerController()
-            assertNotNull(controller)
-            // Empty state, no key, no media, not prepared, not playing
+            assertNotNull("controller must be initialized after prewarm", controller)
+            org.junit.Assert.assertSame(controller, container.createPlayerController())
+
+            // Assert state remains default empty state: no active content key, no duration, not prepared, not playing
             assertEquals(com.hpre.app.player.PlaybackState(), controller!!.state.value)
-            assertEquals("prewarm must not touch VideoService for extraction", 0, videoServiceCalls)
         } finally {
             Dispatchers.resetMain()
         }

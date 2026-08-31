@@ -122,14 +122,46 @@ internal fun interface ApplicationContainerFactory {
     fun createContainer(application: Application): AppContainer
 }
 
-open class DefaultAppContainer(
+/**
+ * Top-level internal orchestration helper for prewarming playback infrastructure.
+ *
+ * Guarantees single-execution (idempotent), strictly executes [initMediaSourceFactory] on
+ * [ioDispatcher] before executing [initPlayerController] on [mainDispatcher], and catches
+ * non-cancellation exceptions while preserving [CancellationException].
+ */
+internal fun orchestratePlaybackPrewarm(
+    guard: AtomicBoolean,
+    scope: CoroutineScope,
+    ioDispatcher: kotlinx.coroutines.CoroutineDispatcher,
+    mainDispatcher: kotlinx.coroutines.CoroutineDispatcher,
+    initMediaSourceFactory: () -> Unit,
+    initPlayerController: () -> Unit
+) {
+    if (!guard.compareAndSet(false, true)) return
+    scope.launch {
+        try {
+            withContext(ioDispatcher) {
+                initMediaSourceFactory()
+            }
+            withContext(mainDispatcher) {
+                initPlayerController()
+            }
+        } catch (e: CancellationException) {
+            throw e
+        } catch (_: Exception) {
+            // Non-cancellation exceptions are swallowed so normal lazy video-open remains fallback
+        }
+    }
+}
+
+class DefaultAppContainer(
     context: Context,
     override val applicationScope: CoroutineScope = CoroutineScope(SupervisorJob() + Dispatchers.Default),
     override val okHttpClient: OkHttpClient = OkHttpDownloader.defaultClient(),
     internal val ioDispatcher: kotlinx.coroutines.CoroutineDispatcher = Dispatchers.IO,
     internal val mainDispatcher: kotlinx.coroutines.CoroutineDispatcher = Dispatchers.Main
 ) : AppContainer {
-    protected val appContext: Context = context.applicationContext
+    private val appContext: Context = context.applicationContext
 
     override val database: HPreDatabase by lazy {
         Room.databaseBuilder(
@@ -230,22 +262,14 @@ open class DefaultAppContainer(
     private val prewarmed = AtomicBoolean(false)
 
     override fun prewarmPlaybackInfrastructure() {
-        if (!prewarmed.compareAndSet(false, true)) return
-        applicationScope.launch {
-            try {
-                withContext(ioDispatcher) {
-                    // Touch mediaSourceFactory to ensure disk cache and okhttp stack init off Main
-                    mediaSourceFactory
-                }
-                withContext(mainDispatcher) {
-                    createPlayerController()
-                }
-            } catch (e: CancellationException) {
-                throw e
-            } catch (_: Exception) {
-                // Non-cancellation exceptions are swallowed so normal lazy video-open remains fallback
-            }
-        }
+        orchestratePlaybackPrewarm(
+            guard = prewarmed,
+            scope = applicationScope,
+            ioDispatcher = ioDispatcher,
+            mainDispatcher = mainDispatcher,
+            initMediaSourceFactory = { mediaSourceFactory },
+            initPlayerController = { createPlayerController() }
+        )
     }
 
     @Volatile
