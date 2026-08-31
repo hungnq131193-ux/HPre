@@ -24,6 +24,7 @@ import android.os.MessageQueue
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
@@ -48,6 +49,7 @@ fun HomeScreen(
 ) {
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
     val chipsState by viewModel.chipsState.collectAsStateWithLifecycle()
+    val currentOnContentIdle by rememberUpdatedState(onContentIdle)
 
     Column(modifier = modifier.fillMaxSize().testTag("home_screen")) {
         LazyRow(
@@ -95,7 +97,7 @@ fun HomeScreen(
                 DisposableEffect(Unit) {
                     val queue = Looper.myQueue()
                     val idleHandler = MessageQueue.IdleHandler {
-                        onContentIdle()
+                        currentOnContentIdle()
                         false
                     }
                     queue.addIdleHandler(idleHandler)

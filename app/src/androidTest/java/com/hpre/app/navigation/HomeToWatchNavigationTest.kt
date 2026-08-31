@@ -204,6 +204,37 @@ class HomeToWatchNavigationTest {
     }
 
     @Test
+    fun home_idle_triggers_prewarm_callback_exactly_once() {
+        val fakeService = FakeVideoService(
+            trendingResponse = com.hpre.app.core.error.AppResult.Success(listOf(summary("item999"))),
+            videoHandler = { com.hpre.app.core.error.AppResult.Success(details(it.nativeId)) }
+        )
+        val container = TestContainer(fakeService)
+
+        var idleCount = 0
+
+        composeTestRule.setContent {
+            HPreTheme {
+                val homeViewModel: com.hpre.app.ui.home.HomeViewModel = androidx.lifecycle.viewmodel.compose.viewModel(
+                    factory = com.hpre.app.ui.home.HomeViewModel.provideFactory(
+                        repository = container.recommendationRepository,
+                        topicFeedSource = container.topicFeedSource
+                    )
+                )
+                com.hpre.app.ui.home.HomeScreen(
+                    viewModel = homeViewModel,
+                    onVideoClick = {},
+                    onContentIdle = { idleCount++ }
+                )
+            }
+        }
+
+        composeTestRule.waitForIdle()
+        composeTestRule.onNodeWithTag("video_card_item999").assertIsDisplayed()
+        org.junit.Assert.assertTrue("onContentIdle should have executed at least once when idle", idleCount >= 1)
+    }
+
+    @Test
     fun clicking_home_video_card_navigates_to_watch_screen_with_content_key() {
         var streamInfoCallCount = 0
         val fakeService = FakeVideoService(

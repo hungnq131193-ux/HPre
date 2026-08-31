@@ -91,8 +91,8 @@ interface AppContainer {
      * Playback state that can be observed without constructing the player.
      *
      * UI that merely reacts to playback (mini player visibility, PiP eligibility) collects this
-     * instead of touching [createPlayerController], so opening the app on Home never builds
-     * ExoPlayer, [MediaSourceFactory] or the recovery coordinator.
+     * instead of touching [createPlayerController]. Opening the app on Home avoids constructing
+     * ExoPlayer during cold-start render; pre-warming occurs only asynchronously after Home reaches idle.
      *
      * The default implementation falls back to the controller's own state so test doubles keep
      * their existing behaviour.
@@ -122,14 +122,14 @@ internal fun interface ApplicationContainerFactory {
     fun createContainer(application: Application): AppContainer
 }
 
-class DefaultAppContainer(
+open class DefaultAppContainer(
     context: Context,
     override val applicationScope: CoroutineScope = CoroutineScope(SupervisorJob() + Dispatchers.Default),
     override val okHttpClient: OkHttpClient = OkHttpDownloader.defaultClient(),
-    private val ioDispatcher: kotlinx.coroutines.CoroutineDispatcher = Dispatchers.IO,
-    private val mainDispatcher: kotlinx.coroutines.CoroutineDispatcher = Dispatchers.Main
+    internal val ioDispatcher: kotlinx.coroutines.CoroutineDispatcher = Dispatchers.IO,
+    internal val mainDispatcher: kotlinx.coroutines.CoroutineDispatcher = Dispatchers.Main
 ) : AppContainer {
-    private val appContext = context.applicationContext
+    protected val appContext: Context = context.applicationContext
 
     override val database: HPreDatabase by lazy {
         Room.databaseBuilder(
@@ -242,8 +242,8 @@ class DefaultAppContainer(
                 }
             } catch (e: CancellationException) {
                 throw e
-            } catch (_: Throwable) {
-                // Non-cancellation failures are swallowed so normal lazy video-open remains fallback
+            } catch (_: Exception) {
+                // Non-cancellation exceptions are swallowed so normal lazy video-open remains fallback
             }
         }
     }
