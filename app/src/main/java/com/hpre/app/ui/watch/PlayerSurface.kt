@@ -9,6 +9,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.media3.common.util.UnstableApi
+import androidx.media3.ui.AspectRatioFrameLayout
 import androidx.media3.ui.PlayerView
 import com.hpre.app.player.PlayerController
 import com.hpre.app.player.PlaybackUiCoordinator
@@ -32,6 +33,7 @@ fun PlayerSurface(
                     ViewGroup.LayoutParams.MATCH_PARENT
                 )
                 this.useController = useController
+                resizeMode = AspectRatioFrameLayout.RESIZE_MODE_FIT
                 setShowBuffering(PlayerView.SHOW_BUFFERING_NEVER) // Handled by custom Compose overlay
             }
         },
