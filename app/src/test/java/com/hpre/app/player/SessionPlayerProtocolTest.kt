@@ -228,6 +228,12 @@ class SessionPlayerProtocolTest {
     }
 
     @Test
+    fun mapServiceErrorName_maps_ExtractionFailed_properly() {
+        val mapped = SessionPlayerController.mapServiceErrorName("ExtractionFailed")
+        assertEquals(AppError.ExtractionFailed, mapped)
+    }
+
+    @Test
     fun pending_prepare_contains_quality_and_speed_and_retains_latest() {
         val commands = PendingSessionCommands()
         val quality = QualityOption(1080, "1080p", false, "mp4", "video/mp4", "avc1")
@@ -1145,7 +1151,10 @@ class SessionPlayerProtocolTest {
         }
         val pendingFuture = com.google.common.util.concurrent.SettableFuture.create<androidx.media3.session.MediaController>()
         var readToken: Long? = null
-        var readThreadName: String? = null
+        var readOnExpectedDispatcher = false
+        val expectedDispatcherName = "main_dispatcher_marker"
+        val testDispatcher = kotlinx.coroutines.test.StandardTestDispatcher(testScheduler, name = expectedDispatcherName)
+
         val coordinator = object : SessionPlayerController.ConnectionLifecycleCoordinator {
             override fun createControllerFuture(
                 context: android.content.Context,
@@ -1157,12 +1166,11 @@ class SessionPlayerProtocolTest {
 
             override suspend fun readProgress(controller: androidx.media3.session.MediaController?, connectionToken: Long): PlaybackProgress? {
                 readToken = connectionToken
-                readThreadName = Thread.currentThread().name
+                readOnExpectedDispatcher = kotlin.coroutines.coroutineContext[kotlinx.coroutines.CoroutineDispatcher] == testDispatcher
                 return if (connectionToken > 0L) PlaybackProgress(positionMs = 35_000L, durationMs = 120_000L) else null
             }
         }
 
-        val testDispatcher = kotlinx.coroutines.test.StandardTestDispatcher(testScheduler)
         val controller = SessionPlayerController(
             context = fakeContext,
             mediaSourceFactory = null,
@@ -1187,7 +1195,8 @@ class SessionPlayerProtocolTest {
         val progress = controller.readProgress()
         assertEquals(35_000L, progress.positionMs)
         assertEquals(120_000L, progress.durationMs)
-        assertTrue(readToken != null && readToken!! > 0L)
+        assertEquals(1L, readToken)
+        assertTrue("readProgress must execute under mainDispatcher", readOnExpectedDispatcher)
 
         controller.release()
         val afterRelease = controller.readProgress()
@@ -1237,6 +1246,13 @@ class SessionPlayerProtocolTest {
             override fun getApplicationContext(): android.content.Context = this
         }
         val pendingFuture = com.google.common.util.concurrent.SettableFuture.create<androidx.media3.session.MediaController>()
+        var progressPosition = 10_000L
+        val testProgressSource = object : SessionPlayerController.PlaybackProgressSource {
+            override val isPlaying: Boolean = true
+            override val currentPositionMs: Long get() = progressPosition
+            override val durationMs: Long = 120_000L
+        }
+
         val coordinator = object : SessionPlayerController.ConnectionLifecycleCoordinator {
             override fun createControllerFuture(
                 context: android.content.Context,
@@ -1244,6 +1260,10 @@ class SessionPlayerProtocolTest {
                 isPrewarm: Boolean
             ): com.google.common.util.concurrent.ListenableFuture<androidx.media3.session.MediaController> {
                 return pendingFuture
+            }
+
+            override fun getProgressSource(controller: androidx.media3.session.MediaController?, connectionToken: Long): SessionPlayerController.PlaybackProgressSource? {
+                return if (connectionToken > 0L) testProgressSource else null
             }
         }
 
@@ -1274,12 +1294,30 @@ class SessionPlayerProtocolTest {
         testScheduler.runCurrent()
         val baseCount = emissionCount
 
-        // Advance simulated time across multiple seconds
-        testScheduler.advanceTimeBy(3000L)
+        // Verify initial authoritative read
+        val initialProgress = controller.readProgress()
+        assertEquals(10_000L, initialProgress.positionMs)
+
+        // Advance simulated time and update authoritative position across intervals
+        progressPosition = 11_000L
+        testScheduler.advanceTimeBy(1000L)
         testScheduler.runCurrent()
 
-        // Shared state should NOT have received periodic 1s ticks
+        progressPosition = 12_000L
+        testScheduler.advanceTimeBy(1000L)
+        testScheduler.runCurrent()
+
+        progressPosition = 13_000L
+        testScheduler.advanceTimeBy(1000L)
+        testScheduler.runCurrent()
+
+        // Authoritative read reflects new position
+        val updatedProgress = controller.readProgress()
+        assertEquals(13_000L, updatedProgress.positionMs)
+
+        // Shared state should NOT have received periodic 1s ticks or modified its position
         assertEquals("Periodic progress should not cause shared state emissions", baseCount, emissionCount)
+        assertEquals("Shared state position should remain untracked by ticks", 0L, controller.state.value.currentPositionMs)
 
         collectJob.cancel()
         controller.release()

@@ -311,6 +311,12 @@ class SessionPlayerController internal constructor(
         connectController()
     }
 
+    internal interface PlaybackProgressSource {
+        val isPlaying: Boolean
+        val currentPositionMs: Long
+        val durationMs: Long
+    }
+
     internal interface ConnectionLifecycleCoordinator {
         fun createControllerFuture(
             context: Context,
@@ -327,6 +333,7 @@ class SessionPlayerController internal constructor(
             return createControllerFuture(context, listener)
         }
 
+        fun getProgressSource(controller: MediaController?, connectionToken: Long): PlaybackProgressSource? = null
         suspend fun readProgress(controller: MediaController?, connectionToken: Long): PlaybackProgress? = null
         fun onFutureCompletedOrCancelled(future: ListenableFuture<MediaController>) {}
         fun onPrepareDelivered(pending: PendingPrepare) {}
@@ -1100,6 +1107,14 @@ class SessionPlayerController internal constructor(
     }
 
     override suspend fun readProgress(): PlaybackProgress = withContext(mainDispatcher) {
+        val customSource = connectionCoordinator?.getProgressSource(mediaController, activeConnectionGeneration)
+        if (customSource != null) {
+            return@withContext PlaybackProgress(
+                positionMs = customSource.currentPositionMs.coerceAtLeast(0L),
+                durationMs = customSource.durationMs.coerceAtLeast(0L)
+            )
+        }
+
         val coordinatorProgress = connectionCoordinator?.readProgress(mediaController, activeConnectionGeneration)
         if (coordinatorProgress != null) return@withContext coordinatorProgress
 
@@ -1184,22 +1199,23 @@ class SessionPlayerController internal constructor(
         }
     }
 
-    private fun mapServiceErrorName(value: String): AppError? = when (value) {
-        AppError.NetworkError::class.java.simpleName -> AppError.NetworkError
-        AppError.ContentUnavailable::class.java.simpleName -> AppError.ContentUnavailable
-        AppError.AgeRestricted::class.java.simpleName -> AppError.AgeRestricted
-        AppError.GeoRestricted::class.java.simpleName -> AppError.GeoRestricted
-        AppError.LoginRequired::class.java.simpleName -> AppError.LoginRequired
-        AppError.StreamExpired::class.java.simpleName -> AppError.StreamExpired
-        AppError.UnsupportedFormat::class.java.simpleName -> AppError.UnsupportedFormat
-        AppError.RateLimited::class.java.simpleName -> AppError.RateLimited
-        AppError.Unknown::class.java.simpleName -> AppError.Unknown
-        else -> null
-    }
-
     companion object {
-        internal fun createConnectionHints(isPrewarm: Boolean): Bundle = Bundle().apply {
+        fun createConnectionHints(isPrewarm: Boolean): Bundle = Bundle().apply {
             putBoolean(HPrePlaybackService.KEY_INFRASTRUCTURE_PREWARM, isPrewarm)
+        }
+
+        internal fun mapServiceErrorName(value: String): AppError? = when (value) {
+            AppError.NetworkError::class.java.simpleName -> AppError.NetworkError
+            AppError.ContentUnavailable::class.java.simpleName -> AppError.ContentUnavailable
+            AppError.AgeRestricted::class.java.simpleName -> AppError.AgeRestricted
+            AppError.GeoRestricted::class.java.simpleName -> AppError.GeoRestricted
+            AppError.LoginRequired::class.java.simpleName -> AppError.LoginRequired
+            AppError.StreamExpired::class.java.simpleName -> AppError.StreamExpired
+            AppError.UnsupportedFormat::class.java.simpleName -> AppError.UnsupportedFormat
+            AppError.ExtractionFailed::class.java.simpleName -> AppError.ExtractionFailed
+            AppError.RateLimited::class.java.simpleName -> AppError.RateLimited
+            AppError.Unknown::class.java.simpleName -> AppError.Unknown
+            else -> null
         }
     }
 }
