@@ -1241,17 +1241,25 @@ class SessionPlayerProtocolTest {
     }
 
     @Test
-    fun periodic_progress_is_not_emitted_into_shared_state_while_playing() = kotlinx.coroutines.test.runTest {
+    fun sessionPlayerController_has_no_periodic_progress_job_or_tracker_methods() {
+        // Structural invariant ceiling test: JVM unit tests cannot instantiate final Media3 MediaController
+        // without introducing heavy test mock frameworks or shadowing classes.
+        // Therefore, we enforce that no periodic tracker coroutine or methods exist in SessionPlayerController.
+        val fields = SessionPlayerController::class.java.declaredFields.map { it.name }
+        assertFalse("SessionPlayerController must not contain progressJob field", fields.contains("progressJob"))
+
+        val methods = SessionPlayerController::class.java.declaredMethods.map { it.name }
+        assertFalse("SessionPlayerController must not contain startProgressTracker", methods.contains("startProgressTracker"))
+        assertFalse("SessionPlayerController must not contain stopProgressTracker", methods.contains("stopProgressTracker"))
+    }
+
+    @Test
+    fun repeated_readProgress_calls_do_not_mutate_shared_state_or_emit_ticks() = kotlinx.coroutines.test.runTest {
         val fakeContext = object : android.content.ContextWrapper(null) {
             override fun getApplicationContext(): android.content.Context = this
         }
         val pendingFuture = com.google.common.util.concurrent.SettableFuture.create<androidx.media3.session.MediaController>()
         var progressPosition = 10_000L
-        val testProgressSource = object : SessionPlayerController.PlaybackProgressSource {
-            override val isPlaying: Boolean = true
-            override val currentPositionMs: Long get() = progressPosition
-            override val durationMs: Long = 120_000L
-        }
 
         val coordinator = object : SessionPlayerController.ConnectionLifecycleCoordinator {
             override fun createControllerFuture(
@@ -1262,8 +1270,8 @@ class SessionPlayerProtocolTest {
                 return pendingFuture
             }
 
-            override fun getProgressSource(controller: androidx.media3.session.MediaController?, connectionToken: Long): SessionPlayerController.PlaybackProgressSource? {
-                return if (connectionToken > 0L) testProgressSource else null
+            override suspend fun readProgress(controller: androidx.media3.session.MediaController?, connectionToken: Long): PlaybackProgress? {
+                return if (connectionToken > 0L) PlaybackProgress(positionMs = progressPosition, durationMs = 120_000L) else null
             }
         }
 

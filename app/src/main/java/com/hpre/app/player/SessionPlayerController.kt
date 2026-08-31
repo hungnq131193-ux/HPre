@@ -311,12 +311,6 @@ class SessionPlayerController internal constructor(
         connectController()
     }
 
-    internal interface PlaybackProgressSource {
-        val isPlaying: Boolean
-        val currentPositionMs: Long
-        val durationMs: Long
-    }
-
     internal interface ConnectionLifecycleCoordinator {
         fun createControllerFuture(
             context: Context,
@@ -333,7 +327,6 @@ class SessionPlayerController internal constructor(
             return createControllerFuture(context, listener)
         }
 
-        fun getProgressSource(controller: MediaController?, connectionToken: Long): PlaybackProgressSource? = null
         suspend fun readProgress(controller: MediaController?, connectionToken: Long): PlaybackProgress? = null
         fun onFutureCompletedOrCancelled(future: ListenableFuture<MediaController>) {}
         fun onPrepareDelivered(pending: PendingPrepare) {}
@@ -1107,14 +1100,6 @@ class SessionPlayerController internal constructor(
     }
 
     override suspend fun readProgress(): PlaybackProgress = withContext(mainDispatcher) {
-        val customSource = connectionCoordinator?.getProgressSource(mediaController, activeConnectionGeneration)
-        if (customSource != null) {
-            return@withContext PlaybackProgress(
-                positionMs = customSource.currentPositionMs.coerceAtLeast(0L),
-                durationMs = customSource.durationMs.coerceAtLeast(0L)
-            )
-        }
-
         val coordinatorProgress = connectionCoordinator?.readProgress(mediaController, activeConnectionGeneration)
         if (coordinatorProgress != null) return@withContext coordinatorProgress
 
@@ -1200,7 +1185,7 @@ class SessionPlayerController internal constructor(
     }
 
     companion object {
-        fun createConnectionHints(isPrewarm: Boolean): Bundle = Bundle().apply {
+        internal fun createConnectionHints(isPrewarm: Boolean): Bundle = Bundle().apply {
             putBoolean(HPrePlaybackService.KEY_INFRASTRUCTURE_PREWARM, isPrewarm)
         }
 
