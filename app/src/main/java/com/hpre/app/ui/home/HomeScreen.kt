@@ -39,13 +39,36 @@ import com.hpre.app.ui.common.EmptyPane
 import com.hpre.app.ui.common.ErrorPane
 import com.hpre.app.ui.common.VideoCard
 
+interface IdleQueueRegistry {
+    fun addIdleHandler(handler: () -> Boolean): Any
+    fun removeIdleHandler(token: Any)
+
+    companion object {
+        val Default: IdleQueueRegistry = object : IdleQueueRegistry {
+            override fun addIdleHandler(handler: () -> Boolean): Any {
+                val queue = Looper.myQueue()
+                val idleHandler = MessageQueue.IdleHandler { handler() }
+                queue.addIdleHandler(idleHandler)
+                return idleHandler
+            }
+
+            override fun removeIdleHandler(token: Any) {
+                if (token is MessageQueue.IdleHandler) {
+                    Looper.myQueue().removeIdleHandler(token)
+                }
+            }
+        }
+    }
+}
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun HomeScreen(
     viewModel: HomeViewModel,
     onVideoClick: (ContentKey) -> Unit,
     modifier: Modifier = Modifier,
-    onContentIdle: () -> Unit = {}
+    onContentIdle: () -> Unit = {},
+    idleQueueRegistry: IdleQueueRegistry = IdleQueueRegistry.Default
 ) {
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
     val chipsState by viewModel.chipsState.collectAsStateWithLifecycle()
@@ -95,14 +118,12 @@ fun HomeScreen(
             }
             is HomeUiState.Content -> {
                 DisposableEffect(Unit) {
-                    val queue = Looper.myQueue()
-                    val idleHandler = MessageQueue.IdleHandler {
+                    val token = idleQueueRegistry.addIdleHandler {
                         currentOnContentIdle()
                         false
                     }
-                    queue.addIdleHandler(idleHandler)
                     onDispose {
-                        queue.removeIdleHandler(idleHandler)
+                        idleQueueRegistry.removeIdleHandler(token)
                     }
                 }
 

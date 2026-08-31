@@ -248,6 +248,26 @@ class AppContainerSeamTest {
     }
 
     @Test
+    fun service_startup_prewarm_gate_is_consumed_once() {
+        val fakeContext = object : android.content.ContextWrapper(null) {
+            override fun getApplicationContext(): android.content.Context = this
+        }
+        val container = DefaultAppContainer(context = fakeContext)
+
+        // By default, no prewarm is marked
+        assertFalse(container.consumeServiceStartupPrewarm())
+
+        // Mark prewarm
+        container.markServiceStartupAsPrewarm()
+
+        // First consume returns true
+        assertTrue(container.consumeServiceStartupPrewarm())
+
+        // Subsequent consume returns false (consumed once)
+        assertFalse(container.consumeServiceStartupPrewarm())
+    }
+
+    @Test
     fun default_app_container_returns_one_global_session_controller() {
         var factoryCalls = 0
         val controller = object : com.hpre.app.player.PlayerController {

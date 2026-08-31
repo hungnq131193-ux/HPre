@@ -179,7 +179,10 @@ class HPrePlaybackService : MediaSessionService() {
         }
 
         ensurePlayerAndSessionInitialized()
-        restorePersistedSession(prefs)
+        val isPrewarmOnly = container?.consumeServiceStartupPrewarm() == true
+        if (!isPrewarmOnly) {
+            restorePersistedSession(prefs)
+        }
     }
 
     private fun ensurePlayerAndSessionInitialized() {

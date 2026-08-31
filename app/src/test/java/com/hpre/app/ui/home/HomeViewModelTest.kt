@@ -736,4 +736,38 @@ class HomeViewModelTest {
             (viewModel.uiState.value as HomeUiState.Content).content.videos.single().key.nativeId
         )
     }
+
+    @Test
+    fun idleQueueRegistry_registers_and_removes_handler_correctly() {
+        val registered = mutableListOf<() -> Boolean>()
+        val removed = mutableListOf<Any>()
+
+        val fakeRegistry = object : IdleQueueRegistry {
+            override fun addIdleHandler(handler: () -> Boolean): Any {
+                registered.add(handler)
+                return handler
+            }
+
+            override fun removeIdleHandler(token: Any) {
+                removed.add(token)
+                registered.remove(token)
+            }
+        }
+
+        var executed = false
+        val token = fakeRegistry.addIdleHandler {
+            executed = true
+            false
+        }
+
+        assertEquals(1, registered.size)
+        assertEquals(0, removed.size)
+
+        // Dispose / remove before idle event occurs
+        fakeRegistry.removeIdleHandler(token)
+
+        assertEquals(0, registered.size)
+        assertEquals(1, removed.size)
+        assertEquals(false, executed)
+    }
 }
