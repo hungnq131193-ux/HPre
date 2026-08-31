@@ -34,9 +34,13 @@ import com.hpre.app.repository.WatchStateSnapshot
 import com.hpre.app.ui.common.AsyncState
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineDispatcher
+import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.async
+import kotlinx.coroutines.cancelChildren
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
@@ -48,6 +52,7 @@ import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
+import kotlinx.coroutines.flow.transformLatest
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withTimeoutOrNull
 
@@ -116,7 +121,8 @@ data class WatchUiState(
     val details: VideoDetails? = null,
     val error: AppError? = null,
     val isFullscreen: Boolean = false,
-    val commentsExpanded: Boolean = false
+    val commentsExpanded: Boolean = false,
+    val isPlayerLoading: Boolean = false
 )
 
 data class CommentsPaginationState(
@@ -142,6 +148,7 @@ class WatchViewModel(
     companion object {
         const val KEY_IS_FULLSCREEN = "watch_is_fullscreen"
         internal const val RESUME_LOOKUP_TIMEOUT_MS = 1_500L
+        internal const val FIRST_FRAME_READY_FALLBACK_MS = 300L
         internal const val COMMENTS_READY_FALLBACK_MS = 2_000L
         internal const val MAX_RETAINED_COMMENTS = 200
         internal const val MAX_CACHED_COMMENTS = 60
@@ -268,251 +275,257 @@ class WatchViewModel(
     private var relatedJob: Job? = null
     private var commentsJob: Job? = null
     private var commentsGateJob: Job? = null
+    private var playbackReadyJob: Job? = null
+    private var retryingPlayback = false
+    @Volatile
+    private var cleared = false
     private var commentsInFlight = false
     private var commentsRequestGeneration = 0L
     private var firstCommentsPage: CommentPage? = null
 
     private suspend fun loadResumePosition(key: ContentKey): Long {
         val repository = historyRepository ?: return 0L
-        return withTimeoutOrNull(RESUME_LOOKUP_TIMEOUT_MS) {
-            val item = (repository.getHistoryItem(key) as? AppResult.Success)?.value
-            item?.takeIf {
-                HistoryRepository.shouldOfferResume(
-                    positionMs = it.playbackPositionMs,
-                    durationSeconds = it.durationSeconds
-                )
-            }?.playbackPositionMs ?: 0L
-        } ?: 0L
+        return try {
+            withTimeoutOrNull(RESUME_LOOKUP_TIMEOUT_MS) {
+                val item = (repository.getHistoryItem(key) as? AppResult.Success)?.value
+                item?.takeIf {
+                    HistoryRepository.shouldOfferResume(
+                        positionMs = it.playbackPositionMs,
+                        durationSeconds = it.durationSeconds
+                    )
+                }?.playbackPositionMs ?: 0L
+            } ?: 0L
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (_: Exception) {
+            // Optional history storage must not cancel a valid stream request.
+            0L
+        }
     }
 
     fun load(key: ContentKey, forceRefresh: Boolean = false) {
-        if (!forceRefresh && currentKey == key && playbackState.value.key == key &&
-            _uiState.value.details != null && _uiState.value.error == null && playbackState.value.error == null) {
-            return
-        }
-
-        if (currentKey != key) {
-            _uiState.update { it.copy(commentsExpanded = false) }
-        }
-        synchronized(sessionGuard) {
-            cancelCommentsRequests()
-            firstCommentsPage = null
-            _commentsPagination.value = CommentsPaginationState()
-        }
-
-        if (playbackState.value.key?.let { it != key } == true) {
-            playerController.stopForTransition()
-        }
-
-        val cachedSnapshot = if (!forceRefresh) watchStateCache?.get(key) else null
-        val metricsSession = videoOpenMetrics.start(key)
-        if (cachedSnapshot != null) {
-            firstCommentsPage = cachedSnapshot.comments
-            val generation = synchronized(sessionGuard) {
-                loadJob?.cancel()
-                relatedJob?.cancel()
-                commentsJob?.cancel()
-                commentsGateJob?.cancel()
-                commentsInFlight = false
-                currentKey = key
-                relatedGeneration++
-                ++currentGeneration
+        val jobToStart = synchronized(sessionGuard) {
+            if (cleared) return
+            val activePlayback = playbackState.value
+            if (!forceRefresh && currentKey == key && _uiState.value.error == null &&
+                activePlayback.error == null
+            ) {
+                // A lazy job is already admitted even before the IO dispatcher starts it.
+                val requestPending = loadJob?.let { !it.isCompleted && !it.isCancelled } == true
+                if (requestPending || (activePlayback.key == key && _uiState.value.details != null)) return
             }
 
+            val keyChanged = currentKey != key
+            currentKey = key
+            val generation = ++currentGeneration
+            relatedGeneration++
+            cancelLoadRequests()
+
+            // Invalidate the old generation before queuing a stop, so late IO cannot prepare it.
+            if (activePlayback.key?.let { it != key } == true) {
+                playerController.stopForTransition()
+            }
+
+            val cachedSnapshot = if (!forceRefresh) watchStateCache?.get(key) else null
+            val reuseActivePlayer = activePlayback.key == key && activePlayback.error == null
+            val metricsSession = videoOpenMetrics.start(key)
+            firstCommentsPage = cachedSnapshot?.comments
+            _commentsPagination.value = CommentsPaginationState()
             _uiState.update {
                 it.copy(
                     key = key,
-                    isLoading = false,
-                    details = cachedSnapshot.details,
-                    error = null
+                    isLoading = cachedSnapshot == null,
+                    details = cachedSnapshot?.details ?: it.details?.takeIf { details -> details.key == key },
+                    error = null,
+                    commentsExpanded = if (keyChanged) false else it.commentsExpanded,
+                    isPlayerLoading = !reuseActivePlayer || activePlayback.isLoading ||
+                        activePlayback.isBuffering ||
+                        (!activePlayback.isReady && !activePlayback.hasRenderedFirstFrame)
                 )
             }
-
-            cachedSnapshot.relatedVideos?.let { videos ->
-                _relatedState.value = RefreshableAsyncState.content(videos)
-            } ?: run {
-                _relatedState.value = RefreshableAsyncState.initial()
-            }
-            videoOpenMetrics.mark(metricsSession, VideoOpenEvent.DETAILS_READY)
-
-            cachedSnapshot.comments?.let { page ->
-                _commentsState.value = if (page.comments.isEmpty()) AsyncState.Empty else AsyncState.Content(page)
-            } ?: run {
-                _commentsState.value = if (videoService.supportsComments) AsyncState.Loading else AsyncState.Empty
+            _relatedState.value = cachedSnapshot?.relatedVideos?.let {
+                RefreshableAsyncState.content(it)
+            } ?: RefreshableAsyncState.initial()
+            _commentsState.value = cachedSnapshot?.comments?.let {
+                if (it.comments.isEmpty()) AsyncState.Empty else AsyncState.Content(it)
+            } ?: if (videoService.supportsComments) AsyncState.Loading else AsyncState.Empty
+            if (cachedSnapshot != null) {
+                videoOpenMetrics.mark(metricsSession, VideoOpenEvent.DETAILS_READY)
             }
 
-            val activePlayback = playbackState.value
-            val reuseActivePlayer = activePlayback.key == key && activePlayback.error == null
-            if (!reuseActivePlayer) {
-                loadJob = viewModelScope.launch(ioDispatcher) {
-                    try {
-                        val resumeDeferred = async { loadResumePosition(key) }
-                        val streamResult = videoService.streamInfo(key)
-                        if (generation != currentGeneration || currentKey != key) {
-                            resumeDeferred.cancel()
-                            return@launch
+            viewModelScope.launch(ioDispatcher, start = CoroutineStart.LAZY) loadRequest@ {
+                try {
+                    val prepareGate = kotlinx.coroutines.CompletableDeferred<Unit>()
+                    val detailsJob = if (cachedSnapshot == null) launch details@ {
+                        val result = try {
+                            if (forceRefresh && !reuseActivePlayer) {
+                                // Let the forced stream refresh replace the extractor cache first.
+                                // Otherwise metadata can start a second, non-refresh extraction.
+                                prepareGate.await()
+                            }
+                            catalogRepository?.video(key, forceRefresh = forceRefresh)
+                                ?: videoService.video(key)
+                        } catch (cancelled: CancellationException) {
+                            throw cancelled
+                        } catch (_: Exception) {
+                            AppResult.Failure(AppError.Unknown)
                         }
+                        coroutineContext.ensureActive()
+                        when (result) {
+                            is AppResult.Success -> {
+                                synchronized(sessionGuard) {
+                                    if (!isCurrentRequest(key, generation)) return@details
+                                    _uiState.update {
+                                        it.copy(isLoading = false, details = result.value)
+                                    }
+                                    videoOpenMetrics.mark(metricsSession, VideoOpenEvent.DETAILS_READY)
+                                    watchStateCache?.put(key, WatchStateSnapshot(result.value, null, null))
+                                }
+                                recordDetailsInHistory(result.value)
+                                if (watchRecommendationSource != null) {
+                                    prepareGate.await()
+                                    synchronized(sessionGuard) {
+                                        if (isCurrentRequest(key, generation)) {
+                                            executeRelated(key, result.value, forceRefresh, isRefresh = false)
+                                        }
+                                    }
+                                }
+                            }
+                            is AppResult.Failure -> synchronized(sessionGuard) {
+                                if (isCurrentRequest(key, generation)) {
+                                    // Metadata failure must not stop an otherwise valid video pipeline.
+                                    _uiState.update { it.copy(isLoading = false, error = result.error) }
+                                }
+                            }
+                        }
+                    } else null
+
+                    if (!reuseActivePlayer) {
+                        val resumeDeferred = async { loadResumePosition(key) }
+                        val streamResult = if (forceRefresh) videoService.refreshStreamInfo(key)
+                            else videoService.streamInfo(key)
+                        coroutineContext.ensureActive()
                         if (streamResult is AppResult.Failure) {
                             resumeDeferred.cancel()
-                            _uiState.update { it.copy(isLoading = false, error = streamResult.error) }
-                            return@launch
+                            detailsJob?.cancel()
+                            publishLoadFailure(key, generation, streamResult.error)
+                            return@loadRequest
                         }
                         videoOpenMetrics.mark(metricsSession, VideoOpenEvent.STREAM_INFO_READY)
                         val resumePositionMs = resumeDeferred.await()
-                        val preparedCurrentSession = synchronized(sessionGuard) {
-                            if (generation != currentGeneration || currentKey != key) {
-                                false
-                            } else {
-                                videoOpenMetrics.mark(metricsSession, VideoOpenEvent.PLAYER_PREPARE)
-                                playerController.prepare(
-                                    key,
-                                    (streamResult as AppResult.Success).value,
-                                    startPositionMs = resumePositionMs
-                                )
-                                true
-                            }
-                        }
-                        if (!preparedCurrentSession) return@launch
-                        if (cachedSnapshot.relatedVideos == null) {
-                            executeRelated(key, cachedSnapshot.details, forceRefresh = false, isRefresh = false)
-                        }
-                        if (cachedSnapshot.comments == null) {
-                            scheduleInitialComments(key, generation)
-                        }
-                    } catch (cancelled: CancellationException) {
-                        throw cancelled
-                    } catch (_: Throwable) {
-                        if (generation == currentGeneration && currentKey == key) {
-                            _uiState.update { it.copy(isLoading = false, error = AppError.Unknown) }
-                        }
-                    }
-                }
-            } else {
-                if (cachedSnapshot.relatedVideos == null) {
-                    executeRelated(key, cachedSnapshot.details, forceRefresh = false, isRefresh = false)
-                }
-                if (cachedSnapshot.comments == null) {
-                    scheduleInitialComments(key, generation)
-                }
-            }
-            return
-        }
-
-        val generation = synchronized(sessionGuard) {
-            loadJob?.cancel()
-            relatedJob?.cancel()
-            commentsJob?.cancel()
-            commentsGateJob?.cancel()
-            commentsInFlight = false
-            currentKey = key
-            relatedGeneration++
-            ++currentGeneration
-        }
-
-        _uiState.update {
-            it.copy(
-                key = key,
-                isLoading = true,
-                error = null
-            )
-        }
-        _relatedState.value = RefreshableAsyncState.initial()
-        _commentsState.value = if (videoService.supportsComments) AsyncState.Loading else AsyncState.Empty
-
-        loadJob = viewModelScope.launch(ioDispatcher) {
-            try {
-                val detailsDeferred = async {
-                    catalogRepository?.video(key, forceRefresh = forceRefresh) ?: videoService.video(key)
-                }
-                val activePlayback = playbackState.value
-                val reuseActivePlayer = activePlayback.key == key && activePlayback.error == null
-                val prepareGate = kotlinx.coroutines.CompletableDeferred<Unit>()
-
-                // Details resolve on their own child coroutine so the header and the
-                // recommendation-source related fetch are not gated behind stream extraction.
-                val detailsJob = launch {
-                    when (val detailsResult = detailsDeferred.await()) {
-                        is AppResult.Success -> {
-                            if (generation != currentGeneration || currentKey != key) return@launch
-                            _uiState.update {
-                                it.copy(isLoading = false, details = detailsResult.value, error = null)
-                            }
-                            recordDetailsInHistory(detailsResult.value)
-                            videoOpenMetrics.mark(metricsSession, VideoOpenEvent.DETAILS_READY)
-                            watchStateCache?.put(key, WatchStateSnapshot(
-                                details = detailsResult.value,
-                                relatedVideos = null,
-                                comments = null
-                            ))
-                            if (watchRecommendationSource != null) {
-                                prepareGate.await()
-                                if (generation != currentGeneration || currentKey != key) return@launch
-                                executeRelated(key, detailsResult.value, forceRefresh = forceRefresh, isRefresh = false)
-                            }
-                        }
-                        is AppResult.Failure -> {
-                            if (generation != currentGeneration || currentKey != key) return@launch
-                            _uiState.update {
-                                it.copy(isLoading = false, error = detailsResult.error)
-                            }
-                        }
-                    }
-                }
-
-                if (!reuseActivePlayer) {
-                    val resumeDeferred = async { loadResumePosition(key) }
-                    val streamResult = videoService.streamInfo(key)
-
-                    if (generation != currentGeneration || currentKey != key) {
-                        resumeDeferred.cancel()
-                        return@launch
-                    }
-
-                    if (streamResult is AppResult.Failure) {
-                        resumeDeferred.cancel()
-                        detailsJob.cancel()
-                        detailsDeferred.cancel()
-                        _uiState.update { it.copy(isLoading = false, error = streamResult.error) }
-                        return@launch
-                    }
-
-                    videoOpenMetrics.mark(metricsSession, VideoOpenEvent.STREAM_INFO_READY)
-                    val resumePositionMs = resumeDeferred.await()
-                    val preparedCurrentSession = synchronized(sessionGuard) {
-                        if (generation != currentGeneration || currentKey != key) {
-                            false
-                        } else {
+                        synchronized(sessionGuard) {
+                            if (!isCurrentRequest(key, generation)) return@loadRequest
                             videoOpenMetrics.mark(metricsSession, VideoOpenEvent.PLAYER_PREPARE)
                             playerController.prepare(
                                 key,
                                 (streamResult as AppResult.Success).value,
                                 startPositionMs = resumePositionMs
                             )
-                            true
                         }
                     }
-                    if (!preparedCurrentSession) return@launch
-                }
 
-                prepareGate.complete(Unit)
-                if (watchRecommendationSource == null) {
-                    executeRelated(key, null, forceRefresh = forceRefresh, isRefresh = false)
+                    observePlayerReadiness(key, generation)
+                    prepareGate.complete(Unit)
+                    synchronized(sessionGuard) {
+                        if (!isCurrentRequest(key, generation)) return@loadRequest
+                        if (cachedSnapshot != null && cachedSnapshot.relatedVideos == null) {
+                            executeRelated(key, cachedSnapshot.details, forceRefresh = false, isRefresh = false)
+                        } else if (cachedSnapshot == null && watchRecommendationSource == null) {
+                            executeRelated(key, null, forceRefresh, isRefresh = false)
+                        }
+                        if (cachedSnapshot?.comments == null) {
+                            scheduleInitialComments(key, generation)
+                        }
+                    }
+                    detailsJob?.join()
+                } catch (cancelled: CancellationException) {
+                    throw cancelled
+                } catch (_: Throwable) {
+                    // A thrown stream/prepare error must also stop children waiting on prepareGate.
+                    coroutineContext.cancelChildren()
+                    publishLoadFailure(key, generation, AppError.Unknown)
                 }
-                scheduleInitialComments(key, generation)
-
-                detailsJob.join()
-            } catch (ce: CancellationException) {
-                throw ce
-            } catch (e: Throwable) {
-                if (generation != currentGeneration || currentKey != key) return@launch
-                _uiState.update {
-                    it.copy(
-                        isLoading = false,
-                        error = AppError.Unknown
-                    )
-                }
-            }
+            }.also { loadJob = it }
         }
+        jobToStart.start()
+    }
+
+    private fun isCurrentRequest(key: ContentKey, generation: Long): Boolean =
+        !cleared && currentKey == key && currentGeneration == generation
+
+    /** Cancel before navigation; the outgoing entry may stay alive during its exit animation. */
+    fun cancelPendingLoads() {
+        synchronized(sessionGuard) {
+            currentKey = null
+            currentGeneration++
+            relatedGeneration++
+            cancelLoadRequests()
+        }
+    }
+
+    /** Called under sessionGuard; the shared player/session deliberately stays alive. */
+    private fun cancelLoadRequests() {
+        retryingPlayback = false
+        loadJob?.cancel()
+        loadJob = null
+        relatedJob?.cancel()
+        relatedJob = null
+        playbackReadyJob?.cancel()
+        playbackReadyJob = null
+        cancelCommentsRequests()
+    }
+
+    private fun publishLoadFailure(key: ContentKey, generation: Long, error: AppError) {
+        synchronized(sessionGuard) {
+            if (!isCurrentRequest(key, generation)) return
+            playbackReadyJob?.cancel()
+            _uiState.update { it.copy(isLoading = false, isPlayerLoading = false, error = error) }
+        }
+    }
+
+    private enum class StartupReadiness { WAITING, READY_WITHOUT_FRAME, FINISHED }
+
+    @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
+    private fun observePlayerReadiness(key: ContentKey, generation: Long) {
+        val jobToStart = synchronized(sessionGuard) {
+            if (!isCurrentRequest(key, generation)) return
+            playbackReadyJob?.cancel()
+            viewModelScope.launch(ioDispatcher, start = CoroutineStart.LAZY) {
+                playerController.state
+                    .map { state ->
+                        when {
+                            state.key != key -> StartupReadiness.WAITING
+                            state.error != null || state.isEnded || state.hasRenderedFirstFrame ->
+                                StartupReadiness.FINISHED
+                            state.isReady && !state.isBuffering ->
+                                if (state.streamType == com.hpre.app.player.PlaybackStreamType.AUDIO_ONLY) {
+                                    StartupReadiness.FINISHED
+                                } else StartupReadiness.READY_WITHOUT_FRAME
+                            else -> StartupReadiness.WAITING
+                        }
+                    }
+                    // Position ticks must not keep restarting the first-frame grace period.
+                    .distinctUntilChanged()
+                    .transformLatest { readiness ->
+                        when (readiness) {
+                            StartupReadiness.WAITING -> Unit
+                            StartupReadiness.READY_WITHOUT_FRAME -> {
+                                // Reconnected/remote players may not replay the first-frame event.
+                                delay(FIRST_FRAME_READY_FALLBACK_MS)
+                                emit(Unit)
+                            }
+                            StartupReadiness.FINISHED -> emit(Unit)
+                        }
+                    }
+                    .first()
+                synchronized(sessionGuard) {
+                    if (isCurrentRequest(key, generation)) {
+                        _uiState.update { it.copy(isPlayerLoading = false) }
+                    }
+                }
+            }.also { playbackReadyJob = it }
+        }
+        jobToStart.start()
     }
 
     private suspend fun recordDetailsInHistory(details: VideoDetails) {
@@ -531,7 +544,13 @@ class WatchViewModel(
             isLive = details.isLive,
             isShort = details.isShort
         )
-        repository.recordHistory(summary, playbackState.value.currentPositionMs)
+        try {
+            repository.recordHistory(summary, playbackState.value.currentPositionMs)
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (_: Exception) {
+            // Metadata/history failures must not cancel the sibling player pipeline.
+        }
     }
 
     fun retryRelated() {
@@ -567,7 +586,7 @@ class WatchViewModel(
         isRefresh: Boolean
     ) {
         val (admittedGeneration, admittedRelGeneration, admittedExcludedKeys, previousValue, jobToStart) = synchronized(sessionGuard) {
-            if (currentKey != key) return
+            if (cleared || currentKey != key) return
             relatedJob?.cancel()
             val relGen = ++relatedGeneration
             val prev = _relatedState.value.value
@@ -653,29 +672,34 @@ class WatchViewModel(
     private data class Tuple5<A, B, C, D, E>(val a: A, val b: B, val c: C, val d: D, val e: E)
 
     private fun scheduleInitialComments(key: ContentKey, generation: Long) {
-        if (!_uiState.value.commentsExpanded || firstCommentsPage != null || _commentsState.value is AsyncState.Content || commentsInFlight) return
-        commentsGateJob?.cancel()
-        commentsGateJob = viewModelScope.launch(ioDispatcher) {
-            playerController.state.first { it.key == key }
-            withTimeoutOrNull(COMMENTS_READY_FALLBACK_MS) {
-                playerController.state.first { state -> state.key == key && state.isReady }
-            }
-            if (generation == currentGeneration && currentKey == key && _uiState.value.commentsExpanded) {
+        val jobToStart = synchronized(sessionGuard) {
+            if (!isCurrentRequest(key, generation) || !_uiState.value.commentsExpanded ||
+                firstCommentsPage != null || _commentsState.value is AsyncState.Content || commentsInFlight
+            ) return
+            commentsGateJob?.cancel()
+            viewModelScope.launch(ioDispatcher, start = CoroutineStart.LAZY) {
+                playerController.state.first { it.key == key }
+                withTimeoutOrNull(COMMENTS_READY_FALLBACK_MS) {
+                    playerController.state.first { state -> state.key == key && state.isReady }
+                }
                 loadComments(key, generation, null, append = false)
-            }
+            }.also { commentsGateJob = it }
         }
+        jobToStart.start()
     }
 
     fun setCommentsExpanded(expanded: Boolean) {
-        synchronized(sessionGuard) {
+        val request = synchronized(sessionGuard) {
+            if (cleared) return
             _uiState.update { it.copy(commentsExpanded = expanded) }
             if (!expanded) {
                 cancelCommentsRequests()
                 _commentsPagination.value = CommentsPaginationState()
                 _commentsState.value = firstCommentsPage?.let { AsyncState.Content(it) } ?: AsyncState.Empty
             }
+            currentKey?.let { it to currentGeneration }
         }
-        if (expanded) currentKey?.let { scheduleInitialComments(it, currentGeneration) }
+        if (expanded) request?.let { (key, generation) -> scheduleInitialComments(key, generation) }
     }
 
     private fun cancelCommentsRequests() {
@@ -717,65 +741,65 @@ class WatchViewModel(
         token: PageToken?,
         append: Boolean
     ) {
-        if (!videoService.supportsComments) {
-            if (generation == currentGeneration && currentKey == key) {
+        val jobToStart = synchronized(sessionGuard) {
+            if (!isCurrentRequest(key, generation) || commentsInFlight || !_uiState.value.commentsExpanded) return
+            if (!videoService.supportsComments) {
                 _commentsState.value = AsyncState.Empty
+                return
             }
-            return
-        }
-        val requestGeneration = synchronized(sessionGuard) {
-            if (generation != currentGeneration || currentKey != key || commentsInFlight || !_uiState.value.commentsExpanded) return
             commentsInFlight = true
             if (!append) _commentsState.value = AsyncState.Loading
             _commentsPagination.update { it.copy(isLoading = append, error = null) }
-            ++commentsRequestGeneration
-        }
-        commentsJob = viewModelScope.launch(ioDispatcher) {
-            try {
-                val result = videoService.comments(key, token)
-                synchronized(sessionGuard) {
-                    if (generation != currentGeneration || currentKey != key || requestGeneration != commentsRequestGeneration) return@launch
-                    when (result) {
-                        is AppResult.Success -> {
-                            val prior = if (append) (_commentsState.value as? AsyncState.Content)?.value?.comments.orEmpty() else emptyList()
-                            val commentsById = LinkedHashMap<String, com.hpre.app.model.Comment>()
-                            prior.forEach { commentsById[it.commentId] = it }
-                            result.value.comments.forEach { commentsById.putIfAbsent(it.commentId, it) }
-                            val dropped = commentsById.size > MAX_RETAINED_COMMENTS
-                            val page = result.value.copy(
-                                comments = commentsById.values.toList().takeLast(MAX_RETAINED_COMMENTS),
-                                // A repeated continuation must not turn a visible sentinel into a request loop.
-                                nextPageToken = result.value.nextPageToken.takeUnless { append && it == token }
-                            )
-                            _commentsState.value = if (page.comments.isEmpty()) AsyncState.Empty else AsyncState.Content(page)
-                            _commentsPagination.update {
-                                CommentsPaginationState(earlierCommentsDropped = (append && it.earlierCommentsDropped) || dropped)
+            val requestGeneration = ++commentsRequestGeneration
+            viewModelScope.launch(ioDispatcher, start = CoroutineStart.LAZY) {
+                try {
+                    val result = videoService.comments(key, token)
+                    coroutineContext.ensureActive()
+                    synchronized(sessionGuard) {
+                        if (!isCurrentRequest(key, generation) || requestGeneration != commentsRequestGeneration) return@launch
+                        when (result) {
+                            is AppResult.Success -> {
+                                val prior = if (append) (_commentsState.value as? AsyncState.Content)?.value?.comments.orEmpty() else emptyList()
+                                val commentsById = LinkedHashMap<String, com.hpre.app.model.Comment>()
+                                prior.forEach { commentsById[it.commentId] = it }
+                                result.value.comments.forEach { commentsById.putIfAbsent(it.commentId, it) }
+                                val dropped = commentsById.size > MAX_RETAINED_COMMENTS
+                                val page = result.value.copy(
+                                    comments = commentsById.values.toList().takeLast(MAX_RETAINED_COMMENTS),
+                                    // A repeated continuation must not turn a visible sentinel into a request loop.
+                                    nextPageToken = result.value.nextPageToken.takeUnless { append && it == token }
+                                )
+                                _commentsState.value = if (page.comments.isEmpty()) AsyncState.Empty else AsyncState.Content(page)
+                                _commentsPagination.update {
+                                    CommentsPaginationState(earlierCommentsDropped = (append && it.earlierCommentsDropped) || dropped)
+                                }
+                                if (!append) {
+                                    firstCommentsPage = page.takeIf { !dropped && it.comments.size <= MAX_CACHED_COMMENTS }
+                                    watchStateCache?.updateComments(key, firstCommentsPage)
+                                }
                             }
-                            if (!append) {
-                                firstCommentsPage = page.takeIf { !dropped && it.comments.size <= MAX_CACHED_COMMENTS }
-                                watchStateCache?.updateComments(key, firstCommentsPage)
-                            }
+                            is AppResult.Failure -> publishCommentsError(result.error, append)
                         }
-                        is AppResult.Failure -> publishCommentsError(result.error, append)
+                    }
+                } catch (cancelled: CancellationException) {
+                    throw cancelled
+                } catch (_: Throwable) {
+                    synchronized(sessionGuard) {
+                        if (isCurrentRequest(key, generation) && requestGeneration == commentsRequestGeneration) {
+                            publishCommentsError(AppError.Unknown, append)
+                        }
+                    }
+                } finally {
+                    synchronized(sessionGuard) {
+                        if (isCurrentRequest(key, generation) && requestGeneration == commentsRequestGeneration) {
+                            commentsInFlight = false
+                            _commentsPagination.update { it.copy(isLoading = false) }
+                        }
                     }
                 }
-            } catch (cancelled: CancellationException) {
-                throw cancelled
-            } catch (_: Throwable) {
-                synchronized(sessionGuard) {
-                    if (generation == currentGeneration && currentKey == key && requestGeneration == commentsRequestGeneration) {
-                        publishCommentsError(AppError.Unknown, append)
-                    }
-                }
-            } finally {
-                synchronized(sessionGuard) {
-                    if (generation == currentGeneration && currentKey == key && requestGeneration == commentsRequestGeneration) {
-                        commentsInFlight = false
-                        _commentsPagination.update { it.copy(isLoading = false) }
-                    }
-                }
-            }
+            }.also { commentsJob = it }
         }
+        jobToStart.start()
     }
 
     private fun publishCommentsError(error: AppError, append: Boolean) {
@@ -859,72 +883,77 @@ class WatchViewModel(
     }
 
     fun retry() {
-        val key = synchronized(sessionGuard) { currentKey } ?: return
-
-        // Distinguish metadata/initial load error vs playback state error
-        if (playbackState.value.error != null && _uiState.value.details != null) {
+        val jobToStart = synchronized(sessionGuard) {
+            val key = currentKey ?: return
+            if (cleared) return
+            val requestPending = loadJob?.let { !it.isCompleted && !it.isCancelled } == true
             val currentPlayback = playbackState.value
+            if (requestPending && (retryingPlayback ||
+                    (_uiState.value.error == null && currentPlayback.error == null))
+            ) return
+
             val snapshot = currentPlayback.retrySnapshot
-            val retryKey = snapshot?.key ?: key
-            if (retryKey != key) {
-                // Key mismatch -> full reload
-                _uiState.update { it.copy(error = null, isLoading = true) }
+            if (currentPlayback.error == null || _uiState.value.details == null ||
+                (snapshot != null && snapshot.key != key)
+            ) {
                 load(key, forceRefresh = true)
                 return
             }
 
-            val snapshotPosition = snapshot?.positionMs ?: currentPlayback.currentPositionMs
-            val snapshotPlayWhenReady = snapshot?.userRequestedPlay ?: (currentPlayback.isPlaying || currentPlayback.playWhenReady)
-            val snapshotQuality = snapshot?.selectedQuality ?: currentPlayback.selectedQuality
-
-            // Playback error: resolve fresh stream and prepare current key without clearing details
-            val generation = synchronized(sessionGuard) {
-                loadJob?.cancel()
-                ++currentGeneration
+            val position = snapshot?.positionMs ?: currentPlayback.currentPositionMs
+            val playWhenReady = snapshot?.userRequestedPlay
+                ?: (currentPlayback.isPlaying || currentPlayback.playWhenReady)
+            val quality = snapshot?.selectedQuality ?: currentPlayback.selectedQuality
+            val generation = ++currentGeneration
+            relatedGeneration++
+            cancelLoadRequests()
+            retryingPlayback = true
+            val metricsSession = videoOpenMetrics.start(key)
+            _uiState.update { it.copy(isLoading = true, isPlayerLoading = true, error = null) }
+            _commentsPagination.update { it.copy(isLoading = false) }
+            if (_relatedState.value.isRefreshing) {
+                _relatedState.value.value?.let { _relatedState.value = RefreshableAsyncState.content(it) }
             }
 
-            _uiState.update { it.copy(isLoading = true, error = null) }
-
-            loadJob = viewModelScope.launch(ioDispatcher) {
+            viewModelScope.launch(ioDispatcher, start = CoroutineStart.LAZY) {
                 try {
-                    val freshStreamResult = videoService.refreshStreamInfo(key)
-                    if (generation != currentGeneration || currentKey != key) return@launch
-
-                    when (freshStreamResult) {
-                        is AppResult.Success -> {
-                            val preparedCurrentSession = synchronized(sessionGuard) {
-                                if (generation != currentGeneration || currentKey != key) {
-                                    false
-                                } else {
-                                    playerController.prepare(
-                                        key = key,
-                                        streamInfo = freshStreamResult.value,
-                                        startPositionMs = snapshotPosition,
-                                        playWhenReady = snapshotPlayWhenReady,
-                                        initialQuality = snapshotQuality
-                                    )
-                                    true
+                    val result = videoService.refreshStreamInfo(key)
+                    coroutineContext.ensureActive()
+                    synchronized(sessionGuard) {
+                        if (!isCurrentRequest(key, generation)) return@launch
+                        when (result) {
+                            is AppResult.Success -> {
+                                videoOpenMetrics.mark(metricsSession, VideoOpenEvent.STREAM_INFO_READY)
+                                videoOpenMetrics.mark(metricsSession, VideoOpenEvent.PLAYER_PREPARE)
+                                playerController.prepare(
+                                    key = key,
+                                    streamInfo = result.value,
+                                    startPositionMs = position,
+                                    playWhenReady = playWhenReady,
+                                    initialQuality = quality
+                                )
+                                _uiState.update { it.copy(isLoading = false) }
+                                observePlayerReadiness(key, generation)
+                                if (_relatedState.value.value == null) {
+                                    executeRelated(key, _uiState.value.details, forceRefresh = false, isRefresh = false)
                                 }
+                                scheduleInitialComments(key, generation)
                             }
-                            if (!preparedCurrentSession) return@launch
-                            _uiState.update { it.copy(isLoading = false, error = null) }
-                        }
-                        is AppResult.Failure -> {
-                            _uiState.update { it.copy(isLoading = false, error = freshStreamResult.error) }
+                            is AppResult.Failure -> publishLoadFailure(key, generation, result.error)
                         }
                     }
-                } catch (ce: CancellationException) {
-                    throw ce
-                } catch (e: Throwable) {
-                    if (generation != currentGeneration || currentKey != key) return@launch
-                    _uiState.update { it.copy(isLoading = false, error = AppError.Unknown) }
+                } catch (cancelled: CancellationException) {
+                    throw cancelled
+                } catch (_: Throwable) {
+                    publishLoadFailure(key, generation, AppError.Unknown)
+                } finally {
+                    synchronized(sessionGuard) {
+                        if (isCurrentRequest(key, generation)) retryingPlayback = false
+                    }
                 }
-            }
-        } else {
-            // Metadata or general error: full reload with refresh
-            _uiState.update { it.copy(error = null, isLoading = true) }
-            load(key, forceRefresh = true)
+            }.also { loadJob = it }
         }
+        jobToStart.start()
     }
 
     fun setFullscreen(isFullscreen: Boolean) {
@@ -953,10 +982,13 @@ class WatchViewModel(
     }
 
     override fun onCleared() {
+        synchronized(sessionGuard) {
+            cleared = true
+            currentGeneration++
+            relatedGeneration++
+            cancelLoadRequests()
+        }
         super.onCleared()
-        loadJob?.cancel()
-        relatedJob?.cancel()
-        commentsJob?.cancel()
         // Note: ViewModel does not tear down service player on normal unbind
     }
 }

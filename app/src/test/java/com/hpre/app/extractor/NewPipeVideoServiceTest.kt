@@ -2,6 +2,9 @@ package com.hpre.app.extractor
 
 import com.hpre.app.core.error.AppError
 import com.hpre.app.core.error.AppResult
+import com.hpre.app.core.performance.VideoOpenEvent
+import com.hpre.app.core.performance.VideoOpenMetrics
+import com.hpre.app.core.performance.VideoOpenRecord
 import com.hpre.app.model.ContentKey
 import com.hpre.app.model.PageToken
 import com.hpre.app.model.SearchFilter
@@ -28,6 +31,7 @@ import org.schabi.newpipe.extractor.downloader.Response
 import java.io.IOException
 import java.io.InterruptedIOException
 import java.util.concurrent.CountDownLatch
+import java.util.concurrent.CopyOnWriteArrayList
 import java.util.concurrent.Executors
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicBoolean
@@ -51,6 +55,9 @@ class NewPipeVideoServiceTest {
             )
         )
         val expected = ExtractedVideoBundle(details, streams, related)
+        val records = CopyOnWriteArrayList<VideoOpenRecord>()
+        val metrics = VideoOpenMetrics(enabled = true, nowMs = { 0L }, sink = { records.add(it) })
+        val metricsSession = metrics.start(key)
         val started = CountDownLatch(1)
         val gate = CountDownLatch(1)
         var extractions = 0
@@ -65,7 +72,8 @@ class NewPipeVideoServiceTest {
         val service = NewPipeVideoService(
             ioDispatcher = Dispatchers.IO,
             operations = operations,
-            serviceScope = backgroundScope
+            serviceScope = backgroundScope,
+            videoOpenMetrics = metrics
         )
 
         val video = async { service.video(key) }
@@ -74,11 +82,22 @@ class NewPipeVideoServiceTest {
         runCurrent()
         assertTrue(started.await(5, TimeUnit.SECONDS))
         assertEquals(1, extractions)
+        assertEquals(listOf(VideoOpenEvent.VIDEO_OPEN_START, VideoOpenEvent.EXTRACTOR_START), records.map { it.event })
 
         gate.countDown()
         assertEquals(AppResult.Success(details), video.await())
         assertEquals(AppResult.Success(streams), stream.await())
         assertEquals(AppResult.Success(related), relatedResult.await())
+        assertEquals(
+            listOf(VideoOpenEvent.VIDEO_OPEN_START, VideoOpenEvent.EXTRACTOR_START, VideoOpenEvent.EXTRACTOR_FINISH),
+            records.map { it.event }
+        )
+        assertTrue(records.all { it.key == key && it.generation == metricsSession.generation })
+
+        // Cached subscribers must neither extract again nor fabricate new extractor timings.
+        assertEquals(AppResult.Success(streams), service.streamInfo(key))
+        assertEquals(1, extractions)
+        assertEquals(3, records.size)
     }
 
     @Test
@@ -418,5 +437,4 @@ class NewPipeVideoServiceTest {
         assertFalse("Operations should never have been invoked for mismatched serviceId", operationsCalled)
     }
 }
-
 
