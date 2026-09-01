@@ -12,4 +12,3 @@ internal class AppScopedPlayerControllerProvider<T : PlayerController>(
 
     fun getIfInitialized(): T? = instance
 }
-

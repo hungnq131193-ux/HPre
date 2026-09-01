@@ -27,4 +27,3 @@ class PlaybackRestoreDecisionTest {
         assertFalse(decideSessionRestore(alreadyEvaluated = true, isPrewarm = true))
     }
 }
-
