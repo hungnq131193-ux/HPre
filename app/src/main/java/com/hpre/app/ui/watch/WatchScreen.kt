@@ -352,8 +352,8 @@ fun WatchScreen(
 
             WatchPlayerControls(
                 structuralState = playbackState,
+                readProgress = { viewModel.playerController.readProgress() },
                 isPlayerLoading = uiState.isPlayerLoading,
-                progress = viewModel.playbackProgress,
                 isFullscreen = true,
                 onPlayPause = { viewModel.playPause() },
                 onSeekBy = { delta -> viewModel.seekBy(delta) },
@@ -393,8 +393,8 @@ fun WatchScreen(
 
                     WatchPlayerControls(
                         structuralState = playbackState,
+                        readProgress = { viewModel.playerController.readProgress() },
                         isPlayerLoading = uiState.isPlayerLoading,
-                        progress = viewModel.playbackProgress,
                         isFullscreen = false,
                         onPlayPause = { viewModel.playPause() },
                         onSeekBy = { delta -> viewModel.seekBy(delta) },
@@ -460,8 +460,8 @@ fun WatchScreen(
 @Composable
 private fun WatchPlayerControls(
     structuralState: com.hpre.app.player.PlaybackState,
+    readProgress: suspend () -> com.hpre.app.player.PlaybackProgress,
     isPlayerLoading: Boolean,
-    progress: kotlinx.coroutines.flow.StateFlow<com.hpre.app.player.PlaybackProgress>,
     isFullscreen: Boolean,
     onPlayPause: () -> Unit,
     onSeekBy: (Long) -> Unit,
@@ -473,12 +473,9 @@ private fun WatchPlayerControls(
     minimizeEnabled: Boolean,
     isInPip: Boolean
 ) {
-    val playbackProgress by progress.collectAsStateWithLifecycle()
     PlayerControlsOverlay(
         playbackState = structuralState.copy(
-            isLoading = structuralState.isLoading || isPlayerLoading,
-            currentPositionMs = playbackProgress.positionMs,
-            durationMs = playbackProgress.durationMs
+            isLoading = structuralState.isLoading || isPlayerLoading
         ),
         isFullscreen = isFullscreen,
         onPlayPause = onPlayPause,
@@ -487,6 +484,7 @@ private fun WatchPlayerControls(
         onSpeedSelected = onSpeedSelected,
         onQualitySelected = onQualitySelected,
         onToggleFullscreen = onToggleFullscreen,
+        readProgress = readProgress,
         onMinimizeToHome = onMinimizeToHome,
         minimizeEnabled = minimizeEnabled,
         isInPip = isInPip

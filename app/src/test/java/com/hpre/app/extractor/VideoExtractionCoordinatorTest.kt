@@ -153,4 +153,89 @@ class VideoExtractionCoordinatorTest {
         assertEquals(AppResult.Success(oldBundle), old.await())
         assertEquals(fresh.await(), coordinator.execute(key) { error("old request replaced fresh cache") })
     }
+
+    @Test fun normal_request_joins_active_refresh_and_second_refresh_does_not_run_loader() = runTest {
+        val coordinator = VideoExtractionCoordinator(this)
+        val key = ContentKey(0, "refresh-generation")
+        val gate = CompletableDeferred<Unit>()
+        var refreshCalls = 0
+        val refresh = async { coordinator.execute(key, true) {
+            refreshCalls++; gate.await(); AppResult.Success(bundle(key))
+        } }
+        runCurrent()
+        val normal = async { coordinator.execute(key) { error("normal must join refresh") } }
+        val secondRefresh = async { coordinator.execute(key, true) { error("refresh must join refresh") } }
+        gate.complete(Unit)
+        assertEquals(refresh.await(), normal.await())
+        assertEquals(refresh.await(), secondRefresh.await())
+        assertEquals(1, refreshCalls)
+    }
+
+    @Test fun normal_replaced_by_refresh_cancelled_before_normal_c_late_a_cannot_poison_c() = runTest {
+        val coordinator = VideoExtractionCoordinator(this)
+        val key = ContentKey(0, "complex-race")
+        val gateA = CompletableDeferred<Unit>()
+        val gateB = CompletableDeferred<Unit>()
+        val gateC = CompletableDeferred<Unit>()
+        val bundleA = bundle(key).copy(details = bundle(key).details.copy(title = "A"))
+        val bundleB = bundle(key).copy(details = bundle(key).details.copy(title = "B"))
+        val bundleC = bundle(key).copy(details = bundle(key).details.copy(title = "C"))
+
+        var callsA = 0
+        var callsB = 0
+        var callsC = 0
+
+        // 1. Normal A starts
+        val jobA = async {
+            coordinator.execute(key) {
+                callsA++
+                gateA.await()
+                AppResult.Success(bundleA)
+            }
+        }
+        runCurrent()
+        assertEquals(1, callsA)
+
+        // 2. Normal A is replaced by refresh B
+        val jobB = async {
+            coordinator.execute(key, forceRefresh = true) {
+                callsB++
+                gateB.await()
+                AppResult.Success(bundleB)
+            }
+        }
+        runCurrent()
+        assertEquals(1, callsB)
+
+        // 3. B's only waiter is cancelled
+        jobB.cancel()
+        runCurrent()
+
+        // 4. Normal C starts
+        val jobC = async {
+            coordinator.execute(key) {
+                callsC++
+                gateC.await()
+                AppResult.Success(bundleC)
+            }
+        }
+        runCurrent()
+        assertEquals(1, callsC)
+
+        // 5. A completes late
+        gateA.complete(Unit)
+        assertEquals(AppResult.Success(bundleA), jobA.await())
+        runCurrent()
+
+        // 6. C completes
+        gateC.complete(Unit)
+        assertEquals(AppResult.Success(bundleC), jobC.await())
+
+        // A cannot poison C's cache, cached value must be C
+        val cached = coordinator.execute(key) { error("Cache should contain C") }
+        assertEquals(AppResult.Success(bundleC), cached)
+
+        // All in-flight entries clean up
+        assertEquals(0, coordinator.inFlightCountForTest)
+    }
 }

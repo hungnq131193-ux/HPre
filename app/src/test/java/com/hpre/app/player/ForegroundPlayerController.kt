@@ -9,7 +9,6 @@ import androidx.media3.common.PlaybackParameters
 import androidx.media3.common.Player
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.datasource.HttpDataSource
-import androidx.media3.exoplayer.DecoderReuseEvaluation
 import androidx.media3.exoplayer.analytics.AnalyticsListener
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.ui.PlayerView
@@ -23,12 +22,10 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.cancel
-import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
-import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
@@ -67,7 +64,6 @@ class ForegroundPlayerController(
     )
 
     private val scope = CoroutineScope(mainDispatcher + Job())
-    private var progressJob: Job? = null
     private var mediaOpJob: Job? = null
     private var recoveryJob: Job? = null
     private var mediaOperationGeneration: Long = 0L
@@ -151,11 +147,6 @@ class ForegroundPlayerController(
                     isPlaying = isPlaying,
                     playWhenReady = exoPlayer?.playWhenReady ?: false
                 )
-            }
-            if (isPlaying) {
-                startProgressTracker()
-            } else {
-                stopProgressTracker()
             }
         }
 
@@ -755,7 +746,6 @@ class ForegroundPlayerController(
         recoveryJob?.cancel()
         surfaceGeneration++
         scope.launch(mainDispatcher) {
-            stopProgressTracker()
             activeAnalyticsListener?.let { exoPlayer?.removeAnalyticsListener(it) }
             activeAnalyticsListener = null
             exoPlayer?.removeListener(playerListener)
@@ -772,29 +762,16 @@ class ForegroundPlayerController(
         }
     }
 
-    private fun startProgressTracker() {
-        stopProgressTracker()
-        if (isReleased) return
-        progressJob = scope.launch(mainDispatcher) {
-            while (isActive) {
-                exoPlayer?.let { player ->
-                    if (player.isPlaying) {
-                        _state.update {
-                            it.copy(
-                                currentPositionMs = player.currentPosition.coerceAtLeast(0L),
-                                durationMs = player.duration.coerceAtLeast(0L)
-                            )
-                        }
-                    }
-                }
-                delay(500)
-            }
+    override suspend fun readProgress(): PlaybackProgress = withContext(mainDispatcher) {
+        val player = exoPlayer
+        if (player != null) {
+            PlaybackProgress(
+                positionMs = player.currentPosition.coerceAtLeast(0L),
+                durationMs = player.duration.coerceAtLeast(0L)
+            )
+        } else {
+            _state.value.toProgress()
         }
-    }
-
-    private fun stopProgressTracker() {
-        progressJob?.cancel()
-        progressJob = null
     }
 
     override suspend fun getTestingSnapshot(): PlayerTestingSnapshot {

@@ -115,4 +115,60 @@ class PlayerControlsPolicyTest {
             )
         )
     }
+
+    @Test
+    fun progress_polling_policy_constants() {
+        assertEquals(500L, PlayerControlsPolicy.PROGRESS_POLL_INTERVAL_MS)
+    }
+
+    @Test
+    fun resolveEffectiveDurationMs_forces_zero_when_structural_duration_non_positive() {
+        assertEquals(
+            "Structural 0 forces 0 even if localProgress is positive",
+            0L,
+            PlayerControlsPolicy.resolveEffectiveDurationMs(
+                playbackStateDurationMs = 0L,
+                localProgressDurationMs = 60_000L
+            )
+        )
+
+        assertEquals(
+            "Structural negative forces 0 even if localProgress is positive",
+            0L,
+            PlayerControlsPolicy.resolveEffectiveDurationMs(
+                playbackStateDurationMs = -1L,
+                localProgressDurationMs = 60_000L
+            )
+        )
+    }
+
+    @Test
+    fun resolveEffectiveDurationMs_prefers_localProgress_when_structural_positive() {
+        assertEquals(
+            "Prefers positive localProgress when structural is positive",
+            75_000L,
+            PlayerControlsPolicy.resolveEffectiveDurationMs(
+                playbackStateDurationMs = 60_000L,
+                localProgressDurationMs = 75_000L
+            )
+        )
+
+        assertEquals(
+            "Fallbacks to structural when localProgress is 0",
+            60_000L,
+            PlayerControlsPolicy.resolveEffectiveDurationMs(
+                playbackStateDurationMs = 60_000L,
+                localProgressDurationMs = 0L
+            )
+        )
+
+        assertEquals(
+            "Fallbacks to structural when localProgress is negative",
+            60_000L,
+            PlayerControlsPolicy.resolveEffectiveDurationMs(
+                playbackStateDurationMs = 60_000L,
+                localProgressDurationMs = -100L
+            )
+        )
+    }
 }

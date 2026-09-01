@@ -21,6 +21,7 @@ import com.hpre.app.player.PlayerController
 import com.hpre.app.player.PlayerHttpConfig
 import com.hpre.app.player.SessionPlayerController
 import com.hpre.app.player.AppScopedPlayerControllerProvider
+import com.hpre.app.player.ConnectionPurpose
 import com.hpre.app.player.StreamRecoveryCoordinator
 import com.hpre.app.repository.CatalogRepository
 import com.hpre.app.repository.RecommendationRepository
@@ -43,6 +44,9 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import okhttp3.OkHttpClient
+import java.util.concurrent.atomic.AtomicBoolean
+import kotlin.coroutines.cancellation.CancellationException
+import kotlinx.coroutines.withContext
 
 /**
  * Dependency injection container for application-level components.
@@ -82,12 +86,14 @@ interface AppContainer {
         }
     fun createPlayerController(): PlayerController
 
+    fun prewarmPlaybackInfrastructure(): Unit = Unit
+
     /**
      * Playback state that can be observed without constructing the player.
      *
      * UI that merely reacts to playback (mini player visibility, PiP eligibility) collects this
-     * instead of touching [createPlayerController], so opening the app on Home never builds
-     * ExoPlayer, [MediaSourceFactory] or the recovery coordinator.
+     * instead of touching [createPlayerController]. Opening the app on Home avoids constructing
+     * ExoPlayer during cold-start render; pre-warming occurs only asynchronously after Home reaches idle.
      *
      * The default implementation falls back to the controller's own state so test doubles keep
      * their existing behaviour.
@@ -117,12 +123,46 @@ internal fun interface ApplicationContainerFactory {
     fun createContainer(application: Application): AppContainer
 }
 
+/**
+ * Top-level internal orchestration helper for prewarming playback infrastructure.
+ *
+ * Guarantees single-execution (idempotent), strictly executes [initMediaSourceFactory] on
+ * [ioDispatcher] before executing [initPlayerController] on [mainDispatcher], and catches
+ * non-cancellation exceptions while preserving [CancellationException].
+ */
+internal fun orchestratePlaybackPrewarm(
+    guard: AtomicBoolean,
+    scope: CoroutineScope,
+    ioDispatcher: kotlinx.coroutines.CoroutineDispatcher,
+    mainDispatcher: kotlinx.coroutines.CoroutineDispatcher,
+    initMediaSourceFactory: () -> Unit,
+    initPlayerController: () -> Unit
+) {
+    if (!guard.compareAndSet(false, true)) return
+    scope.launch {
+        try {
+            withContext(ioDispatcher) {
+                initMediaSourceFactory()
+            }
+            withContext(mainDispatcher) {
+                initPlayerController()
+            }
+        } catch (e: CancellationException) {
+            throw e
+        } catch (_: Exception) {
+            // Non-cancellation exceptions are swallowed so normal lazy video-open remains fallback
+        }
+    }
+}
+
 class DefaultAppContainer(
     context: Context,
     override val applicationScope: CoroutineScope = CoroutineScope(SupervisorJob() + Dispatchers.Default),
-    override val okHttpClient: OkHttpClient = OkHttpDownloader.defaultClient()
+    override val okHttpClient: OkHttpClient = OkHttpDownloader.defaultClient(),
+    internal val ioDispatcher: kotlinx.coroutines.CoroutineDispatcher = Dispatchers.IO,
+    internal val mainDispatcher: kotlinx.coroutines.CoroutineDispatcher = Dispatchers.Main
 ) : AppContainer {
-    private val appContext = context.applicationContext
+    private val appContext: Context = context.applicationContext
 
     override val database: HPreDatabase by lazy {
         Room.databaseBuilder(
@@ -220,6 +260,24 @@ class DefaultAppContainer(
         GitHubReleaseUpdateChecker(okHttpClient)
     }
 
+    private val prewarmed = AtomicBoolean(false)
+
+    override fun prewarmPlaybackInfrastructure() {
+        orchestratePlaybackPrewarm(
+            guard = prewarmed,
+            scope = applicationScope,
+            ioDispatcher = ioDispatcher,
+            mainDispatcher = mainDispatcher,
+            initMediaSourceFactory = { mediaSourceFactory },
+            initPlayerController = {
+                createPlayerControllerForPrewarm()
+            }
+        )
+    }
+
+    private fun createPlayerControllerForPrewarm(): PlayerController =
+        sessionPlayerController.get(initialPurpose = ConnectionPurpose.PREWARM)
+
     @Volatile
     private var backgroundPlaybackEnabled = true
     @Volatile
@@ -236,14 +294,15 @@ class DefaultAppContainer(
 
     override val playbackState: StateFlow<PlaybackState> = mirroredPlaybackState.asStateFlow()
 
-    private val sessionPlayerController = AppScopedPlayerControllerProvider {
+    private val sessionPlayerController = AppScopedPlayerControllerProvider { initialPurpose ->
         val coordinator = StreamRecoveryCoordinator(videoService = videoService)
         SessionPlayerController(
             context = appContext,
             mediaSourceFactory = mediaSourceFactory,
             recoveryCoordinator = coordinator,
             snapshotStore = playbackSnapshotStore,
-            externalScope = applicationScope
+            externalScope = applicationScope,
+            initialPurpose = initialPurpose
         ).also { controller ->
             controller.updateLifecyclePolicy(
                 backgroundEnabled = backgroundPlaybackEnabled,
@@ -255,7 +314,8 @@ class DefaultAppContainer(
         }
     }
 
-    override fun createPlayerController(): PlayerController = sessionPlayerController.get()
+    override fun createPlayerController(): PlayerController =
+        sessionPlayerController.get(initialPurpose = ConnectionPurpose.NORMAL)
 
     override fun peekPlayerController(): PlayerController? = sessionPlayerController.getIfInitialized()
 

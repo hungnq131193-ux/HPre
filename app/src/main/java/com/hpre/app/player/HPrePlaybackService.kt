@@ -48,10 +48,34 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
+internal fun decideSessionRestore(
+    alreadyEvaluated: Boolean,
+    isPrewarm: Boolean
+): Boolean {
+    if (alreadyEvaluated) return false
+    return !isPrewarm
+}
+
+/**
+ * Service session restore decision.
+ *
+ * Connection hints from the same UID are trusted because only app-internal authorized controllers
+ * (verified via PlaybackPolicy.isControllerAuthorized matching packageName and Process.myUid()) are accepted.
+ */
+internal fun decideSessionRestore(
+    alreadyEvaluated: Boolean,
+    connectionHints: Bundle?
+): Boolean {
+    val isPrewarm = connectionHints?.getBoolean(HPrePlaybackService.KEY_INFRASTRUCTURE_PREWARM, false) == true
+    return decideSessionRestore(alreadyEvaluated, isPrewarm)
+}
+
 @OptIn(UnstableApi::class)
 class HPrePlaybackService : MediaSessionService() {
 
     companion object {
+        const val KEY_INFRASTRUCTURE_PREWARM = "extra_infrastructure_prewarm"
+
         const val CUSTOM_COMMAND_SELECT_QUALITY = "com.hpre.app.CUSTOM_COMMAND_SELECT_QUALITY"
         const val CUSTOM_COMMAND_SET_QUALITY_POLICY = "com.hpre.app.CUSTOM_COMMAND_SET_QUALITY_POLICY"
         const val CUSTOM_COMMAND_PREPARE_STREAM = "com.hpre.app.CUSTOM_COMMAND_PREPARE_STREAM"
@@ -179,7 +203,18 @@ class HPrePlaybackService : MediaSessionService() {
         }
 
         ensurePlayerAndSessionInitialized()
-        restorePersistedSession(prefs)
+    }
+
+    private var sessionRestoreEvaluated: Boolean = false
+
+    internal fun onControllerConnected(connectionHints: Bundle?) {
+        val shouldRestore = decideSessionRestore(sessionRestoreEvaluated, connectionHints)
+        sessionRestoreEvaluated = true
+        if (shouldRestore) {
+            val app = application as? HPreApplication
+            val prefs = app?.container?.playbackPreferences
+            restorePersistedSession(prefs)
+        }
     }
 
     private fun ensurePlayerAndSessionInitialized() {
@@ -924,6 +959,7 @@ class HPrePlaybackService : MediaSessionService() {
             if (!isAuthorized) {
                 return MediaSession.ConnectionResult.reject()
             }
+            onControllerConnected(controller.connectionHints)
             val availableCommands = MediaSession.ConnectionResult.DEFAULT_SESSION_COMMANDS
                 .buildUpon()
                 .add(SessionCommand(CUSTOM_COMMAND_PREPARE_STREAM, Bundle.EMPTY))

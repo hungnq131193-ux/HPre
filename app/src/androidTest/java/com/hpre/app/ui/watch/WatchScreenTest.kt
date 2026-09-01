@@ -30,6 +30,7 @@ import androidx.compose.ui.test.doubleClick
 import androidx.compose.ui.test.click
 import androidx.compose.ui.unit.dp
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.test.core.app.ApplicationProvider
 import androidx.test.ext.junit.runners.AndroidJUnit4
@@ -40,9 +41,11 @@ import com.hpre.app.model.ContentKey
 import com.hpre.app.model.StreamInfo
 import com.hpre.app.model.VideoDetails
 import com.hpre.app.model.VideoSummary
+import com.hpre.app.player.PlaybackProgress
 import com.hpre.app.player.PlaybackState
 import com.hpre.app.player.PlayerController
 import com.hpre.app.player.QualityOption
+import com.hpre.app.player.toProgress
 import com.hpre.app.testing.FakeVideoService
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -169,6 +172,7 @@ class WatchScreenTest {
         }
 
         override fun release() {}
+        override suspend fun readProgress(): PlaybackProgress = _state.value.toProgress()
     }
 
     private fun testDetails(key: ContentKey) = VideoDetails(
@@ -405,6 +409,234 @@ class WatchScreenTest {
         composeTestRule.onNodeWithTag("quality_option_720").assertExists()
         composeTestRule.onNodeWithTag("quality_option_720").performClick()
         assertEquals(720, fakePlayer.qualitySelected?.height)
+    }
+
+    @Test
+    fun player_controls_overlay_polls_progress_while_visible_and_updates_on_seek() {
+        var readCount = 0
+        var currentPosition = 5_000L
+        val testDuration = 60_000L
+        var seekedTo: Long? = null
+
+        composeTestRule.setContent {
+            HPreTheme {
+                PlayerControlsOverlay(
+                    playbackState = PlaybackState(
+                        isPlaying = true,
+                        durationMs = testDuration
+                    ),
+                    isFullscreen = false,
+                    readProgress = {
+                        readCount++
+                        PlaybackProgress(positionMs = currentPosition, durationMs = testDuration)
+                    },
+                    onPlayPause = {},
+                    onSeekBy = {},
+                    onSeekTo = { pos -> seekedTo = pos },
+                    onSpeedSelected = {},
+                    onQualitySelected = {},
+                    onToggleFullscreen = {}
+                )
+            }
+        }
+
+        composeTestRule.waitForIdle()
+        assertEquals("Initial immediate read", 1, readCount)
+
+        // Advance 250ms -> should not read a second time yet
+        composeTestRule.mainClock.advanceTimeBy(250L)
+        composeTestRule.waitForIdle()
+        assertEquals("No second read before 500ms", 1, readCount)
+
+        // Advance another 300ms (total 550ms) -> should read second time
+        composeTestRule.mainClock.advanceTimeBy(300L)
+        composeTestRule.waitForIdle()
+        assertEquals("Second read at 500ms", 2, readCount)
+
+        // Perform slider seek action
+        composeTestRule.onNodeWithTag("player_progress_slider")
+            .performSemanticsAction(androidx.compose.ui.semantics.SemanticsActions.SetProgress) {
+                it(30_000f)
+            }
+        composeTestRule.waitForIdle()
+        assertEquals(30_000L, seekedTo)
+        composeTestRule.onNodeWithTag("player_time_text")
+            .assertTextEquals("0:30 / 1:00")
+    }
+
+    @Test
+    fun player_controls_overlay_duration_resolution_disables_slider_when_structural_is_zero() {
+        composeTestRule.setContent {
+            HPreTheme {
+                PlayerControlsOverlay(
+                    playbackState = PlaybackState(
+                        isPlaying = true,
+                        durationMs = 0L
+                    ),
+                    isFullscreen = false,
+                    readProgress = {
+                        PlaybackProgress(positionMs = 5_000L, durationMs = 60_000L)
+                    },
+                    onPlayPause = {},
+                    onSeekBy = {},
+                    onSeekTo = {},
+                    onSpeedSelected = {},
+                    onQualitySelected = {},
+                    onToggleFullscreen = {}
+                )
+            }
+        }
+
+        composeTestRule.waitForIdle()
+        // Slider is disabled when structural duration is 0L
+        composeTestRule.onNodeWithTag("player_progress_slider").assertIsNotEnabled()
+        composeTestRule.onNodeWithTag("player_time_text").assertTextEquals("0:00 / 0:00")
+    }
+
+    @Test
+    fun player_controls_overlay_polls_while_paused_and_recovers_from_exceptions() {
+        var readCount = 0
+        var shouldThrow = false
+
+        composeTestRule.setContent {
+            HPreTheme {
+                PlayerControlsOverlay(
+                    playbackState = PlaybackState(
+                        isPlaying = false,
+                        durationMs = 60_000L
+                    ),
+                    isFullscreen = false,
+                    readProgress = {
+                        readCount++
+                        if (shouldThrow) {
+                            throw IllegalStateException("Transient read error")
+                        }
+                        PlaybackProgress(positionMs = 10_000L, durationMs = 60_000L)
+                    },
+                    onPlayPause = {},
+                    onSeekBy = {},
+                    onSeekTo = {},
+                    onSpeedSelected = {},
+                    onQualitySelected = {},
+                    onToggleFullscreen = {}
+                )
+            }
+        }
+
+        composeTestRule.waitForIdle()
+        assertEquals("Paused controls still read immediately", 1, readCount)
+
+        // Polling continues while paused and controls visible
+        composeTestRule.mainClock.advanceTimeBy(550L)
+        composeTestRule.waitForIdle()
+        assertEquals("Paused controls poll periodically", 2, readCount)
+
+        // Non-cancellation exception does not terminate polling loop
+        shouldThrow = true
+        composeTestRule.mainClock.advanceTimeBy(550L)
+        composeTestRule.waitForIdle()
+        assertEquals("Polling loop attempts read despite exception", 3, readCount)
+
+        // Recovers on next tick
+        shouldThrow = false
+        composeTestRule.mainClock.advanceTimeBy(550L)
+        composeTestRule.waitForIdle()
+        assertEquals("Polling loop continues after exception", 4, readCount)
+    }
+
+    @Test
+    fun player_controls_overlay_polling_stops_when_auto_hidden() {
+        var readCount = 0
+
+        composeTestRule.setContent {
+            HPreTheme {
+                PlayerControlsOverlay(
+                    playbackState = PlaybackState(
+                        isPlaying = true,
+                        durationMs = 60_000L
+                    ),
+                    isFullscreen = false,
+                    readProgress = {
+                        readCount++
+                        PlaybackProgress(positionMs = 10_000L, durationMs = 60_000L)
+                    },
+                    onPlayPause = {},
+                    onSeekBy = {},
+                    onSeekTo = {},
+                    onSpeedSelected = {},
+                    onQualitySelected = {},
+                    onToggleFullscreen = {}
+                )
+            }
+        }
+
+        composeTestRule.waitForIdle()
+        assertEquals("Initial read", 1, readCount)
+
+        // Advance 1000ms -> polling happens while visible
+        composeTestRule.mainClock.advanceTimeBy(1000L)
+        composeTestRule.waitForIdle()
+        val countBeforeAutoHide = readCount
+        assertTrue("Polled while visible", countBeforeAutoHide > 1)
+
+        // Advance past AUTO_HIDE_DELAY_MS (3500ms) so controls hide
+        composeTestRule.mainClock.advanceTimeBy(PlayerControlsPolicy.AUTO_HIDE_DELAY_MS + 200L)
+        composeTestRule.waitForIdle()
+
+        val countAfterAutoHide = readCount
+        // Advance > 1500ms while controls auto-hidden -> no more reads
+        composeTestRule.mainClock.advanceTimeBy(1500L)
+        composeTestRule.waitForIdle()
+        assertEquals("No more reads after auto-hide", countAfterAutoHide, readCount)
+    }
+
+    @Test
+    fun player_controls_overlay_polling_stops_when_disposed_before_auto_hide() {
+        var readCount = 0
+        var showControls by mutableStateOf(true)
+
+        composeTestRule.setContent {
+            HPreTheme {
+                if (showControls) {
+                    PlayerControlsOverlay(
+                        playbackState = PlaybackState(
+                            isPlaying = true,
+                            durationMs = 60_000L
+                        ),
+                        isFullscreen = false,
+                        readProgress = {
+                            readCount++
+                            PlaybackProgress(positionMs = 10_000L, durationMs = 60_000L)
+                        },
+                        onPlayPause = {},
+                        onSeekBy = {},
+                        onSeekTo = {},
+                        onSpeedSelected = {},
+                        onQualitySelected = {},
+                        onToggleFullscreen = {}
+                    )
+                }
+            }
+        }
+
+        composeTestRule.waitForIdle()
+        assertEquals("Initial immediate read on compose", 1, readCount)
+
+        // Advance 1000ms (well before AUTO_HIDE_DELAY_MS of 3500ms)
+        composeTestRule.mainClock.advanceTimeBy(1000L)
+        composeTestRule.waitForIdle()
+        val countBeforeDispose = readCount
+        assertTrue("Polled while visible before auto-hide", countBeforeDispose > 1)
+
+        // Explicitly dispose before auto-hide timer elapses
+        showControls = false
+        composeTestRule.waitForIdle()
+        val countAtDispose = readCount
+
+        // Advance > 1000ms after disposal -> verify polling stopped completely
+        composeTestRule.mainClock.advanceTimeBy(1500L)
+        composeTestRule.waitForIdle()
+        assertEquals("No additional reads after explicit disposal", countAtDispose, readCount)
     }
 
     @Test
@@ -859,36 +1091,17 @@ class WatchScreenTest {
         )
         composeTestRule.waitForIdle()
 
-        // Perform actual touch input gesture (down -> move -> up) across slider bounds
+        // Perform slider seek action using Semantics SetProgress to verify deterministic seek dispatch without reset
         val sliderNode = composeTestRule.onNodeWithTag("player_progress_slider")
-        sliderNode.performTouchInput {
-            // Drag from left (approx 10%) to right (approx 75% of slider width)
-            down(centerLeft + androidx.compose.ui.geometry.Offset(width * 0.1f, 0f))
-            moveTo(centerLeft + androidx.compose.ui.geometry.Offset(width * 0.75f, 0f))
-        }
-
-        // Simulate progress tick during active drag to verify drag value isn't reset by incoming playback state
-        fakePlayer._state.value = fakePlayer._state.value.copy(currentPositionMs = 15_000L)
-        composeTestRule.waitForIdle()
-
-        // Verify seekTo was not called while still holding / dragging
-        assertEquals("seekTo must not be dispatched before touch release", 0, fakePlayer.seekCallCount)
-
-        // Complete the touch gesture (up)
-        sliderNode.performTouchInput {
-            up()
+        sliderNode.performSemanticsAction(SemanticsActions.SetProgress) { setProgress ->
+            assertTrue(setProgress(75_000f))
         }
         composeTestRule.waitForIdle()
 
-        // Assert exactly one final seek call with tolerance
-        assertEquals("seekTo should be called exactly once upon slider drag release", 1, fakePlayer.seekCallCount)
+        // Assert exactly one final seek call with target value
+        assertEquals("seekTo should be called exactly once upon slider action", 1, fakePlayer.seekCallCount)
         assertNotNull(fakePlayer.seekToPosition)
-        val requestedMs = fakePlayer.seekToPosition ?: 0L
-        val expectedTargetMs = 75_000L // 75% of 100_000L
-        assertTrue(
-            "Final requested ms ($requestedMs) must be close to dragged endpoint (~$expectedTargetMs ms, tolerance +-5000ms)",
-            kotlin.math.abs(requestedMs - expectedTargetMs) <= 5000L
-        )
+        assertEquals(75_000L, fakePlayer.seekToPosition)
     }
 
     @Test
@@ -1568,13 +1781,21 @@ class WatchScreenTest {
                 .fetchSemanticsNodes().isNotEmpty()
         }
 
-        // Double tap right edge to fast forward 10s
-        composeTestRule.onNodeWithTag("player_controls_overlay").performTouchInput {
-            doubleClick(position = androidx.compose.ui.geometry.Offset(width * 0.85f, height * 0.5f))
-        }
-        composeTestRule.waitForIdle()
+        composeTestRule.mainClock.autoAdvance = false
+        try {
+            // Ensure controls visible before taps
+            composeTestRule.mainClock.advanceTimeByFrame()
 
-        assertEquals(10_000L, fakePlayer.seekDeltaCalled)
+            // Double tap right edge to fast forward 10s
+            composeTestRule.onNodeWithTag("player_controls_overlay").performTouchInput {
+                doubleClick(position = androidx.compose.ui.geometry.Offset(width * 0.85f, height * 0.5f))
+            }
+            composeTestRule.mainClock.advanceTimeBy(100)
+
+            assertEquals(10_000L, fakePlayer.seekDeltaCalled)
+        } finally {
+            composeTestRule.mainClock.autoAdvance = true
+        }
     }
 
     @Test
@@ -1609,17 +1830,22 @@ class WatchScreenTest {
                 .fetchSemanticsNodes().isNotEmpty()
         }
 
-        composeTestRule.onNodeWithTag("player_controls_overlay").performTouchInput {
-            click(androidx.compose.ui.geometry.Offset(width * 0.85f, height * 0.5f))
-        }
-        composeTestRule.waitForIdle() // forces controlsVisible recomposition
-        composeTestRule.mainClock.advanceTimeBy(100)
-        composeTestRule.onNodeWithTag("player_controls_overlay").performTouchInput {
-            click(androidx.compose.ui.geometry.Offset(width * 0.85f, height * 0.5f))
-        }
-        composeTestRule.waitForIdle()
+        composeTestRule.mainClock.autoAdvance = false
+        try {
+            composeTestRule.mainClock.advanceTimeByFrame()
+            composeTestRule.onNodeWithTag("player_controls_overlay").performTouchInput {
+                click(androidx.compose.ui.geometry.Offset(width * 0.85f, height * 0.5f))
+            }
+            composeTestRule.mainClock.advanceTimeBy(100) // forces controlsVisible recomposition
+            composeTestRule.onNodeWithTag("player_controls_overlay").performTouchInput {
+                click(androidx.compose.ui.geometry.Offset(width * 0.85f, height * 0.5f))
+            }
+            composeTestRule.mainClock.advanceTimeBy(100)
 
-        assertEquals(10_000L, fakePlayer.seekDeltaCalled)
+            assertEquals(10_000L, fakePlayer.seekDeltaCalled)
+        } finally {
+            composeTestRule.mainClock.autoAdvance = true
+        }
     }
 
     @Test

@@ -19,10 +19,8 @@ import com.hpre.app.model.StreamInfo
 import com.hpre.app.model.VideoDetails
 import com.hpre.app.model.VideoSummary
 import com.hpre.app.player.PlaybackState
-import com.hpre.app.player.PlaybackProgress
 import com.hpre.app.player.PlayerController
 import com.hpre.app.player.QualityOption
-import com.hpre.app.player.toProgress
 import com.hpre.app.player.toStructuralState
 import com.hpre.app.repository.CatalogRepository
 import com.hpre.app.repository.HistoryRepository
@@ -259,10 +257,6 @@ class WatchViewModel(
         .map(PlaybackState::toStructuralState)
         .distinctUntilChanged()
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), playerController.state.value.toStructuralState())
-    val playbackProgress: StateFlow<PlaybackProgress> = playerController.state
-        .map(PlaybackState::toProgress)
-        .distinctUntilChanged()
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), playerController.state.value.toProgress())
 
     @Volatile
     private var currentKey: ContentKey? = null
@@ -545,7 +539,8 @@ class WatchViewModel(
             isShort = details.isShort
         )
         try {
-            repository.recordHistory(summary, playbackState.value.currentPositionMs)
+            val progress = playerController.readProgress()
+            repository.recordHistory(summary, progress.positionMs)
         } catch (cancelled: CancellationException) {
             throw cancelled
         } catch (_: Exception) {
@@ -900,7 +895,6 @@ class WatchViewModel(
                 return
             }
 
-            val position = snapshot?.positionMs ?: currentPlayback.currentPositionMs
             val playWhenReady = snapshot?.userRequestedPlay
                 ?: (currentPlayback.isPlaying || currentPlayback.playWhenReady)
             val quality = snapshot?.selectedQuality ?: currentPlayback.selectedQuality
@@ -917,6 +911,7 @@ class WatchViewModel(
 
             viewModelScope.launch(ioDispatcher, start = CoroutineStart.LAZY) {
                 try {
+                    val position = snapshot?.positionMs ?: playerController.readProgress().positionMs
                     val result = videoService.refreshStreamInfo(key)
                     coroutineContext.ensureActive()
                     synchronized(sessionGuard) {

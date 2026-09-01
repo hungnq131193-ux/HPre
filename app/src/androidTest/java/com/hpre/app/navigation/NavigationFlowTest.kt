@@ -139,6 +139,10 @@ class NavigationFlowTest {
             override fun setPlaybackSpeed(speed: Float) {}
             override fun selectQuality(quality: com.hpre.app.player.QualityOption) {}
             override fun release() {}
+            override suspend fun readProgress(): com.hpre.app.player.PlaybackProgress = com.hpre.app.player.PlaybackProgress(
+                positionMs = _state.value.currentPositionMs,
+                durationMs = _state.value.durationMs
+            )
         }
         override fun createPlayerController(): com.hpre.app.player.PlayerController = playerController
     }

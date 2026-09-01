@@ -1,5 +1,11 @@
 package com.hpre.app.ui.player
 
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.semantics.ProgressBarRangeInfo
+import androidx.compose.ui.test.SemanticsMatcher
+import androidx.compose.ui.test.assert
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithTag
@@ -9,11 +15,16 @@ import androidx.test.ext.junit.runners.AndroidJUnit4
 import com.hpre.app.core.designsystem.HPreTheme
 import com.hpre.app.model.ContentKey
 import com.hpre.app.model.StreamInfo
+import com.hpre.app.player.PlaybackProgress
 import com.hpre.app.player.PlaybackState
 import com.hpre.app.player.PlayerController
 import com.hpre.app.player.QualityOption
+import com.hpre.app.player.toProgress
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.launch
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Rule
@@ -56,6 +67,7 @@ class MiniPlayerTest {
         override fun setPlaybackSpeed(speed: Float) {}
         override fun selectQuality(quality: QualityOption) {}
         override fun release() {}
+        override suspend fun readProgress(): PlaybackProgress = _state.value.toProgress()
     }
 
     @Test
@@ -124,5 +136,87 @@ class MiniPlayerTest {
         // Expand interaction
         composeTestRule.onNodeWithTag("mini_player_container").performClick()
         assertEquals(key, expandedKey)
+    }
+
+    @Test
+    fun mini_player_progress_polls_without_state_flow_emission() {
+        var readCount = 0
+        var currentPos = 10_000L
+        var stateEmissionCount = 0
+        val fakeState = MutableStateFlow(
+            PlaybackState(
+                key = ContentKey(0, "poll_test"),
+                title = "Polling Test",
+                isPlaying = true,
+                durationMs = 100_000L
+            )
+        )
+        val controller = object : PlayerController by FakeMiniPlayerController() {
+            override val state: StateFlow<PlaybackState> = fakeState
+
+            override suspend fun readProgress(): PlaybackProgress {
+                readCount++
+                return PlaybackProgress(positionMs = currentPos, durationMs = 100_000L)
+            }
+        }
+
+        // Collect state emissions in background to verify no extra emissions happen
+        val job = CoroutineScope(Dispatchers.Unconfined).launch {
+            controller.state.collect { stateEmissionCount++ }
+        }
+
+        var showMiniPlayer by mutableStateOf(true)
+
+        composeTestRule.setContent {
+            HPreTheme {
+                if (showMiniPlayer) {
+                    MiniPlayer(
+                        playerController = controller,
+                        onExpandWatch = {},
+                        onDismiss = {}
+                    )
+                }
+            }
+        }
+
+        composeTestRule.waitForIdle()
+        assertEquals("Initial read on composition", 1, readCount)
+        assertEquals("Initial state collection emission", 1, stateEmissionCount)
+
+        // Progress semantics initially at 0.1f (10_000 / 100_000)
+        composeTestRule.onNodeWithTag("mini_player_progress")
+            .assert(SemanticsMatcher.expectValue(androidx.compose.ui.semantics.SemanticsProperties.ProgressBarRangeInfo, ProgressBarRangeInfo(0.1f, 0f..1f)))
+
+        // Advance Compose main clock by 250ms -> no second read yet
+        composeTestRule.mainClock.advanceTimeBy(250L)
+        composeTestRule.waitForIdle()
+        assertEquals("No second read before 500ms", 1, readCount)
+        assertEquals("No state emissions during wait", 1, stateEmissionCount)
+
+        // Advance by 300ms -> polled at 500ms
+        currentPos = 50_000L
+        composeTestRule.mainClock.advanceTimeBy(300L)
+        composeTestRule.waitForIdle()
+        assertEquals("Polled at 500ms", 2, readCount)
+        assertEquals("No state emissions during polling update", 1, stateEmissionCount)
+
+        // Progress semantics updated to 0.5f (50_000 / 100_000)
+        composeTestRule.onNodeWithTag("mini_player_progress")
+            .assert(SemanticsMatcher.expectValue(androidx.compose.ui.semantics.SemanticsProperties.ProgressBarRangeInfo, ProgressBarRangeInfo(0.5f, 0f..1f)))
+
+        // Progress bar exists and is displayed
+        composeTestRule.onNodeWithTag("mini_player_progress").assertExists().assertIsDisplayed()
+
+        // Dispose MiniPlayer -> polling stops
+        showMiniPlayer = false
+        composeTestRule.waitForIdle()
+        val countAfterDispose = readCount
+
+        composeTestRule.mainClock.advanceTimeBy(1000L)
+        composeTestRule.waitForIdle()
+        assertEquals("Polling stopped after dispose", countAfterDispose, readCount)
+        assertEquals("State flow remained unchanged throughout", 1, stateEmissionCount)
+
+        job.cancel()
     }
 }

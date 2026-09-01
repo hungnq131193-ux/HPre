@@ -75,9 +75,11 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.hpre.app.R
 import com.hpre.app.core.designsystem.MinimumTouchTarget
+import com.hpre.app.player.PlaybackProgress
 import com.hpre.app.player.PlaybackState
 import com.hpre.app.player.PlaybackStreamType
 import com.hpre.app.player.QualityOption
+import com.hpre.app.player.toProgress
 import kotlinx.coroutines.delay
 
 /** How long the double-tap seek badge stays on screen. */
@@ -94,6 +96,7 @@ private val SEEK_THUMB_ACTIVE = 14.dp
  */
 object PlayerControlsPolicy {
     const val AUTO_HIDE_DELAY_MS = 3500L
+    const val PROGRESS_POLL_INTERVAL_MS = 500L
 
     /**
      * Controls only fade out while playback actually advances and the user is not busy: an open
@@ -105,6 +108,22 @@ object PlayerControlsPolicy {
         isMenuOpen: Boolean,
         isScrubbing: Boolean
     ): Boolean = controlsVisible && isPlaying && !isMenuOpen && !isScrubbing
+
+    /**
+     * Pure effective duration resolution rule for PlayerControls:
+     * When structural [playbackStateDurationMs] <= 0, force 0L / disabled immediately.
+     * Otherwise prefer [localProgressDurationMs] if > 0, fallback to [playbackStateDurationMs].
+     */
+    fun resolveEffectiveDurationMs(
+        playbackStateDurationMs: Long,
+        localProgressDurationMs: Long
+    ): Long = if (playbackStateDurationMs <= 0L) {
+        0L
+    } else if (localProgressDurationMs > 0L) {
+        localProgressDurationMs
+    } else {
+        playbackStateDurationMs
+    }
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -119,11 +138,15 @@ fun PlayerControlsOverlay(
     onQualitySelected: (QualityOption) -> Unit,
     onToggleFullscreen: () -> Unit,
     modifier: Modifier = Modifier,
+    readProgress: suspend () -> PlaybackProgress = { playbackState.toProgress() },
     onMinimizeToHome: () -> Unit = {},
     minimizeEnabled: Boolean = true,
     isInPip: Boolean = false
 ) {
     var controlsVisible by remember { mutableStateOf(true) }
+    var localProgress by remember(playbackState.key, playbackState.durationMs) {
+        mutableStateOf(playbackState.toProgress())
+    }
     var isSpeedMenuOpen by remember { mutableStateOf(false) }
     var isQualityMenuOpen by remember { mutableStateOf(false) }
     var isDragging by remember { mutableStateOf(false) }
@@ -134,6 +157,21 @@ fun PlayerControlsOverlay(
     // dismiss timer instead of being swallowed as an unchanged state.
     var seekFeedback by remember { mutableStateOf(SeekGesture.NONE) }
     var feedbackNonce by remember { mutableIntStateOf(0) }
+
+    val currentReadProgress = rememberUpdatedState(readProgress)
+
+    LaunchedEffect(controlsVisible, playbackState.key) {
+        if (controlsVisible) {
+            while (true) {
+                try {
+                    localProgress = currentReadProgress.value()
+                } catch (e: Exception) {
+                    if (e is kotlinx.coroutines.CancellationException) throw e
+                }
+                delay(PlayerControlsPolicy.PROGRESS_POLL_INTERVAL_MS)
+            }
+        }
+    }
 
     // Map of active protected control bounds in local overlay coordinates
     val protectedControlBounds = remember { mutableMapOf<String, Rect>() }
@@ -721,14 +759,19 @@ fun PlayerControlsOverlay(
                         registerProtectedBounds("bottom_bar", coordinates)
                     }
             ) {
-                // Seek slider: disabled when duration <= 0 (no fake 1ms duration)
-                val isSeekEnabled = playbackState.durationMs > 0L
-                val duration = if (isSeekEnabled) playbackState.durationMs.toFloat() else 0f
+                // Seek slider: when structural playbackState.durationMs <= 0 force 0/disabled immediately;
+                // otherwise prefer localProgress.durationMs if > 0, fallback to structural duration.
+                val effectiveDurationMs = PlayerControlsPolicy.resolveEffectiveDurationMs(
+                    playbackStateDurationMs = playbackState.durationMs,
+                    localProgressDurationMs = localProgress.durationMs
+                )
+                val isSeekEnabled = effectiveDurationMs > 0L
+                val duration = if (isSeekEnabled) effectiveDurationMs.toFloat() else 0f
 
                 val sliderValue = if (isDragging) {
                     dragPosition
                 } else if (isSeekEnabled) {
-                    playbackState.currentPositionMs.toFloat().coerceIn(0f, duration)
+                    localProgress.positionMs.toFloat().coerceIn(0f, duration)
                 } else {
                     0f
                 }
@@ -744,7 +787,8 @@ fun PlayerControlsOverlay(
                     },
                     onValueChangeFinished = {
                         if (isSeekEnabled) {
-                            val target = dragPosition.toLong().coerceIn(0L, playbackState.durationMs)
+                            val target = dragPosition.toLong().coerceIn(0L, effectiveDurationMs)
+                            localProgress = localProgress.copy(positionMs = target)
                             isDragging = false
                             keepControlsAlive()
                             onSeekTo(target)
@@ -785,16 +829,16 @@ fun PlayerControlsOverlay(
                         ) {
                             Box(
                                 modifier = Modifier
-                                    .fillMaxWidth(fraction)
-                                    .height(SEEK_TRACK_HEIGHT)
-                                    .clip(RoundedCornerShape(percent = 50))
-                                    .background(
-                                        if (isSeekEnabled) {
-                                            MaterialTheme.colorScheme.primary
-                                        } else {
-                                            Color.Gray
-                                        }
-                                    )
+                                .fillMaxWidth(fraction)
+                                .height(SEEK_TRACK_HEIGHT)
+                                .clip(RoundedCornerShape(percent = 50))
+                                .background(
+                                    if (isSeekEnabled) {
+                                        MaterialTheme.colorScheme.primary
+                                    } else {
+                                        Color.Gray
+                                    }
+                                )
                             )
                         }
                     },
@@ -830,7 +874,8 @@ fun PlayerControlsOverlay(
                         .semantics {
                             if (isSeekEnabled) {
                                 setProgress { targetValue ->
-                                    val target = targetValue.toLong().coerceIn(0L, playbackState.durationMs)
+                                    val target = targetValue.toLong().coerceIn(0L, effectiveDurationMs)
+                                    localProgress = localProgress.copy(positionMs = target)
                                     onSeekTo(target)
                                     true
                                 }
@@ -844,9 +889,9 @@ fun PlayerControlsOverlay(
                     horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    val displayPosition = if (isDragging) dragPosition.toLong() else playbackState.currentPositionMs
+                    val displayPosition = if (!isSeekEnabled) 0L else if (isDragging) dragPosition.toLong() else localProgress.positionMs
                     Text(
-                        text = "${formatTime(displayPosition)} / ${formatTime(playbackState.durationMs)}",
+                        text = "${formatTime(displayPosition)} / ${formatTime(effectiveDurationMs)}",
                         color = Color.White,
                         fontSize = 12.sp,
                         modifier = Modifier.testTag("player_time_text")
