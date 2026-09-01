@@ -11,9 +11,19 @@ import org.junit.Test
 class PlayerSurfacePolicyTest {
 
     @Test
-    fun `surface always fits the complete frame without crop or distortion`() {
-        assertEquals(AspectRatioFrameLayout.RESIZE_MODE_FIT, PlayerSurfacePolicy.resizeMode)
-        assertNotEquals(AspectRatioFrameLayout.RESIZE_MODE_ZOOM, PlayerSurfacePolicy.resizeMode)
-        assertNotEquals(AspectRatioFrameLayout.RESIZE_MODE_FILL, PlayerSurfacePolicy.resizeMode)
+    fun `fullscreen fills every edge without zoom cropping`() {
+        val mode = PlayerSurfacePolicy.resizeMode(fillScreen = true)
+
+        assertEquals(AspectRatioFrameLayout.RESIZE_MODE_FILL, mode)
+        assertNotEquals(AspectRatioFrameLayout.RESIZE_MODE_ZOOM, mode)
+        assertNotEquals(AspectRatioFrameLayout.RESIZE_MODE_FIT, mode)
+    }
+
+    @Test
+    fun `embedded mini player and pip keep aspect ratio fit`() {
+        assertEquals(
+            AspectRatioFrameLayout.RESIZE_MODE_FIT,
+            PlayerSurfacePolicy.resizeMode(fillScreen = false)
+        )
     }
 }

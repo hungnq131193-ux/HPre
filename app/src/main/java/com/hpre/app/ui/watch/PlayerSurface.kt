@@ -15,7 +15,7 @@ import com.hpre.app.player.PlayerController
 import com.hpre.app.player.PlaybackUiCoordinator
 import com.hpre.app.player.SurfaceOwner
 
-/** Fits the complete video frame inside the current safe bounds without cropping or distortion. */
+/** Uses FILL only for fullscreen; embedded, mini-player and PiP surfaces keep aspect-ratio FIT. */
 @OptIn(UnstableApi::class)
 @Composable
 fun PlayerSurface(
@@ -23,9 +23,10 @@ fun PlayerSurface(
     modifier: Modifier = Modifier,
     useController: Boolean = false,
     coordinator: PlaybackUiCoordinator? = null,
-    owner: SurfaceOwner = SurfaceOwner.WATCH
+    owner: SurfaceOwner = SurfaceOwner.WATCH,
+    fillScreen: Boolean = false
 ) {
-    val surfaceResizeMode = PlayerSurfacePolicy.resizeMode
+    val surfaceResizeMode = PlayerSurfacePolicy.resizeMode(fillScreen)
     val lease = remember(coordinator, owner) { coordinator?.beginSurfaceHandoff(owner) }
     AndroidView(
         factory = { ctx ->
@@ -40,7 +41,7 @@ fun PlayerSurface(
             }
         },
         update = { playerView ->
-            // A reused AndroidView must also switch back to FIT without restarting playback.
+            // A reused AndroidView must follow the current presentation without restarting playback.
             if (playerView.resizeMode != surfaceResizeMode) {
                 playerView.resizeMode = surfaceResizeMode
             }
@@ -64,8 +65,12 @@ fun PlayerSurface(
     )
 }
 
-/** One invariant for Watch, fullscreen, mini-player and PiP: preserve the source aspect ratio. */
+/** Fullscreen prioritizes edge-to-edge coverage; all compact presentations preserve aspect ratio. */
 @OptIn(UnstableApi::class)
 internal object PlayerSurfacePolicy {
-    val resizeMode: Int = AspectRatioFrameLayout.RESIZE_MODE_FIT
+    fun resizeMode(fillScreen: Boolean): Int = if (fillScreen) {
+        AspectRatioFrameLayout.RESIZE_MODE_FILL
+    } else {
+        AspectRatioFrameLayout.RESIZE_MODE_FIT
+    }
 }

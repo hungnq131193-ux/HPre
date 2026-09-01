@@ -23,7 +23,6 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.safeDrawingPadding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
@@ -347,9 +346,10 @@ fun WatchScreen(
                 playerController = viewModel.playerController,
                 coordinator = playbackUiCoordinator,
                 owner = com.hpre.app.player.SurfaceOwner.WATCH,
-                // Keep the entire frame inside the real drawable area on notched, waterfall and
-                // gesture-navigation displays. FIT then letterboxes/pillarboxes as needed.
-                modifier = Modifier.fillMaxSize().safeDrawingPadding()
+                // Draw edge-to-edge and stretch the complete frame when the source and display
+                // ratios differ. Controls keep their own safeDrawing insets above this surface.
+                fillScreen = true,
+                modifier = Modifier.fillMaxSize()
             )
 
             WatchPlayerControls(
