@@ -13,8 +13,11 @@ import com.hpre.app.settings.PlaybackPreferences
 import com.hpre.app.testing.FakeVideoService
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.test.currentTime
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -582,6 +585,51 @@ class RecommendationRepositoryTest {
         )
         assertEquals(0, service.searchCallCount)
         assertEquals(1, service.trendingCallCount)
+    }
+
+    @Test
+    fun `home reads independent local recommendation inputs in parallel`() = runTest {
+        val localReadDelayMs = 1_000L
+        val delayedSearchHistory = object : SearchHistoryRepository {
+            override fun observeRecentQueries(limit: Int): Flow<List<LocalSearchHistoryItem>> = flow {
+                delay(localReadDelayMs)
+                emit(emptyList())
+            }
+            override suspend fun recordQuery(rawQuery: String, timestamp: Long) = AppResult.Success(Unit)
+            override suspend fun deleteQuery(rawQuery: String) = AppResult.Success(Unit)
+            override suspend fun clearHistory() = AppResult.Success(Unit)
+        }
+        val delayedWatchHistory = object : HistoryRepository {
+            override fun observeHistory(): Flow<List<WatchHistoryItem>> = flow {
+                delay(localReadDelayMs)
+                emit(emptyList())
+            }
+            override suspend fun getHistoryItem(key: ContentKey) = AppResult.Success(null)
+            override suspend fun recordHistory(
+                summary: VideoSummary,
+                positionMs: Long,
+                watchedTimestamp: Long
+            ) = AppResult.Success(Unit)
+            override suspend fun deleteHistoryItem(key: ContentKey) = AppResult.Success(Unit)
+            override suspend fun clearHistory() = AppResult.Success(Unit)
+        }
+        val service = FakeVideoService(
+            trendingResponse = AppResult.Success(listOf(video("trending")))
+        )
+        val repository = RecommendationRepository(
+            CatalogRepository(service, this),
+            delayedSearchHistory,
+            delayedWatchHistory
+        )
+
+        val result = repository.home(RecommendationRequest()).valueOrThrow()
+
+        assertEquals(listOf("trending"), result.map { it.key.nativeId })
+        assertEquals(
+            "Two independent local reads must overlap instead of adding their delays",
+            localReadDelayMs,
+            currentTime
+        )
     }
 
     @Test fun uses_at_most_three_queries_and_survives_partial_failure() = runTest {

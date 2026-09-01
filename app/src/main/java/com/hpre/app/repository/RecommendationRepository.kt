@@ -12,6 +12,7 @@ import com.hpre.app.settings.PlaybackPreferences
 import java.util.Locale
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.TimeoutCancellationException
+import kotlinx.coroutines.async
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
@@ -69,6 +70,30 @@ class RecommendationRepository(
         val cancellation: CancellationException
     ) : RuntimeException(cancellation)
 
+    private data class LocalRecommendationInputs(
+        val recentQueries: List<String>,
+        val watchHistory: List<WatchHistoryItem>
+    )
+
+    /**
+     * Room owns the dispatcher used by both flows, so starting these independent reads together is
+     * safe and removes their additive latency from Home and Watch recommendation startup.
+     */
+    private suspend fun loadLocalRecommendationInputs(): LocalRecommendationInputs = coroutineScope {
+        val recentQueries = async {
+            searchHistoryRepository.observeRecentQueries(MAX_SEARCH_QUERIES)
+                .first()
+                .map(LocalSearchHistoryItem::query)
+        }
+        val watchHistory = async {
+            historyRepository.observeRecentHistory(MAX_WATCH_HISTORY_SIGNALS).first()
+        }
+        LocalRecommendationInputs(
+            recentQueries = recentQueries.await(),
+            watchHistory = watchHistory.await()
+        )
+    }
+
     override suspend fun home(request: RecommendationRequest): AppResult<List<VideoSummary>> {
         val targetLimit = request.safeLimit()
         if (targetLimit <= 0) return AppResult.Success(emptyList())
@@ -92,10 +117,9 @@ class RecommendationRepository(
             }
         }
 
-        val recentQueries = searchHistoryRepository.observeRecentQueries(MAX_SEARCH_QUERIES)
-            .first()
-            .map(LocalSearchHistoryItem::query)
-        val watchHistory = historyRepository.observeRecentHistory(MAX_WATCH_HISTORY_SIGNALS).first()
+        val localInputs = loadLocalRecommendationInputs()
+        val recentQueries = localInputs.recentQueries
+        val watchHistory = localInputs.watchHistory
 
         val channelFrequency = watchHistory
             .mapNotNull(WatchHistoryItem::channelName)
@@ -198,17 +222,13 @@ class RecommendationRepository(
 
         val service = videoService ?: return AppResult.Failure(AppError.Unknown)
         val historyEnabled = playbackPreferences?.isHistoryEnabled?.first() != false
-        val watchHistory = if (historyEnabled) {
-            historyRepository.observeRecentHistory(MAX_WATCH_HISTORY_SIGNALS).first()
+        val localInputs = if (historyEnabled) {
+            loadLocalRecommendationInputs()
         } else {
-            emptyList()
+            LocalRecommendationInputs(emptyList(), emptyList())
         }
-        val recentQueries = if (historyEnabled) {
-            searchHistoryRepository.observeRecentQueries(MAX_SEARCH_QUERIES).first()
-                .map(LocalSearchHistoryItem::query)
-        } else {
-            emptyList()
-        }
+        val watchHistory = localInputs.watchHistory
+        val recentQueries = localInputs.recentQueries
         val channelFrequency = watchHistory
             .mapNotNull(WatchHistoryItem::channelName)
             .groupingBy(::normalize)

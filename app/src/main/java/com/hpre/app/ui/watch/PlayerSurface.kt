@@ -15,11 +15,7 @@ import com.hpre.app.player.PlayerController
 import com.hpre.app.player.PlaybackUiCoordinator
 import com.hpre.app.player.SurfaceOwner
 
-/**
- * Fits the complete video frame by default. Fullscreen stretches the whole frame to fill the
- * available bounds without cropping. This can change the video's proportions when its aspect
- * ratio differs from the display; Media3 recalculates the size when those bounds change.
- */
+/** Fits the complete video frame inside the current safe bounds without cropping or distortion. */
 @OptIn(UnstableApi::class)
 @Composable
 fun PlayerSurface(
@@ -27,14 +23,9 @@ fun PlayerSurface(
     modifier: Modifier = Modifier,
     useController: Boolean = false,
     coordinator: PlaybackUiCoordinator? = null,
-    owner: SurfaceOwner = SurfaceOwner.WATCH,
-    fillScreen: Boolean = false
+    owner: SurfaceOwner = SurfaceOwner.WATCH
 ) {
-    val surfaceResizeMode = if (fillScreen) {
-        AspectRatioFrameLayout.RESIZE_MODE_FILL
-    } else {
-        AspectRatioFrameLayout.RESIZE_MODE_FIT
-    }
+    val surfaceResizeMode = PlayerSurfacePolicy.resizeMode
     val lease = remember(coordinator, owner) { coordinator?.beginSurfaceHandoff(owner) }
     AndroidView(
         factory = { ctx ->
@@ -71,4 +62,10 @@ fun PlayerSurface(
         },
         modifier = modifier.testTag("player_surface")
     )
+}
+
+/** One invariant for Watch, fullscreen, mini-player and PiP: preserve the source aspect ratio. */
+@OptIn(UnstableApi::class)
+internal object PlayerSurfacePolicy {
+    val resizeMode: Int = AspectRatioFrameLayout.RESIZE_MODE_FIT
 }

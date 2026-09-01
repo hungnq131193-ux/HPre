@@ -6,11 +6,11 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.displayCutoutPadding
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.safeDrawingPadding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
@@ -501,7 +501,7 @@ fun PlayerControlsOverlay(
                 Row(
                     modifier = Modifier
                         .align(Alignment.TopStart)
-                        .displayCutoutPadding()
+                        .safeDrawingPadding()
                         .padding(8.dp)
                         .onGloballyPositioned { coordinates ->
                             registerProtectedBounds("fullscreen_top_start", coordinates)
@@ -629,9 +629,8 @@ fun PlayerControlsOverlay(
             Row(
                 modifier = Modifier
                     .align(Alignment.TopEnd)
-                    // In landscape fullscreen the camera cutout sits over this corner, so keep the
-                    // buttons clear of it.
-                    .then(if (isFullscreen) Modifier.displayCutoutPadding() else Modifier)
+                    // Protect against cutouts, waterfall edges and transient system bars.
+                    .then(if (isFullscreen) Modifier.safeDrawingPadding() else Modifier)
                     .padding(8.dp)
                     .onGloballyPositioned { coordinates ->
                         registerProtectedBounds("top_end_menus", coordinates)
@@ -752,8 +751,8 @@ fun PlayerControlsOverlay(
                     .align(Alignment.BottomCenter)
                     .fillMaxWidth()
                     // Transient system bars can reappear on swipe; keep the seek bar reachable and
-                    // clear of the cutout in landscape.
-                    .then(if (isFullscreen) Modifier.displayCutoutPadding() else Modifier)
+                    // clear of cutouts/waterfall edges in landscape.
+                    .then(if (isFullscreen) Modifier.safeDrawingPadding() else Modifier)
                     .padding(horizontal = 16.dp, vertical = 8.dp)
                     .onGloballyPositioned { coordinates ->
                         registerProtectedBounds("bottom_bar", coordinates)
