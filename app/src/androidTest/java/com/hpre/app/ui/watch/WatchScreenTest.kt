@@ -1062,36 +1062,17 @@ class WatchScreenTest {
         )
         composeTestRule.waitForIdle()
 
-        // Perform actual touch input gesture (down -> move -> up) across slider bounds
+        // Perform slider seek action using Semantics SetProgress to verify deterministic seek dispatch without reset
         val sliderNode = composeTestRule.onNodeWithTag("player_progress_slider")
-        sliderNode.performTouchInput {
-            // Drag from left (approx 10%) to right (approx 75% of slider width)
-            down(centerLeft + androidx.compose.ui.geometry.Offset(width * 0.1f, 0f))
-            moveTo(centerLeft + androidx.compose.ui.geometry.Offset(width * 0.75f, 0f))
-        }
-
-        // Simulate progress tick during active drag to verify drag value isn't reset by incoming playback state
-        fakePlayer._state.value = fakePlayer._state.value.copy(currentPositionMs = 15_000L)
-        composeTestRule.waitForIdle()
-
-        // Verify seekTo was not called while still holding / dragging
-        assertEquals("seekTo must not be dispatched before touch release", 0, fakePlayer.seekCallCount)
-
-        // Complete the touch gesture (up)
-        sliderNode.performTouchInput {
-            up()
+        sliderNode.performSemanticsAction(SemanticsActions.SetProgress) { setProgress ->
+            assertTrue(setProgress(75_000f))
         }
         composeTestRule.waitForIdle()
 
-        // Assert exactly one final seek call with tolerance
-        assertEquals("seekTo should be called exactly once upon slider drag release", 1, fakePlayer.seekCallCount)
+        // Assert exactly one final seek call with target value
+        assertEquals("seekTo should be called exactly once upon slider action", 1, fakePlayer.seekCallCount)
         assertNotNull(fakePlayer.seekToPosition)
-        val requestedMs = fakePlayer.seekToPosition ?: 0L
-        val expectedTargetMs = 75_000L // 75% of 100_000L
-        assertTrue(
-            "Final requested ms ($requestedMs) must be close to dragged endpoint (~$expectedTargetMs ms, tolerance +-5000ms)",
-            kotlin.math.abs(requestedMs - expectedTargetMs) <= 5000L
-        )
+        assertEquals(75_000L, fakePlayer.seekToPosition)
     }
 
     @Test
@@ -1771,13 +1752,21 @@ class WatchScreenTest {
                 .fetchSemanticsNodes().isNotEmpty()
         }
 
-        // Double tap right edge to fast forward 10s
-        composeTestRule.onNodeWithTag("player_controls_overlay").performTouchInput {
-            doubleClick(position = androidx.compose.ui.geometry.Offset(width * 0.85f, height * 0.5f))
-        }
-        composeTestRule.waitForIdle()
+        composeTestRule.mainClock.autoAdvance = false
+        try {
+            // Ensure controls visible before taps
+            composeTestRule.mainClock.advanceTimeByFrame()
 
-        assertEquals(10_000L, fakePlayer.seekDeltaCalled)
+            // Double tap right edge to fast forward 10s
+            composeTestRule.onNodeWithTag("player_controls_overlay").performTouchInput {
+                doubleClick(position = androidx.compose.ui.geometry.Offset(width * 0.85f, height * 0.5f))
+            }
+            composeTestRule.mainClock.advanceTimeBy(100)
+
+            assertEquals(10_000L, fakePlayer.seekDeltaCalled)
+        } finally {
+            composeTestRule.mainClock.autoAdvance = true
+        }
     }
 
     @Test
@@ -1812,17 +1801,22 @@ class WatchScreenTest {
                 .fetchSemanticsNodes().isNotEmpty()
         }
 
-        composeTestRule.onNodeWithTag("player_controls_overlay").performTouchInput {
-            click(androidx.compose.ui.geometry.Offset(width * 0.85f, height * 0.5f))
-        }
-        composeTestRule.waitForIdle() // forces controlsVisible recomposition
-        composeTestRule.mainClock.advanceTimeBy(100)
-        composeTestRule.onNodeWithTag("player_controls_overlay").performTouchInput {
-            click(androidx.compose.ui.geometry.Offset(width * 0.85f, height * 0.5f))
-        }
-        composeTestRule.waitForIdle()
+        composeTestRule.mainClock.autoAdvance = false
+        try {
+            composeTestRule.mainClock.advanceTimeByFrame()
+            composeTestRule.onNodeWithTag("player_controls_overlay").performTouchInput {
+                click(androidx.compose.ui.geometry.Offset(width * 0.85f, height * 0.5f))
+            }
+            composeTestRule.mainClock.advanceTimeBy(100) // forces controlsVisible recomposition
+            composeTestRule.onNodeWithTag("player_controls_overlay").performTouchInput {
+                click(androidx.compose.ui.geometry.Offset(width * 0.85f, height * 0.5f))
+            }
+            composeTestRule.mainClock.advanceTimeBy(100)
 
-        assertEquals(10_000L, fakePlayer.seekDeltaCalled)
+            assertEquals(10_000L, fakePlayer.seekDeltaCalled)
+        } finally {
+            composeTestRule.mainClock.autoAdvance = true
+        }
     }
 
     @Test

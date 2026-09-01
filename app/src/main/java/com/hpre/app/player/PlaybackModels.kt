@@ -106,8 +106,7 @@ data class PlaybackProgress(
 )
 
 fun PlaybackState.toStructuralState(): PlaybackState = copy(
-    currentPositionMs = 0L,
-    durationMs = 0L
+    currentPositionMs = 0L
 )
 
 fun PlaybackState.toProgress(): PlaybackProgress = PlaybackProgress(

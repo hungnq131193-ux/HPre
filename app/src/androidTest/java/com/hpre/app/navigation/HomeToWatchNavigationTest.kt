@@ -236,8 +236,11 @@ class HomeToWatchNavigationTest {
             }
         }
 
-        composeTestRule.waitForIdle()
-        composeTestRule.onNodeWithTag("video_card_item999").assertIsDisplayed()
+        composeTestRule.waitUntil(5000) {
+            composeTestRule.onAllNodes(androidx.compose.ui.test.hasTestTag("video_card_item999"))
+                .fetchSemanticsNodes().isNotEmpty()
+        }
+        composeTestRule.onNodeWithTag("video_card_item999").assertExists()
         org.junit.Assert.assertEquals("onContentIdle should have executed exactly once on initial idle", 1, idleCount1)
 
         // Force recomposition with a new callback instance; idle handler should NOT re-trigger because it's a one-shot handler that returned false

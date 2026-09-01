@@ -128,7 +128,9 @@ fun PlayerControlsOverlay(
     isInPip: Boolean = false
 ) {
     var controlsVisible by remember { mutableStateOf(true) }
-    var localProgress by remember(playbackState.key) { mutableStateOf(playbackState.toProgress()) }
+    var localProgress by remember(playbackState.key, playbackState.durationMs) {
+        mutableStateOf(playbackState.toProgress())
+    }
     var isSpeedMenuOpen by remember { mutableStateOf(false) }
     var isQualityMenuOpen by remember { mutableStateOf(false) }
     var isDragging by remember { mutableStateOf(false) }
@@ -742,7 +744,7 @@ fun PlayerControlsOverlay(
                     }
             ) {
                 // Seek slider: disabled when duration <= 0 (no fake 1ms duration)
-                val durationMs = if (localProgress.durationMs > 0L) localProgress.durationMs else playbackState.durationMs
+                val durationMs = playbackState.durationMs.coerceAtLeast(0L)
                 val isSeekEnabled = durationMs > 0L
                 val duration = if (isSeekEnabled) durationMs.toFloat() else 0f
 
