@@ -760,7 +760,8 @@ class ForegroundPlayerControllerTest {
                 threadDuringFactory = Thread.currentThread()
                 testPlayer
             },
-            mainDispatcher = testDispatcher
+            mainDispatcher = testDispatcher,
+            ioDispatcher = testDispatcher
         )
 
         controller.prepare(testKey, sampleStreamInfo())
@@ -771,8 +772,12 @@ class ForegroundPlayerControllerTest {
         controller.seekBy(1000L)
         controller.playPause()
 
+        // The factory and all player work are queued on the configured scheduler rather than
+        // leaking onto Dispatchers.IO, which made this assertion race on CI.
+        assertNull(threadDuringFactory)
         testScope.runCurrent()
 
+        assertNotNull(threadDuringFactory)
         assertTrue(testPlayerState.prepared)
         assertEquals(3000L, testPlayerState.currentPosition)
         assertEquals(1.25f, testPlayerState.playbackSpeed, 0.01f)
