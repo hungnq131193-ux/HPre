@@ -465,6 +465,35 @@ class WatchScreenTest {
     }
 
     @Test
+    fun player_controls_overlay_duration_resolution_disables_slider_when_structural_is_zero() {
+        composeTestRule.setContent {
+            HPreTheme {
+                PlayerControlsOverlay(
+                    playbackState = PlaybackState(
+                        isPlaying = true,
+                        durationMs = 0L
+                    ),
+                    isFullscreen = false,
+                    readProgress = {
+                        PlaybackProgress(positionMs = 5_000L, durationMs = 60_000L)
+                    },
+                    onPlayPause = {},
+                    onSeekBy = {},
+                    onSeekTo = {},
+                    onSpeedSelected = {},
+                    onQualitySelected = {},
+                    onToggleFullscreen = {}
+                )
+            }
+        }
+
+        composeTestRule.waitForIdle()
+        // Slider is disabled when structural duration is 0L
+        composeTestRule.onNodeWithTag("player_progress_slider").assertIsNotEnabled()
+        composeTestRule.onNodeWithTag("player_time_text").assertTextEquals("0:00 / 0:00")
+    }
+
+    @Test
     fun player_controls_overlay_polls_while_paused_and_recovers_from_exceptions() {
         var readCount = 0
         var shouldThrow = false
