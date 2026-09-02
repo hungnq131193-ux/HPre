@@ -22,6 +22,7 @@ import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -55,6 +56,47 @@ internal fun restoreConnectedPlaybackState(
 
 internal fun acceptsPlaybackCallback(expectedKey: ContentKey?, eventKey: ContentKey?, transitioning: Boolean): Boolean =
     if (expectedKey != null) expectedKey == eventKey else !transitioning
+
+internal data class SessionRecovery(
+    val streamInfo: StreamInfo,
+    val pending: PendingPrepare
+)
+
+internal suspend fun recoverSessionPlayback(
+    coordinator: StreamRecoveryCoordinator,
+    key: ContentKey,
+    sessionGen: Long,
+    positionMs: Long,
+    playWhenReady: Boolean,
+    quality: QualityOption?,
+    playbackSpeed: Float,
+    attemptedSourceTypes: Set<PlaybackStreamType>
+): SessionRecovery? {
+    val preference = quality?.let(QualityPreference::SpecificOption) ?: QualityPreference.Auto
+    return when (
+        val recovered = coordinator.recoverExpiredStream(
+            key = key,
+            sessionGen = sessionGen,
+            positionMs = positionMs,
+            wasPlaying = playWhenReady,
+            preference = preference,
+            attemptedSourceTypes = attemptedSourceTypes
+        )
+    ) {
+        is RecoveryResult.Recovered -> SessionRecovery(
+            streamInfo = recovered.streamInfo,
+            pending = PendingPrepare(
+                key = recovered.key,
+                positionMs = recovered.resumePositionMs,
+                playWhenReady = recovered.resumeWhenReady,
+                initialQuality = recovered.selectedQuality,
+                playbackSpeed = playbackSpeed
+            )
+        )
+        is RecoveryResult.Failed,
+        RecoveryResult.Cancelled -> null
+    }
+}
 
 @OptIn(UnstableApi::class)
 class SessionPlayerController internal constructor(
@@ -140,6 +182,7 @@ class SessionPlayerController internal constructor(
     private var currentKey: ContentKey? = null
     private var transitioning: Boolean = false
     private val pendingCommands = PendingSessionCommands()
+    private var recoveryJob: Job? = null
 
     private fun acceptsCurrentPlaybackCallback(): Boolean = !isReleased && acceptsPlaybackCallback(
         currentKey, PlaybackMediaMetadata.from(mediaController?.currentMediaItem)?.key, transitioning
@@ -176,19 +219,16 @@ class SessionPlayerController internal constructor(
 
         override fun onPlayerError(error: androidx.media3.common.PlaybackException) {
             if (!acceptsCurrentPlaybackCallback()) return
-            val http = findCause<androidx.media3.datasource.HttpDataSource.InvalidResponseCodeException>(error)
-            val mapped = when (http?.responseCode) {
-                403 -> AppError.StreamExpired
-                401 -> AppError.LoginRequired
-                404 -> AppError.ContentUnavailable
-                in 500..599 -> AppError.NetworkError
-                else -> when (error.errorCode) {
-                    androidx.media3.common.PlaybackException.ERROR_CODE_IO_NETWORK_CONNECTION_FAILED,
-                    androidx.media3.common.PlaybackException.ERROR_CODE_IO_NETWORK_CONNECTION_TIMEOUT -> AppError.NetworkError
-                    androidx.media3.common.PlaybackException.ERROR_CODE_DECODER_INIT_FAILED,
-                    androidx.media3.common.PlaybackException.ERROR_CODE_PARSING_CONTAINER_UNSUPPORTED,
-                    androidx.media3.common.PlaybackException.ERROR_CODE_PARSING_MANIFEST_UNSUPPORTED -> AppError.UnsupportedFormat
-                    else -> AppError.Unknown
+            val decision = PlaybackRecoveryPolicy.decide(error)
+            val snapshot = _state.value.let {
+                it.key?.let { key ->
+                    RetrySnapshot(
+                        key = key,
+                        sessionGen = localSessionGen,
+                        positionMs = mediaController?.currentPosition?.coerceAtLeast(0L) ?: it.currentPositionMs,
+                        userRequestedPlay = it.playWhenReady,
+                        selectedQuality = it.selectedQuality
+                    )
                 }
             }
             _state.update {
@@ -196,17 +236,46 @@ class SessionPlayerController internal constructor(
                     isLoading = false,
                     isBuffering = false,
                     isReady = false,
-                    error = mapped,
-                    retrySnapshot = it.key?.let { key ->
-                        RetrySnapshot(
-                            key = key,
-                            sessionGen = localSessionGen,
-                            positionMs = mediaController?.currentPosition?.coerceAtLeast(0L) ?: it.currentPositionMs,
-                            userRequestedPlay = it.playWhenReady,
-                            selectedQuality = it.selectedQuality
-                        )
-                    }
+                    error = decision.error,
+                    retrySnapshot = snapshot
                 )
+            }
+            val coordinator = recoveryCoordinator ?: return
+            val recoverySnapshot = snapshot ?: return
+            if (!decision.shouldRefresh) return
+            val expectedRequest = localPrepareRequestGeneration.get()
+            val expectedKey = recoverySnapshot.key
+            val expectedSession = recoverySnapshot.sessionGen
+            val speed = _state.value.playbackSpeed
+            val attempted = _state.value.streamType?.let(::setOf).orEmpty()
+            recoveryJob?.cancel()
+            recoveryJob = scope.launch(mainDispatcher) {
+                try {
+                    val recovered = recoverSessionPlayback(
+                        coordinator = coordinator,
+                        key = expectedKey,
+                        sessionGen = expectedSession,
+                        positionMs = recoverySnapshot.positionMs,
+                        playWhenReady = recoverySnapshot.userRequestedPlay,
+                        quality = recoverySnapshot.selectedQuality,
+                        playbackSpeed = speed,
+                        attemptedSourceTypes = attempted
+                    ) ?: return@launch
+                    if (isReleased || currentKey != expectedKey ||
+                        localSessionGen != expectedSession ||
+                        localPrepareRequestGeneration.get() != expectedRequest
+                    ) return@launch
+                    prepareWithSpeed(
+                        key = recovered.pending.key,
+                        streamInfo = recovered.streamInfo,
+                        startPositionMs = recovered.pending.positionMs,
+                        playWhenReady = recovered.pending.playWhenReady,
+                        initialQuality = recovered.pending.initialQuality,
+                        playbackSpeed = recovered.pending.playbackSpeed
+                    )
+                } catch (cancelled: CancellationException) {
+                    throw cancelled
+                }
             }
         }
 
@@ -690,6 +759,7 @@ class SessionPlayerController internal constructor(
     ) {
         connectionPurpose = ConnectionPurpose.NORMAL
         if (isReleased) return
+        recoveryJob?.cancel()
         currentKey = key
         currentStreamInfo = streamInfo
         val effectiveStartPositionMs = PlaybackPolicy.resolveStartPosition(
@@ -1023,6 +1093,8 @@ class SessionPlayerController internal constructor(
 
     override fun clearMedia() {
         transitioning = true
+        recoveryJob?.cancel()
+        recoveryJob = null
         reconnectJob?.cancel()
         reconnectJob = null
         isReconnecting = false
@@ -1070,6 +1142,8 @@ class SessionPlayerController internal constructor(
     override fun release() {
         if (isReleased) return
         isReleased = true
+        recoveryJob?.cancel()
+        recoveryJob = null
         reconnectJob?.cancel()
         reconnectJob = null
         isReconnecting = false

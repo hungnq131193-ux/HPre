@@ -17,6 +17,47 @@ import org.junit.Test
 class SessionPlayerProtocolTest {
 
     @Test
+    fun session_recovery_returns_pending_prepare_with_fresh_stream_state() = kotlinx.coroutines.test.runTest {
+        val key = ContentKey(0, "recovery-session")
+        val stream = StreamInfo(
+            key = key,
+            title = "Fresh",
+            videoStreams = listOf(
+                VideoStream(
+                    url = "https://fresh.example/stream.mp4",
+                    format = "mp4",
+                    mimeType = "video/mp4",
+                    codec = "avc1.64001F",
+                    resolution = "720p",
+                    width = 1280,
+                    height = 720,
+                    bitrate = 1_000_000,
+                    isVideoOnly = false
+                )
+            )
+        )
+        val service = com.hpre.app.testing.FakeVideoService(
+            streamResponses = mapOf(key.nativeId to stream)
+        )
+        val pending = recoverSessionPlayback(
+            coordinator = StreamRecoveryCoordinator(service),
+            key = key,
+            sessionGen = 7L,
+            positionMs = 12_000L,
+            playWhenReady = true,
+            quality = null,
+            playbackSpeed = 1.5f,
+            attemptedSourceTypes = setOf(PlaybackStreamType.HLS)
+        )
+
+        assertEquals(1, service.streamInfoCallCount)
+        assertEquals(key, pending?.pending?.key)
+        assertEquals(12_000L, pending?.pending?.positionMs)
+        assertTrue(pending?.pending?.playWhenReady == true)
+        assertEquals(1.5f, pending?.pending?.playbackSpeed ?: 0f, 0.001f)
+    }
+
+    @Test
     fun obsolete_media_callbacks_cannot_replace_a_pending_video_or_reanimate_a_cleared_player() {
         val old = ContentKey(0, "old")
         val next = ContentKey(0, "next")
@@ -1244,7 +1285,7 @@ class SessionPlayerProtocolTest {
     fun sessionPlayerController_has_no_periodic_progress_job_or_tracker_methods() {
         // Strong allowlist invariant over all Job-typed declared fields in SessionPlayerController:
         // Reconnect/runtime operations are permitted, but no UI/progress polling Job is allowed.
-        val allowedJobFieldNames = setOf("reconnectJob")
+        val allowedJobFieldNames = setOf("reconnectJob", "recoveryJob")
         val jobFields = SessionPlayerController::class.java.declaredFields.filter {
             kotlinx.coroutines.Job::class.java.isAssignableFrom(it.type)
         }
