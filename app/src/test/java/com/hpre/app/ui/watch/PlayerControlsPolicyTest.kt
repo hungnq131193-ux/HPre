@@ -35,7 +35,7 @@ class PlayerControlsPolicyTest {
     @Test
     fun controls_stay_visible_while_a_menu_is_open() {
         assertFalse(
-            "An open speed/quality menu must not be yanked away mid-selection",
+            "An open speed/quality/resize menu must not be yanked away mid-selection",
             PlayerControlsPolicy.shouldAutoHide(
                 controlsVisible = true,
                 isPlaying = true,
@@ -169,6 +169,22 @@ class PlayerControlsPolicyTest {
                 playbackStateDurationMs = 60_000L,
                 localProgressDurationMs = -100L
             )
+        )
+    }
+
+    @Test
+    fun resize_mode_mapping_and_defaults() {
+        assertEquals(
+            androidx.media3.ui.AspectRatioFrameLayout.RESIZE_MODE_FIT,
+            FullScreenResizeMode.FIT.toMedia3ResizeMode()
+        )
+        assertEquals(
+            androidx.media3.ui.AspectRatioFrameLayout.RESIZE_MODE_FILL,
+            FullScreenResizeMode.FILL.toMedia3ResizeMode()
+        )
+        assertEquals(
+            androidx.media3.ui.AspectRatioFrameLayout.RESIZE_MODE_ZOOM,
+            FullScreenResizeMode.ZOOM.toMedia3ResizeMode()
         )
     }
 }

@@ -17,6 +17,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.AspectRatio
 import androidx.compose.material.icons.filled.Forward10
 import androidx.compose.material.icons.filled.Fullscreen
 import androidx.compose.material.icons.filled.FullscreenExit
@@ -68,6 +69,9 @@ import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.role
+import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.semantics.setProgress
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -131,6 +135,8 @@ object PlayerControlsPolicy {
 fun PlayerControlsOverlay(
     playbackState: PlaybackState,
     isFullscreen: Boolean,
+    resizeMode: FullScreenResizeMode = FullScreenResizeMode.FIT,
+    onResizeModeSelected: (FullScreenResizeMode) -> Unit = {},
     onPlayPause: () -> Unit,
     onSeekBy: (deltaMs: Long) -> Unit,
     onSeekTo: (positionMs: Long) -> Unit,
@@ -149,6 +155,7 @@ fun PlayerControlsOverlay(
     }
     var isSpeedMenuOpen by remember { mutableStateOf(false) }
     var isQualityMenuOpen by remember { mutableStateOf(false) }
+    var isResizeMenuOpen by remember { mutableStateOf(false) }
     var isDragging by remember { mutableStateOf(false) }
     var dragPosition by remember { mutableFloatStateOf(0f) }
     // Bumped on every interaction so the auto-hide countdown restarts instead of firing mid-use.
@@ -203,7 +210,7 @@ fun PlayerControlsOverlay(
         }
     }
 
-    val isMenuOpen = isSpeedMenuOpen || isQualityMenuOpen
+    val isMenuOpen = isSpeedMenuOpen || isQualityMenuOpen || isResizeMenuOpen
     val keepControlsAlive: () -> Unit = {
         controlsVisible = true
         interactionNonce++
@@ -624,6 +631,7 @@ fun PlayerControlsOverlay(
                     unregisterProtectedBounds("top_end_menus")
                     unregisterProtectedBounds("control_speed_button")
                     unregisterProtectedBounds("control_quality_button")
+                    unregisterProtectedBounds("control_resize_mode_button")
                 }
             }
             Row(
@@ -638,6 +646,73 @@ fun PlayerControlsOverlay(
                     },
                 verticalAlignment = Alignment.CenterVertically
             ) {
+                // Resize mode menu (only in fullscreen)
+                if (isFullscreen) {
+                    DisposableEffect(Unit) {
+                        onDispose { unregisterProtectedBounds("control_resize_mode_button") }
+                    }
+                    val currentModeLabel = when (resizeMode) {
+                        FullScreenResizeMode.FIT -> stringResource(R.string.resize_mode_fit)
+                        FullScreenResizeMode.FILL -> stringResource(R.string.resize_mode_fill)
+                        FullScreenResizeMode.ZOOM -> stringResource(R.string.resize_mode_zoom)
+                    }
+                    Box {
+                        IconButton(
+                            onClick = {
+                                keepControlsAlive()
+                                isResizeMenuOpen = true
+                            },
+                            modifier = Modifier
+                                .testTag("control_resize_mode_button")
+                                .onGloballyPositioned { coords ->
+                                    registerProtectedBounds("control_resize_mode_button", coords)
+                                }
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.AspectRatio,
+                                contentDescription = stringResource(
+                                    R.string.playback_resize_mode,
+                                    currentModeLabel
+                                ),
+                                tint = Color.White
+                            )
+                        }
+                        DropdownMenu(
+                            expanded = isResizeMenuOpen,
+                            onDismissRequest = { isResizeMenuOpen = false },
+                            modifier = Modifier.testTag("resize_mode_menu")
+                        ) {
+                            FullScreenResizeMode.values().forEach { mode ->
+                                val isSelected = (resizeMode == mode)
+                                val modeLabel = when (mode) {
+                                    FullScreenResizeMode.FIT -> stringResource(R.string.resize_mode_fit)
+                                    FullScreenResizeMode.FILL -> stringResource(R.string.resize_mode_fill)
+                                    FullScreenResizeMode.ZOOM -> stringResource(R.string.resize_mode_zoom)
+                                }
+                                DropdownMenuItem(
+                                    text = {
+                                        Text(
+                                            text = modeLabel,
+                                            fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal
+                                        )
+                                    },
+                                    onClick = {
+                                        onResizeModeSelected(mode)
+                                        isResizeMenuOpen = false
+                                        keepControlsAlive()
+                                    },
+                                    modifier = Modifier
+                                        .testTag("resize_mode_option_${mode.name.lowercase()}")
+                                        .semantics {
+                                            role = Role.RadioButton
+                                            selected = isSelected
+                                        }
+                                )
+                            }
+                        }
+                    }
+                }
+
                 // Speed selection menu
                 Box {
                     IconButton(

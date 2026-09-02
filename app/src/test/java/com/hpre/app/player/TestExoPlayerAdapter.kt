@@ -28,7 +28,10 @@ class TestExoPlayerState {
     val listeners = mutableListOf<Player.Listener>()
     val analyticsListeners = mutableListOf<AnalyticsListener>()
 
+    var playbackState: Int = Player.STATE_IDLE
+
     fun notifyPlaybackState(state: Int) {
+        playbackState = state
         listeners.toList().forEach { it.onPlaybackStateChanged(state) }
     }
 
@@ -70,6 +73,7 @@ class TestExoPlayerState {
                     null
                 }
                 "isPlaying" -> isPlaying
+                "getPlaybackState" -> playbackState
                 "getCurrentPosition" -> currentPosition
                 "getDuration" -> duration
                 "setPlayWhenReady" -> {

@@ -47,6 +47,17 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
+internal fun shouldDisarmBufferingWatchdog(
+    renderedFirstFrameCount: Int,
+    streamType: PlaybackStreamType?,
+    playbackState: Int
+): Boolean {
+    if (renderedFirstFrameCount > 0) return true
+    if (streamType == PlaybackStreamType.AUDIO_ONLY && playbackState == Player.STATE_READY) return true
+    if (playbackState == Player.STATE_ENDED) return true
+    return false
+}
+
 internal fun decideSessionRestore(
     alreadyEvaluated: Boolean,
     isPrewarm: Boolean
@@ -82,6 +93,7 @@ class HPrePlaybackService : MediaSessionService() {
         const val CUSTOM_COMMAND_CLEAR_MEDIA = "com.hpre.app.CUSTOM_COMMAND_CLEAR_MEDIA"
         const val CUSTOM_COMMAND_STOP_FOR_TRANSITION = "com.hpre.app.CUSTOM_COMMAND_STOP_FOR_TRANSITION"
         const val CUSTOM_COMMAND_SET_BACKGROUND_ENABLED = "com.hpre.app.CUSTOM_COMMAND_SET_BACKGROUND_ENABLED"
+        const val CUSTOM_COMMAND_TERMINAL_ERROR = "com.hpre.app.CUSTOM_COMMAND_TERMINAL_ERROR"
 
         const val EXTRA_SERVICE_ID = "extra_service_id"
         const val EXTRA_NATIVE_ID = "extra_native_id"
@@ -106,8 +118,9 @@ class HPrePlaybackService : MediaSessionService() {
 
         internal const val MIN_PLAYBACK_BUFFER_MS = 30_000
         internal const val MAX_PLAYBACK_BUFFER_MS = 90_000
-        internal const val BUFFER_FOR_PLAYBACK_MS = 2_500
+        internal const val BUFFER_FOR_PLAYBACK_MS = 1_000
         internal const val BUFFER_AFTER_REBUFFER_MS = 8_000
+        internal const val BUFFERING_WATCHDOG_TIMEOUT_MS = 15_000L
         private const val ANALYTICS_COUNTER_GENERATIONS = 8L
 
         // Probe snapshot response extras
@@ -178,6 +191,8 @@ class HPrePlaybackService : MediaSessionService() {
     private var activeMetricsPlaybackGeneration: Long = -1L
     private var activeMetricsMediaGeneration: Long = -1L
 
+    private var bufferingWatchdog: BufferingWatchdog? = null
+
     override fun onCreate() {
         super.onCreate()
         HPreMediaNotification.ensureNotificationChannel(this)
@@ -190,6 +205,17 @@ class HPrePlaybackService : MediaSessionService() {
         recoveryCoordinator = container?.let { StreamRecoveryCoordinator(it.videoService) }
         snapshotStore = (application as? HPreApplication)?.container?.playbackSnapshotStore
             ?: PlaybackSnapshotStore(this)
+
+        bufferingWatchdog = BufferingWatchdog(
+            scope = serviceScope,
+            dispatcher = Dispatchers.Main,
+            timeoutMs = BUFFERING_WATCHDOG_TIMEOUT_MS,
+            onTimeout = { sessionGen, _ ->
+                currentKey?.let { key ->
+                    triggerBufferingRecovery(key, sessionGen)
+                }
+            }
+        )
 
         // Propagate PlaybackPreferences / DataStore policy synchronously/cached before restore
         val prefs = container?.playbackPreferences
@@ -351,6 +377,7 @@ class HPrePlaybackService : MediaSessionService() {
                     }
                     activeMetricsSession = null
                 }
+                checkBufferingWatchdog()
             }
 
             override fun onAudioDecoderInitialized(
@@ -448,40 +475,7 @@ class HPrePlaybackService : MediaSessionService() {
 
             if (recoveryDecision.shouldRefresh && recoveryCoordinator != null && key != null) {
                 val preference = currentSelectedQuality?.let { QualityPreference.SpecificOption(it) } ?: QualityPreference.Auto
-                val currentPos = exoPlayer?.currentPosition?.coerceAtLeast(0L) ?: 0L
-                val currentSpeed = exoPlayer?.playbackParameters?.speed ?: 1.0f
-                recoveryJob?.cancel()
-                recoveryJob = serviceScope.launch(Dispatchers.Main) {
-                    if (isReleased || currentKey != key || playbackSessionGeneration != currentSession) return@launch
-                    val recoveryResult = recoveryCoordinator!!.recoverExpiredStream(
-                        key = key,
-                        sessionGen = recoverySessionGeneration,
-                        positionMs = currentPos,
-                        wasPlaying = userRequestedPlay,
-                        preference = preference,
-                        attemptedSourceTypes = attemptedSourceTypes.toSet()
-                    )
-                    if (isReleased || currentKey != key || playbackSessionGeneration != currentSession) return@launch
-                    when (recoveryResult) {
-                        is RecoveryResult.Recovered -> {
-                            prepareInternal(
-                                key = recoveryResult.key,
-                                streamInfo = recoveryResult.streamInfo,
-                                startPositionMs = recoveryResult.resumePositionMs,
-                                playWhenReady = recoveryResult.resumeWhenReady,
-                                initialQuality = recoveryResult.selectedQuality,
-                                playbackSpeed = currentSpeed,
-                                preserveRecoverySession = true
-                            )
-                        }
-                        is RecoveryResult.Failed -> {
-                            lastReportedAppError = recoveryResult.error
-                        }
-                        RecoveryResult.Cancelled -> {
-                            lastReportedAppError = AppError.StreamExpired
-                        }
-                    }
-                }
+                startBoundedRecovery(key, currentSession, preference)
             }
         }
 
@@ -502,6 +496,7 @@ class HPrePlaybackService : MediaSessionService() {
                     VideoOpenMetrics.Default.mark(session, VideoOpenEvent.PLAYER_READY)
                 }
             }
+            checkBufferingWatchdog()
             persistCurrentSnapshotThrottled()
         }
 
@@ -526,6 +521,92 @@ class HPrePlaybackService : MediaSessionService() {
                         selectedVideoGroups.any { group -> group.length > 1 }
                 )
             }
+        }
+    }
+
+    private fun checkBufferingWatchdog() {
+        val player = exoPlayer
+        val playbackState = player?.playbackState ?: Player.STATE_IDLE
+        val rendered = renderedFirstFrameCounters[mediaOperationGeneration] ?: 0
+        bufferingWatchdog?.onPlaybackStateOrRenderChanged(
+            playbackState = playbackState,
+            renderedFirstFrameCount = rendered,
+            streamType = currentStreamType
+        )
+    }
+
+    private fun triggerBufferingRecovery(key: ContentKey, sessionGen: Long) {
+        val preference = currentSelectedQuality?.let { QualityPreference.SpecificOption(it) } ?: QualityPreference.Auto
+        startBoundedRecovery(key, sessionGen, preference)
+    }
+
+    private fun startBoundedRecovery(key: ContentKey, sessionGen: Long, preference: QualityPreference) {
+        val coordinator = recoveryCoordinator ?: run {
+            lastReportedAppError = AppError.StreamExpired
+            handleTerminalError(AppError.StreamExpired, sessionGen)
+            return
+        }
+        val currentPos = exoPlayer?.currentPosition?.coerceAtLeast(0L) ?: 0L
+        val currentSpeed = exoPlayer?.playbackParameters?.speed ?: 1.0f
+        recoveryJob?.cancel()
+        recoveryJob = serviceScope.launch(Dispatchers.Main) {
+            if (isReleased || currentKey != key || playbackSessionGeneration != sessionGen) return@launch
+            val recoveryResult = coordinator.recoverExpiredStream(
+                key = key,
+                sessionGen = recoverySessionGeneration,
+                positionMs = currentPos,
+                wasPlaying = userRequestedPlay,
+                preference = preference,
+                attemptedSourceTypes = attemptedSourceTypes.toSet()
+            )
+            if (isReleased || currentKey != key || playbackSessionGeneration != sessionGen) return@launch
+            when (recoveryResult) {
+                is RecoveryResult.Recovered -> {
+                    val livePos = exoPlayer?.currentPosition?.coerceAtLeast(0L) ?: currentPos
+                    val livePlayWhenReady = exoPlayer?.playWhenReady ?: userRequestedPlay
+                    val liveSpeed = exoPlayer?.playbackParameters?.speed ?: currentSpeed
+                    prepareInternal(
+                        key = recoveryResult.key,
+                        streamInfo = recoveryResult.streamInfo,
+                        startPositionMs = recoveryResult.resumePositionMs.takeIf { it > 0L } ?: livePos,
+                        playWhenReady = livePlayWhenReady,
+                        initialQuality = recoveryResult.selectedQuality,
+                        playbackSpeed = liveSpeed,
+                        preserveRecoverySession = true,
+                        preserveSourceAttempts = true
+                    )
+                }
+                is RecoveryResult.Failed -> {
+                    lastReportedAppError = recoveryResult.error
+                    handleTerminalError(recoveryResult.error, sessionGen)
+                }
+                RecoveryResult.Cancelled -> {
+                    lastReportedAppError = AppError.StreamExpired
+                    handleTerminalError(AppError.StreamExpired, sessionGen)
+                }
+            }
+        }
+    }
+
+    private fun handleTerminalError(error: AppError, sessionGen: Long = playbackSessionGeneration) {
+        bufferingWatchdog?.reset()
+        exoPlayer?.stop()
+        exoPlayer?.clearMediaItems()
+        persistCurrentSnapshot()
+        mediaSession?.let { session ->
+            val eventArgs = Bundle().apply {
+                putString(EXTRA_PROBE_ERROR_CODE, error.javaClass.simpleName)
+                putLong(EXTRA_PROBE_SESSION_GEN, sessionGen)
+                putLong(EXTRA_PROBE_MEDIA_GEN, mediaOperationGeneration)
+                currentKey?.let {
+                    putInt(EXTRA_PROBE_SERVICE_ID, it.serviceId)
+                    putString(EXTRA_PROBE_NATIVE_ID, it.nativeId)
+                }
+            }
+            session.broadcastCustomCommand(
+                SessionCommand(CUSTOM_COMMAND_TERMINAL_ERROR, Bundle.EMPTY),
+                eventArgs
+            )
         }
     }
 
@@ -617,6 +698,7 @@ class HPrePlaybackService : MediaSessionService() {
         recoveryJob?.cancel()
         val currentToken = ++mediaOperationGeneration
         val currentSession = ++playbackSessionGeneration
+        bufferingWatchdog?.onPrepare(currentSession, currentToken)
         if (!preserveRecoverySession && !preserveSourceAttempts) recoverySessionGeneration++
         activeMetricsSession = VideoOpenMetrics.Default.activeSession(key)
         activeMetricsPlaybackGeneration = currentSession
@@ -708,6 +790,7 @@ class HPrePlaybackService : MediaSessionService() {
                             playbackSpeed.takeIf { it.isFinite() }?.coerceIn(0.25f, 3.0f) ?: 1.0f
                         )
                         player.prepare()
+                        checkBufferingWatchdog()
                     }
                     persistCurrentSnapshot()
 
@@ -823,6 +906,7 @@ class HPrePlaybackService : MediaSessionService() {
                     }
                     player.playWhenReady = wasPlaying
                     player.prepare()
+                    checkBufferingWatchdog()
                     persistCurrentSnapshot()
 
                     val successBundle = Bundle().apply {
@@ -904,6 +988,7 @@ class HPrePlaybackService : MediaSessionService() {
         mediaOperationGeneration++
         mediaOpJob?.cancel()
         recoveryJob?.cancel()
+        bufferingWatchdog?.reset()
         if (releaseResources) PlaybackStreamHandoff.clear()
         snapshotStore?.clear()
         activeAnalyticsListener?.let { exoPlayer?.removeAnalyticsListener(it) }
@@ -1221,6 +1306,7 @@ class HPrePlaybackService : MediaSessionService() {
         cancelActiveQuality()
         mediaOpJob?.cancel()
         recoveryJob?.cancel()
+        bufferingWatchdog?.reset()
 
         // Capture final state without blocking service teardown on DataStore I/O.
         persistFinalSnapshotSync()

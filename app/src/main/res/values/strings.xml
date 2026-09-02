@@ -104,6 +104,10 @@
     <string name="seek_step_seconds">%1$d giây</string>
     <string name="playback_speed">Tốc độ phát (%1$sx)</string>
     <string name="playback_quality">Chất lượng (%1$s)</string>
+    <string name="playback_resize_mode">Tỷ lệ khung hình (%1$s)</string>
+    <string name="resize_mode_fit">Vừa màn hình (Fit)</string>
+    <string name="resize_mode_fill">Lấp đầy (Fill)</string>
+    <string name="resize_mode_zoom">Thu phóng (Zoom)</string>
     <string name="quality_auto">Tự động</string>
     <string name="watch_save">Lưu</string>
     <string name="watch_share">Chia sẻ</string>

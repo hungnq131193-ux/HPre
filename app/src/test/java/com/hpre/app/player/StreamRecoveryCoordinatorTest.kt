@@ -404,4 +404,64 @@ class StreamRecoveryCoordinatorTest {
         assertTrue(secondRes is RecoveryResult.Recovered)
         assertTrue("First blocked call must observe CancellationException when session changes", firstCallCancelled)
     }
+
+    @Test
+    fun noncooperative_refresh_job_that_swallows_cancellation_is_rejected_and_returns_cancelled() = runTest {
+        val firstStarted = CompletableDeferred<Unit>()
+        val proceedFirst = CompletableDeferred<Unit>()
+
+        val service = object : com.hpre.app.repository.VideoService by FakeVideoService() {
+            override suspend fun refreshStreamInfo(key: ContentKey): AppResult<StreamInfo> {
+                return if (key == testKey) {
+                    firstStarted.complete(Unit)
+                    // Non-cooperative implementation that catches/swallows CancellationException and returns Success
+                    proceedFirst.await()
+                    AppResult.Success(sampleStreamInfo(testKey))
+                } else {
+                    AppResult.Success(sampleStreamInfo(key))
+                }
+            }
+        }
+
+        val coordinator = StreamRecoveryCoordinator(service)
+
+        val childJob1 = kotlinx.coroutines.Job()
+        // Session 1 on key
+        val firstDeferred = async(childJob1) {
+            coordinator.recoverExpiredStream(
+                key = testKey,
+                sessionGen = 1L,
+                positionMs = 1000L,
+                wasPlaying = true,
+                preference = QualityPreference.Auto
+            )
+        }
+
+        firstStarted.await()
+
+        val childJob2 = kotlinx.coroutines.Job()
+        // Replace with new session on SAME key on same coordinator
+        val secondDeferred = async(childJob2) {
+            coordinator.recoverExpiredStream(
+                key = testKey,
+                sessionGen = 2L,
+                positionMs = 2000L,
+                wasPlaying = true,
+                preference = QualityPreference.Auto
+            )
+        }
+
+        // Now let first refresh finish while second is starting/waiting mutex
+        proceedFirst.complete(Unit)
+
+        val secondRes = secondDeferred.await()
+        assertTrue(secondRes is RecoveryResult.Recovered)
+
+        val firstRes = try {
+            firstDeferred.await()
+        } catch (ce: CancellationException) {
+            RecoveryResult.Cancelled
+        }
+        assertTrue("Non-cooperative job that was superseded must return Cancelled, not Recovered", firstRes is RecoveryResult.Cancelled)
+    }
 }
