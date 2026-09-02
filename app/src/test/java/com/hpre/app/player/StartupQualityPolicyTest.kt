@@ -38,7 +38,7 @@ class StartupQualityPolicyTest {
     )
 
     @Test
-    fun default_startup_keeps_highest_progressive_within_720p() {
+    fun default_startup_uses_lowest_progressive_for_first_frame() {
         val result = StartupStreamSelector.select(
             StreamInfo(
                 key,
@@ -48,11 +48,11 @@ class StartupQualityPolicyTest {
         ) as AppResult.Success<SelectedStreams>
 
         assertEquals(PlaybackStreamType.PROGRESSIVE, result.value.streamType)
-        assertEquals(720, result.value.videoStream?.height)
+        assertEquals(240, result.value.videoStream?.height)
     }
 
     @Test
-    fun default_startup_does_not_choose_144p_when_360p_is_available() {
+    fun default_startup_uses_lowest_progressive_when_144p_is_available() {
         val result = StartupStreamSelector.select(
             StreamInfo(
                 key,
@@ -61,20 +61,20 @@ class StartupQualityPolicyTest {
             )
         ) as AppResult.Success<SelectedStreams>
 
-        assertEquals(360, result.value.videoStream?.height)
+        assertEquals(144, result.value.videoStream?.height)
     }
 
     @Test
-    fun default_startup_uses_best_available_even_below_240p() {
+    fun default_startup_uses_lowest_available_progressive_below_240p() {
         val result = StartupStreamSelector.select(
             StreamInfo(key, "Test", videoStreams = listOf(progressive(144), progressive(180)))
         ) as AppResult.Success<SelectedStreams>
 
-        assertEquals(180, result.value.videoStream?.height)
+        assertEquals(144, result.value.videoStream?.height)
     }
 
     @Test
-    fun default_startup_selects_merged_av_within_720p_when_no_progressive_exists() {
+    fun default_startup_uses_lowest_merged_av_when_no_progressive_exists() {
         val result = StartupStreamSelector.select(
             StreamInfo(
                 key,
@@ -85,11 +85,11 @@ class StartupQualityPolicyTest {
         ) as AppResult.Success<SelectedStreams>
 
         assertEquals(PlaybackStreamType.MERGED_AV, result.value.streamType)
-        assertEquals(720, result.value.videoStream?.height)
+        assertEquals(360, result.value.videoStream?.height)
     }
 
     @Test
-    fun startup_still_prefers_adaptive_manifest_over_low_progressive() {
+    fun vod_startup_prefers_low_progressive_over_adaptive_manifest() {
         val result = StartupStreamSelector.select(
             StreamInfo(
                 key,
@@ -99,8 +99,8 @@ class StartupQualityPolicyTest {
             )
         ) as AppResult.Success<SelectedStreams>
 
-        // Adaptive sources ramp up without a rebuffer, so they win regardless of fast start.
-        assertEquals(PlaybackStreamType.HLS, result.value.streamType)
+        assertEquals(PlaybackStreamType.PROGRESSIVE, result.value.streamType)
+        assertEquals(360, result.value.videoStream?.height)
     }
 
     @Test

@@ -39,27 +39,34 @@ class StartupStreamSelectorTest {
     )
 
     @Test
-    fun startup_prefers_hls_then_dash_before_progressive() {
-        val hls = StartupStreamSelector.select(
+    fun vod_startup_prefers_lowest_valid_progressive_before_hls_and_dash() {
+        val result = StartupStreamSelector.select(
             StreamInfo(
                 key,
                 "Test",
-                videoStreams = listOf(progressive(720)),
+                videoStreams = listOf(progressive(720), progressive(360)),
                 hlsManifestUrl = "https://example.test/master.m3u8",
                 dashManifestUrl = "https://example.test/manifest.mpd"
             )
         ) as AppResult.Success<SelectedStreams>
-        assertEquals(PlaybackStreamType.HLS, hls.value.streamType)
 
-        val dash = StartupStreamSelector.select(
+        assertEquals(PlaybackStreamType.PROGRESSIVE, result.value.streamType)
+        assertEquals(360, result.value.videoStream?.height)
+    }
+
+    @Test
+    fun live_startup_keeps_hls_before_direct_streams() {
+        val result = StartupStreamSelector.select(
             StreamInfo(
                 key,
-                "Test",
-                videoStreams = listOf(progressive(720)),
-                dashManifestUrl = "https://example.test/manifest.mpd"
+                "Live",
+                videoStreams = listOf(progressive(360)),
+                hlsManifestUrl = "https://example.test/live.m3u8",
+                isLive = true
             )
         ) as AppResult.Success<SelectedStreams>
-        assertEquals(PlaybackStreamType.DASH, dash.value.streamType)
+
+        assertEquals(PlaybackStreamType.HLS, result.value.streamType)
     }
 
     @Test
@@ -94,13 +101,19 @@ class StartupStreamSelectorTest {
     }
 
     @Test
-    fun startup_preserves_compatible_merged_av_fallback() {
+    fun vod_startup_prefers_lowest_compatible_merged_av_before_manifest() {
         val result = StartupStreamSelector.select(
-            StreamInfo(key, "Test", videoStreams = listOf(adaptive(1080)), audioStreams = listOf(audio()))
+            StreamInfo(
+                key,
+                "Test",
+                videoStreams = listOf(adaptive(720), adaptive(360)),
+                audioStreams = listOf(audio()),
+                dashManifestUrl = "https://example.test/manifest.mpd"
+            )
         ) as AppResult.Success<SelectedStreams>
 
         assertEquals(PlaybackStreamType.MERGED_AV, result.value.streamType)
-        assertEquals(1080, result.value.videoStream?.height)
+        assertEquals(360, result.value.videoStream?.height)
     }
 
     @Test

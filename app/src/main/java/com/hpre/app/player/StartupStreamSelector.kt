@@ -21,13 +21,18 @@ object StartupStreamSelector {
         maxHeight: Int = DEFAULT_MAX_HEIGHT,
         fastStart: Boolean = false
     ): AppResult<SelectedStreams> {
+        if (!info.isLive) {
+            // Direct streams avoid a manifest round trip and start the lowest supported rendition first.
+            lowestStartupStream(info)?.let { return it }
+        }
+
         // Prefer a real adaptive manifest at startup. The height cap is enforced by the service's
         // track selector; progressive streams cannot provide continuous ABR.
         val automatic = StreamSelector.selectStream(info, QualityPreference.Auto)
         val automaticStreams = (automatic as? AppResult.Success)?.value
-        if (automaticStreams?.streamType == PlaybackStreamType.HLS ||
+        if (info.isLive && (automaticStreams?.streamType == PlaybackStreamType.HLS ||
             automaticStreams?.streamType == PlaybackStreamType.DASH
-        ) {
+        )) {
             return automatic
         }
 
