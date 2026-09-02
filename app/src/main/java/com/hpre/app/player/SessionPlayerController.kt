@@ -265,6 +265,7 @@ class SessionPlayerController internal constructor(
                         localSessionGen != expectedSession ||
                         localPrepareRequestGeneration.get() != expectedRequest
                     ) return@launch
+                    recoveryJob = null
                     prepareWithSpeed(
                         key = recovered.pending.key,
                         streamInfo = recovered.streamInfo,

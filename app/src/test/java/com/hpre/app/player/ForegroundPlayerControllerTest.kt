@@ -760,7 +760,8 @@ class ForegroundPlayerControllerTest {
                 threadDuringFactory = Thread.currentThread()
                 testPlayer
             },
-            mainDispatcher = testDispatcher
+            mainDispatcher = testDispatcher,
+            ioDispatcher = testDispatcher
         )
 
         controller.prepare(testKey, sampleStreamInfo())
