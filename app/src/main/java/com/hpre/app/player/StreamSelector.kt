@@ -128,11 +128,19 @@ object StreamSelector {
     private fun isProgressiveValid(video: VideoStream): Boolean {
         if (video.isVideoOnly || !isValidUrl(video.url)) return false
         val container = detectContainerFamily(video.format, video.mimeType, isVideo = true) ?: return false
-        if (video.codec.isNullOrBlank()) return false
-        val vCodec = parseVideoCodec(video.codec) ?: return false
+        val codecTokens = parseCodecTokens(video.codec)
+        if (codecTokens.isEmpty() || codecTokens.any { it.trim().isEmpty() }) return false
+        val videoCodecs = codecTokens.mapNotNull(::detectVideoCodecToken)
+        val audioCodecs = codecTokens.mapNotNull(::detectAudioCodecToken)
+        if (videoCodecs.size != 1 || audioCodecs.size > 1 || videoCodecs.size + audioCodecs.size != codecTokens.size) return false
+        val vCodec = videoCodecs.single()
+        val aCodec = audioCodecs.singleOrNull()
         when (container) {
-            ContainerFamily.MP4 -> if (vCodec != VideoCodecFamily.H264_AVC) return false
-            ContainerFamily.WEBM -> if (vCodec != VideoCodecFamily.VP8 && vCodec != VideoCodecFamily.VP9 && vCodec != VideoCodecFamily.AV1) return false
+            ContainerFamily.MP4 -> if (vCodec != VideoCodecFamily.H264_AVC || aCodec != null && aCodec != AudioCodecFamily.AAC) return false
+            ContainerFamily.WEBM -> if (
+                vCodec != VideoCodecFamily.VP8 && vCodec != VideoCodecFamily.VP9 && vCodec != VideoCodecFamily.AV1 ||
+                aCodec != null && aCodec != AudioCodecFamily.OPUS && aCodec != AudioCodecFamily.VORBIS
+            ) return false
         }
         return true
     }

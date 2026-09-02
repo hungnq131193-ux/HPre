@@ -831,6 +831,34 @@ class StreamSelectorTest {
     }
 
     @Test
+    fun combined_avc_and_aac_codec_is_eligible_as_progressive_mp4() {
+        val itag18 = videoStream(
+            url = "https://video.test/itag18.mp4",
+            format = "mp4",
+            resolution = "360p",
+            width = 640,
+            height = 360,
+            isVideoOnly = false,
+            mimeType = "video/mp4",
+            codec = "avc1.42001E, mp4a.40.2"
+        )
+        val info = StreamInfo(
+            key = ContentKey(0, "dX9FeimCeWk"),
+            title = "Progressive MP4",
+            videoStreams = listOf(itag18)
+        )
+
+        val result = StreamSelector.selectStream(info, QualityPreference.Auto)
+
+        assertTrue(result is AppResult.Success)
+        val selected = (result as AppResult.Success).value
+        assertEquals(PlaybackStreamType.PROGRESSIVE, selected.streamType)
+        assertEquals("https://video.test/itag18.mp4", selected.videoStream?.url)
+        assertNull(selected.audioStream)
+        assertEquals(listOf(360), StreamSelector.getAvailableQualities(info).map { it.height })
+    }
+
+    @Test
     fun rejects_comma_separated_codec_lists_for_video_and_audio() {
         // Video comma lists (same or mixed family) must reject
         val vp8_vp9 = videoStream(url = "https://v1.webm", format = "webm", mimeType = "video/webm", codec = "vp8,vp9", height = 720, isVideoOnly = false)

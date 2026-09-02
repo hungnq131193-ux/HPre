@@ -17,6 +17,7 @@ import com.hpre.app.core.error.AppError
 import com.hpre.app.core.error.AppResult
 import com.hpre.app.model.ContentKey
 import com.hpre.app.model.StreamInfo
+import com.google.common.util.concurrent.Futures
 import com.google.common.util.concurrent.ListenableFuture
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineScope
@@ -34,6 +35,61 @@ import kotlinx.coroutines.withContext
 import java.util.concurrent.atomic.AtomicLong
 import java.util.concurrent.ExecutionException
 
+internal fun handleTerminalSessionCommand(
+    commandAction: String,
+    errorName: String?,
+    sessionGen: Long,
+    mediaGen: Long,
+    serviceId: Int,
+    nativeId: String?,
+    currentKey: ContentKey?,
+    localSessionGen: Long,
+    localMediaGen: Long,
+    isReleased: Boolean,
+    onStateUpdate: (AppError) -> Unit
+): Boolean {
+    if (isReleased) return false
+    if (commandAction != HPrePlaybackService.CUSTOM_COMMAND_TERMINAL_ERROR) return false
+
+    if (currentKey == null || serviceId == Int.MIN_VALUE || nativeId.isNullOrBlank()) return false
+    if (currentKey.serviceId != serviceId || currentKey.nativeId != nativeId) return false
+    if (sessionGen < 0L || localSessionGen <= 0L || sessionGen != localSessionGen) return false
+    if (mediaGen < 0L || localMediaGen <= 0L || mediaGen != localMediaGen) return false
+    val mapped = errorName?.let(SessionPlayerController::mapServiceErrorName) ?: AppError.StreamExpired
+    onStateUpdate(mapped)
+    return true
+}
+
+internal fun handleTerminalSessionCommand(
+    commandAction: String,
+    args: Bundle?,
+    currentKey: ContentKey?,
+    localSessionGen: Long,
+    localMediaGen: Long,
+    isReleased: Boolean,
+    onStateUpdate: (AppError) -> Unit
+): Boolean {
+    val sessionGen = args?.getLong(HPrePlaybackService.EXTRA_PROBE_SESSION_GEN, -1L) ?: -1L
+    val mediaGen = args?.getLong(HPrePlaybackService.EXTRA_PROBE_MEDIA_GEN, -1L) ?: -1L
+    val errorName = args?.getString(HPrePlaybackService.EXTRA_PROBE_ERROR_CODE)
+    val serviceId = args?.getInt(HPrePlaybackService.EXTRA_PROBE_SERVICE_ID, Int.MIN_VALUE) ?: Int.MIN_VALUE
+    val nativeId = args?.getString(HPrePlaybackService.EXTRA_PROBE_NATIVE_ID)
+
+    return handleTerminalSessionCommand(
+        commandAction = commandAction,
+        errorName = errorName,
+        sessionGen = sessionGen,
+        mediaGen = mediaGen,
+        serviceId = serviceId,
+        nativeId = nativeId,
+        currentKey = currentKey,
+        localSessionGen = localSessionGen,
+        localMediaGen = localMediaGen,
+        isReleased = isReleased,
+        onStateUpdate = onStateUpdate
+    )
+}
+
 internal fun restoreConnectedPlaybackState(
     current: PlaybackState,
     playbackState: Int,
@@ -46,7 +102,7 @@ internal fun restoreConnectedPlaybackState(
     isPlaying = isPlaying,
     playWhenReady = playWhenReady,
     isReady = playbackState == Player.STATE_READY,
-    isLoading = current.isLoading && playbackState == Player.STATE_IDLE,
+    isLoading = current.isLoading && playbackState != Player.STATE_READY && playbackState != Player.STATE_IDLE && playbackState != Player.STATE_ENDED,
     isBuffering = playbackState == Player.STATE_BUFFERING,
     isEnded = playbackState == Player.STATE_ENDED,
     durationMs = durationMs.coerceAtLeast(0L),
@@ -314,7 +370,9 @@ class SessionPlayerController internal constructor(
                 Player.STATE_ENDED -> {
                     _state.update { it.copy(isEnded = true, isPlaying = false, isBuffering = false, isReady = false) }
                 }
-                Player.STATE_IDLE -> {}
+                Player.STATE_IDLE -> {
+                    _state.update { it.copy(isLoading = false, isBuffering = false, isReady = false, isPlaying = false) }
+                }
             }
         }
 
@@ -415,6 +473,36 @@ class SessionPlayerController internal constructor(
                     scope.launch(mainDispatcher) {
                         handleControllerDisconnected(attemptToken, targetController)
                     }
+                }
+
+                override fun onCustomCommand(
+                    controller: MediaController,
+                    command: SessionCommand,
+                    args: Bundle
+                ): ListenableFuture<SessionResult> {
+                    val handled = handleTerminalSessionCommand(
+                        commandAction = command.customAction,
+                        args = args,
+                        currentKey = currentKey,
+                        localSessionGen = localSessionGen,
+                        localMediaGen = localMediaGen,
+                        isReleased = isReleased,
+                        onStateUpdate = { mappedError ->
+                            _state.update {
+                                it.copy(
+                                    isLoading = false,
+                                    isBuffering = false,
+                                    isPlaying = false,
+                                    isReady = false,
+                                    error = mappedError
+                                )
+                            }
+                        }
+                    )
+                    if (handled) {
+                        return Futures.immediateFuture(SessionResult(SessionResult.RESULT_SUCCESS))
+                    }
+                    return super.onCustomCommand(controller, command, args)
                 }
             }
             val isPrewarm = connectionPurpose == ConnectionPurpose.PREWARM

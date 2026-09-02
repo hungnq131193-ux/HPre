@@ -104,6 +104,10 @@
     <string name="seek_step_seconds">%1$d seconds</string>
     <string name="playback_speed">Playback speed (%1$sx)</string>
     <string name="playback_quality">Quality (%1$s)</string>
+    <string name="playback_resize_mode">Aspect ratio (%1$s)</string>
+    <string name="resize_mode_fit">Fit</string>
+    <string name="resize_mode_fill">Fill</string>
+    <string name="resize_mode_zoom">Zoom</string>
     <string name="quality_auto">Auto</string>
     <string name="watch_save">Save</string>
     <string name="watch_share">Share</string>

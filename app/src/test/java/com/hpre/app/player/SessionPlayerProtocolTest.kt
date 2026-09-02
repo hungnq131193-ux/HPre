@@ -1,6 +1,7 @@
 package com.hpre.app.player
 
 import com.hpre.app.core.error.AppError
+import com.hpre.app.core.error.AppResult
 import com.hpre.app.core.error.safeMessageKey
 import com.hpre.app.model.ContentKey
 import com.hpre.app.model.StreamInfo
@@ -1378,5 +1379,137 @@ class SessionPlayerProtocolTest {
 
         collectJob.cancel()
         controller.release()
+    }
+
+    @Test
+    fun terminal_error_transition_clears_buffering_and_loading_in_playback_state() {
+        val bufferingState = PlaybackState(
+            key = testKey,
+            isLoading = true,
+            isBuffering = true,
+            isReady = false
+        )
+
+        val terminalState = restoreConnectedPlaybackState(
+            current = bufferingState,
+            playbackState = androidx.media3.common.Player.STATE_IDLE,
+            isPlaying = false,
+            playWhenReady = false,
+            durationMs = 0L,
+            positionMs = 0L,
+            playbackSpeed = 1.0f
+        ).copy(error = AppError.StreamExpired)
+
+        assertFalse(terminalState.isBuffering)
+        assertFalse(terminalState.isLoading)
+        assertFalse(terminalState.isReady)
+        assertEquals(AppError.StreamExpired, terminalState.error)
+    }
+
+    @Test
+    fun handleTerminalSessionCommand_accepts_valid_current_generation_and_rejects_stale_or_released() {
+        var observedError: AppError? = null
+        val serviceId = testKey.serviceId
+        val nativeId = testKey.nativeId
+
+        // Valid command matching active key and session
+        val handled = handleTerminalSessionCommand(
+            commandAction = HPrePlaybackService.CUSTOM_COMMAND_TERMINAL_ERROR,
+            errorName = "StreamExpired",
+            sessionGen = 5L,
+            mediaGen = 9L,
+            serviceId = serviceId,
+            nativeId = nativeId,
+            currentKey = testKey,
+            localSessionGen = 5L,
+            localMediaGen = 9L,
+            isReleased = false,
+            onStateUpdate = { observedError = it }
+        )
+        assertTrue(handled)
+        assertEquals(AppError.StreamExpired, observedError)
+
+        // Stale session generation -> rejected
+        observedError = null
+        val staleHandled = handleTerminalSessionCommand(
+            commandAction = HPrePlaybackService.CUSTOM_COMMAND_TERMINAL_ERROR,
+            errorName = "StreamExpired",
+            sessionGen = 5L,
+            mediaGen = 9L,
+            serviceId = serviceId,
+            nativeId = nativeId,
+            currentKey = testKey,
+            localSessionGen = 6L,
+            localMediaGen = 9L,
+            isReleased = false,
+            onStateUpdate = { observedError = it }
+        )
+        assertFalse(staleHandled)
+        assertNull(observedError)
+
+        // Mismatched key -> rejected
+        val differentKey = ContentKey(0, "other_vid")
+        val diffKeyHandled = handleTerminalSessionCommand(
+            commandAction = HPrePlaybackService.CUSTOM_COMMAND_TERMINAL_ERROR,
+            errorName = "StreamExpired",
+            sessionGen = 5L,
+            mediaGen = 9L,
+            serviceId = serviceId,
+            nativeId = nativeId,
+            currentKey = differentKey,
+            localSessionGen = 5L,
+            localMediaGen = 9L,
+            isReleased = false,
+            onStateUpdate = { observedError = it }
+        )
+        assertFalse(diffKeyHandled)
+        assertNull(observedError)
+
+        // Released controller -> rejected
+        val releasedHandled = handleTerminalSessionCommand(
+            commandAction = HPrePlaybackService.CUSTOM_COMMAND_TERMINAL_ERROR,
+            errorName = "StreamExpired",
+            sessionGen = 5L,
+            mediaGen = 9L,
+            serviceId = serviceId,
+            nativeId = nativeId,
+            currentKey = testKey,
+            localSessionGen = 5L,
+            localMediaGen = 9L,
+            isReleased = true,
+            onStateUpdate = { observedError = it }
+        )
+        assertFalse(releasedHandled)
+        assertNull(observedError)
+
+        val staleMediaHandled = handleTerminalSessionCommand(
+            commandAction = HPrePlaybackService.CUSTOM_COMMAND_TERMINAL_ERROR,
+            errorName = "StreamExpired",
+            sessionGen = 5L,
+            mediaGen = 8L,
+            serviceId = serviceId,
+            nativeId = nativeId,
+            currentKey = testKey,
+            localSessionGen = 5L,
+            localMediaGen = 9L,
+            isReleased = false,
+            onStateUpdate = { observedError = it }
+        )
+        assertFalse(staleMediaHandled)
+
+        val missingIdentityHandled = handleTerminalSessionCommand(
+            commandAction = HPrePlaybackService.CUSTOM_COMMAND_TERMINAL_ERROR,
+            errorName = "StreamExpired",
+            sessionGen = 5L,
+            mediaGen = 9L,
+            serviceId = Int.MIN_VALUE,
+            nativeId = null,
+            currentKey = testKey,
+            localSessionGen = 5L,
+            localMediaGen = 9L,
+            isReleased = false,
+            onStateUpdate = { observedError = it }
+        )
+        assertFalse(missingIdentityHandled)
     }
 }

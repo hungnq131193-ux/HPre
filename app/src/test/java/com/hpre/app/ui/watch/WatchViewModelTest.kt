@@ -1344,6 +1344,40 @@ class WatchViewModelTest {
     }
 
     @Test
+    fun fullScreenResizeMode_defaults_to_fit_and_updates_state_and_savedStateHandle() {
+        val savedState = androidx.lifecycle.SavedStateHandle()
+        val viewModel = WatchViewModel(
+            videoService = FakeVideoService(),
+            playerController = FakePlayerController(),
+            savedStateHandle = savedState,
+            ioDispatcher = testDispatcher
+        )
+
+        assertEquals(FullScreenResizeMode.FIT, viewModel.uiState.value.fullScreenResizeMode)
+
+        viewModel.setFullScreenResizeMode(FullScreenResizeMode.ZOOM)
+        assertEquals(FullScreenResizeMode.ZOOM, viewModel.uiState.value.fullScreenResizeMode)
+        assertEquals("ZOOM", savedState.get<String>(WatchViewModel.KEY_FULLSCREEN_RESIZE_MODE))
+
+        viewModel.setFullScreenResizeMode(FullScreenResizeMode.FILL)
+        assertEquals(FullScreenResizeMode.FILL, viewModel.uiState.value.fullScreenResizeMode)
+        assertEquals("FILL", savedState.get<String>(WatchViewModel.KEY_FULLSCREEN_RESIZE_MODE))
+    }
+
+    @Test
+    fun fullScreenResizeMode_restores_from_savedStateHandle() {
+        val savedState = androidx.lifecycle.SavedStateHandle(mapOf(WatchViewModel.KEY_FULLSCREEN_RESIZE_MODE to "ZOOM"))
+        val viewModel = WatchViewModel(
+            videoService = FakeVideoService(),
+            playerController = FakePlayerController(),
+            savedStateHandle = savedState,
+            ioDispatcher = testDispatcher
+        )
+
+        assertEquals(FullScreenResizeMode.ZOOM, viewModel.uiState.value.fullScreenResizeMode)
+    }
+
+    @Test
     fun retry_reloads_both_details_and_stream() = runTest(testDispatcher) {
         var failFirst = true
         val fakeService = FakeVideoService(

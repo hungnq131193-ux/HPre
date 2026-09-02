@@ -252,6 +252,7 @@ internal val LocalFullscreenHostHandlerFactory =
 internal val LocalShareLauncher =
     androidx.compose.runtime.compositionLocalOf<ShareLauncher?> { null }
 
+@androidx.annotation.OptIn(androidx.media3.common.util.UnstableApi::class)
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun WatchScreen(
@@ -342,11 +343,16 @@ fun WatchScreen(
                 .background(Color.Black)
                 .testTag("watch_screen_fullscreen")
         ) {
+            val fullscreenResizeMode = if (isInPip) {
+                androidx.media3.ui.AspectRatioFrameLayout.RESIZE_MODE_FIT
+            } else {
+                uiState.fullScreenResizeMode.toMedia3ResizeMode()
+            }
             PlayerSurface(
                 playerController = viewModel.playerController,
                 coordinator = playbackUiCoordinator,
                 owner = com.hpre.app.player.SurfaceOwner.WATCH,
-                fillScreen = !isInPip,
+                resizeMode = fullscreenResizeMode,
                 modifier = Modifier.fillMaxSize()
             )
 
@@ -355,6 +361,8 @@ fun WatchScreen(
                 readProgress = { viewModel.playerController.readProgress() },
                 isPlayerLoading = uiState.isPlayerLoading,
                 isFullscreen = true,
+                resizeMode = uiState.fullScreenResizeMode,
+                onResizeModeSelected = { mode -> viewModel.setFullScreenResizeMode(mode) },
                 onPlayPause = { viewModel.playPause() },
                 onSeekBy = { delta -> viewModel.seekBy(delta) },
                 onSeekTo = { pos -> viewModel.seekTo(pos) },
@@ -463,6 +471,8 @@ private fun WatchPlayerControls(
     readProgress: suspend () -> com.hpre.app.player.PlaybackProgress,
     isPlayerLoading: Boolean,
     isFullscreen: Boolean,
+    resizeMode: FullScreenResizeMode = FullScreenResizeMode.FIT,
+    onResizeModeSelected: (FullScreenResizeMode) -> Unit = {},
     onPlayPause: () -> Unit,
     onSeekBy: (Long) -> Unit,
     onSeekTo: (Long) -> Unit,
@@ -478,6 +488,8 @@ private fun WatchPlayerControls(
             isLoading = structuralState.isLoading || isPlayerLoading
         ),
         isFullscreen = isFullscreen,
+        resizeMode = resizeMode,
+        onResizeModeSelected = onResizeModeSelected,
         onPlayPause = onPlayPause,
         onSeekBy = onSeekBy,
         onSeekTo = onSeekTo,

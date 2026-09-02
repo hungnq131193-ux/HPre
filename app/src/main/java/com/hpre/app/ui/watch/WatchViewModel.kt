@@ -113,12 +113,26 @@ class RefreshableAsyncState<T> private constructor(
     }
 }
 
+enum class FullScreenResizeMode {
+    FIT,
+    FILL,
+    ZOOM;
+
+    @androidx.annotation.OptIn(androidx.media3.common.util.UnstableApi::class)
+    fun toMedia3ResizeMode(): Int = when (this) {
+        FIT -> androidx.media3.ui.AspectRatioFrameLayout.RESIZE_MODE_FIT
+        FILL -> androidx.media3.ui.AspectRatioFrameLayout.RESIZE_MODE_FILL
+        ZOOM -> androidx.media3.ui.AspectRatioFrameLayout.RESIZE_MODE_ZOOM
+    }
+}
+
 data class WatchUiState(
     val key: ContentKey? = null,
     val isLoading: Boolean = false,
     val details: VideoDetails? = null,
     val error: AppError? = null,
     val isFullscreen: Boolean = false,
+    val fullScreenResizeMode: FullScreenResizeMode = FullScreenResizeMode.FIT,
     val commentsExpanded: Boolean = false,
     val isPlayerLoading: Boolean = false
 )
@@ -145,6 +159,7 @@ class WatchViewModel(
 
     companion object {
         const val KEY_IS_FULLSCREEN = "watch_is_fullscreen"
+        const val KEY_FULLSCREEN_RESIZE_MODE = "watch_fullscreen_resize_mode"
         internal const val RESUME_LOOKUP_TIMEOUT_MS = 1_500L
         internal const val FIRST_FRAME_READY_FALLBACK_MS = 300L
         internal const val COMMENTS_READY_FALLBACK_MS = 2_000L
@@ -220,8 +235,16 @@ class WatchViewModel(
     }
 
     private val initialFullscreen: Boolean = savedStateHandle.get<Boolean>(KEY_IS_FULLSCREEN) ?: false
+    private val initialFullScreenResizeMode: FullScreenResizeMode = savedStateHandle.get<String>(KEY_FULLSCREEN_RESIZE_MODE)?.let {
+        try { FullScreenResizeMode.valueOf(it) } catch (_: Exception) { FullScreenResizeMode.FIT }
+    } ?: FullScreenResizeMode.FIT
 
-    private val _uiState = MutableStateFlow(WatchUiState(isFullscreen = initialFullscreen))
+    private val _uiState = MutableStateFlow(
+        WatchUiState(
+            isFullscreen = initialFullscreen,
+            fullScreenResizeMode = initialFullScreenResizeMode
+        )
+    )
     val uiState: StateFlow<WatchUiState> = _uiState.asStateFlow()
 
     private val _relatedState = MutableStateFlow<RefreshableAsyncState<List<VideoSummary>>>(RefreshableAsyncState.initial())
@@ -954,6 +977,11 @@ class WatchViewModel(
     fun setFullscreen(isFullscreen: Boolean) {
         savedStateHandle[KEY_IS_FULLSCREEN] = isFullscreen
         _uiState.update { it.copy(isFullscreen = isFullscreen) }
+    }
+
+    fun setFullScreenResizeMode(mode: FullScreenResizeMode) {
+        savedStateHandle[KEY_FULLSCREEN_RESIZE_MODE] = mode.name
+        _uiState.update { it.copy(fullScreenResizeMode = mode) }
     }
 
     fun playPause() {

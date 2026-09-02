@@ -583,5 +583,3 @@ class PlaybackServiceTest {
         org.junit.Assert.assertFalse(normalHints.getBoolean(HPrePlaybackService.KEY_INFRASTRUCTURE_PREWARM, true))
     }
 }
-
-

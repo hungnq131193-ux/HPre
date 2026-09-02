@@ -12,6 +12,7 @@ import androidx.compose.ui.test.assertHeightIsAtLeast
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.assertIsEnabled
 import androidx.compose.ui.test.assertIsNotEnabled
+import androidx.compose.ui.test.assertIsSelected
 import androidx.compose.ui.test.assertTextEquals
 import androidx.compose.ui.test.hasTestTag
 import androidx.compose.ui.test.hasText
@@ -462,6 +463,34 @@ class WatchScreenTest {
         assertEquals(30_000L, seekedTo)
         composeTestRule.onNodeWithTag("player_time_text")
             .assertTextEquals("0:30 / 1:00")
+    }
+
+    @Test
+    fun fullscreen_resize_menu_exposes_selected_mode_and_dispatches_zoom() {
+        var selectedMode: FullScreenResizeMode? = null
+        composeTestRule.setContent {
+            HPreTheme {
+                PlayerControlsOverlay(
+                    playbackState = PlaybackState(),
+                    isFullscreen = true,
+                    resizeMode = FullScreenResizeMode.FIT,
+                    onResizeModeSelected = { selectedMode = it },
+                    onPlayPause = {},
+                    onSeekBy = {},
+                    onSeekTo = {},
+                    onSpeedSelected = {},
+                    onQualitySelected = {},
+                    onToggleFullscreen = {}
+                )
+            }
+        }
+
+        composeTestRule.onNodeWithTag("control_resize_mode_button").performClick()
+        composeTestRule.onNodeWithTag("resize_mode_option_fit").assertIsSelected()
+        composeTestRule.onNodeWithTag("resize_mode_option_zoom").performClick()
+        composeTestRule.runOnIdle {
+            assertEquals(FullScreenResizeMode.ZOOM, selectedMode)
+        }
     }
 
     @Test

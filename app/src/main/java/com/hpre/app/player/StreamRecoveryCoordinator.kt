@@ -84,12 +84,10 @@ class StreamRecoveryCoordinator(
         }
 
         mutex.withLock {
-            if (activeRecoveryJob === currentJob) {
-                activeRecoveryJob = null
-            }
-            if (isReleased || activeSession != targetSession) {
+            if (activeRecoveryJob !== currentJob || isReleased || activeSession != targetSession) {
                 return RecoveryResult.Cancelled
             }
+            activeRecoveryJob = null
 
             return when (streamResult) {
                 is AppResult.Success -> {
