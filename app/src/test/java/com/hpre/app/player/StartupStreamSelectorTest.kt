@@ -39,7 +39,7 @@ class StartupStreamSelectorTest {
     )
 
     @Test
-    fun vod_startup_prefers_lowest_valid_progressive_before_hls_and_dash() {
+    fun vod_startup_prefers_hls_before_direct_streams() {
         val result = StartupStreamSelector.select(
             StreamInfo(
                 key,
@@ -50,8 +50,7 @@ class StartupStreamSelectorTest {
             )
         ) as AppResult.Success<SelectedStreams>
 
-        assertEquals(PlaybackStreamType.PROGRESSIVE, result.value.streamType)
-        assertEquals(360, result.value.videoStream?.height)
+        assertEquals(PlaybackStreamType.HLS, result.value.streamType)
     }
 
     @Test
@@ -101,7 +100,7 @@ class StartupStreamSelectorTest {
     }
 
     @Test
-    fun vod_startup_prefers_lowest_compatible_merged_av_before_manifest() {
+    fun vod_startup_prefers_dash_before_compatible_merged_av() {
         val result = StartupStreamSelector.select(
             StreamInfo(
                 key,
@@ -112,8 +111,7 @@ class StartupStreamSelectorTest {
             )
         ) as AppResult.Success<SelectedStreams>
 
-        assertEquals(PlaybackStreamType.MERGED_AV, result.value.streamType)
-        assertEquals(360, result.value.videoStream?.height)
+        assertEquals(PlaybackStreamType.DASH, result.value.streamType)
     }
 
     @Test
