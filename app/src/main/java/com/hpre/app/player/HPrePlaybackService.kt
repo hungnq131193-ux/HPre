@@ -13,7 +13,6 @@ import androidx.media3.common.MediaMetadata
 import androidx.media3.common.PlaybackException
 import androidx.media3.common.Player
 import androidx.media3.common.util.UnstableApi
-import androidx.media3.datasource.HttpDataSource
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.trackselection.DefaultTrackSelector
 import androidx.media3.exoplayer.analytics.AnalyticsListener
@@ -381,29 +380,19 @@ class HPrePlaybackService : MediaSessionService() {
     private val playerListener = object : Player.Listener {
         override fun onPlayerError(error: PlaybackException) {
             if (isReleased) return
-            val httpException = findCause<HttpDataSource.InvalidResponseCodeException>(error)
-            val appError = when {
-                httpException != null -> {
-                    when (httpException.responseCode) {
-                        403 -> AppError.StreamExpired
-                        401 -> AppError.LoginRequired
-                        404 -> AppError.ContentUnavailable
-                        in 500..599 -> AppError.NetworkError
-                        else -> AppError.Unknown
-                    }
-                }
-                error.errorCode == PlaybackException.ERROR_CODE_IO_NETWORK_CONNECTION_FAILED ||
-                error.errorCode == PlaybackException.ERROR_CODE_IO_NETWORK_CONNECTION_TIMEOUT -> AppError.NetworkError
-                error.errorCode == PlaybackException.ERROR_CODE_IO_BAD_HTTP_STATUS -> AppError.Unknown
-                error.errorCode == PlaybackException.ERROR_CODE_DECODER_INIT_FAILED ||
-                error.errorCode == PlaybackException.ERROR_CODE_PARSING_CONTAINER_UNSUPPORTED ||
-                error.errorCode == PlaybackException.ERROR_CODE_PARSING_MANIFEST_UNSUPPORTED -> AppError.UnsupportedFormat
-                else -> AppError.Unknown
-            }
+            val recoveryDecision = PlaybackRecoveryPolicy.decide(error)
+            val appError = recoveryDecision.error
 
             lastReportedAppError = appError
             val key = currentKey
             val currentSession = playbackSessionGeneration
+            activeMetricsSession?.let { session ->
+                VideoOpenMetrics.Default.mark(
+                    session,
+                    VideoOpenEvent.PLAYBACK_ERROR,
+                    "${appError.javaClass.simpleName}:${currentStreamType?.name ?: "UNKNOWN"}"
+                )
+            }
 
             if (appError == AppError.UnsupportedFormat && key != null) {
                 val streamInfo = currentStreamInfo
@@ -457,7 +446,7 @@ class HPrePlaybackService : MediaSessionService() {
                 }
             }
 
-            if (appError == AppError.StreamExpired && recoveryCoordinator != null && key != null) {
+            if (recoveryDecision.shouldRefresh && recoveryCoordinator != null && key != null) {
                 val preference = currentSelectedQuality?.let { QualityPreference.SpecificOption(it) } ?: QualityPreference.Auto
                 val currentPos = exoPlayer?.currentPosition?.coerceAtLeast(0L) ?: 0L
                 val currentSpeed = exoPlayer?.playbackParameters?.speed ?: 1.0f
@@ -469,7 +458,8 @@ class HPrePlaybackService : MediaSessionService() {
                         sessionGen = recoverySessionGeneration,
                         positionMs = currentPos,
                         wasPlaying = userRequestedPlay,
-                        preference = preference
+                        preference = preference,
+                        attemptedSourceTypes = attemptedSourceTypes.toSet()
                     )
                     if (isReleased || currentKey != key || playbackSessionGeneration != currentSession) return@launch
                     when (recoveryResult) {
@@ -556,15 +546,6 @@ class HPrePlaybackService : MediaSessionService() {
             }
         }
         player.trackSelectionParameters = builder.build()
-    }
-
-    private inline fun <reified T : Throwable> findCause(throwable: Throwable?): T? {
-        var current = throwable
-        while (current != null) {
-            if (current is T) return current
-            current = current.cause
-        }
-        return null
     }
 
     /**

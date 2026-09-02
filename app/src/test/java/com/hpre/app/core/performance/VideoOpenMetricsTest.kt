@@ -2,6 +2,7 @@ package com.hpre.app.core.performance
 
 import com.hpre.app.model.ContentKey
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -56,5 +57,18 @@ class VideoOpenMetricsTest {
 
         assertEquals(null, metrics.activeSession(firstKey))
         assertEquals(second, metrics.activeSession(secondKey))
+    }
+
+    @Test fun enabled_metrics_emit_only_identity_free_records() {
+        val records = mutableListOf<VideoOpenRecord>()
+        val metrics = VideoOpenMetrics(enabled = true, nowMs = { 100L }, sink = records::add)
+
+        val session = metrics.start(ContentKey(7, "https://secret.example/video?token=abc"))
+        metrics.mark(session, VideoOpenEvent.PLAYBACK_ERROR, category = "NetworkError:PROGRESSIVE")
+
+        assertEquals(VideoOpenEvent.PLAYBACK_ERROR, records.last().event)
+        assertEquals("NetworkError:PROGRESSIVE", records.last().category)
+        assertFalse(records.last().toString().contains("secret"))
+        assertFalse(records.last().toString().contains("token"))
     }
 }

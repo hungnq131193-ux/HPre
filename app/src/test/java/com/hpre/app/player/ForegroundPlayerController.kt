@@ -152,25 +152,9 @@ class ForegroundPlayerController(
 
         override fun onPlayerError(error: PlaybackException) {
             if (isReleased) return
+            val recoveryDecision = PlaybackRecoveryPolicy.decide(error)
             val httpException = findCause<HttpDataSource.InvalidResponseCodeException>(error)
-            val appError = when {
-                httpException != null -> {
-                    when (httpException.responseCode) {
-                        403 -> AppError.StreamExpired
-                        401 -> AppError.LoginRequired
-                        404 -> AppError.ContentUnavailable
-                        in 500..599 -> AppError.NetworkError
-                        else -> AppError.Unknown
-                    }
-                }
-                error.errorCode == PlaybackException.ERROR_CODE_IO_NETWORK_CONNECTION_FAILED ||
-                error.errorCode == PlaybackException.ERROR_CODE_IO_NETWORK_CONNECTION_TIMEOUT -> AppError.NetworkError
-                error.errorCode == PlaybackException.ERROR_CODE_IO_BAD_HTTP_STATUS -> AppError.Unknown
-                error.errorCode == PlaybackException.ERROR_CODE_DECODER_INIT_FAILED ||
-                error.errorCode == PlaybackException.ERROR_CODE_PARSING_CONTAINER_UNSUPPORTED ||
-                error.errorCode == PlaybackException.ERROR_CODE_PARSING_MANIFEST_UNSUPPORTED -> AppError.UnsupportedFormat
-                else -> AppError.Unknown
-            }
+            val appError = recoveryDecision.error
 
             val diagnosticStatus = when {
                 httpException?.responseCode == 403 -> com.hpre.app.core.network.DiagnosticStatus.Http403
@@ -209,7 +193,7 @@ class ForegroundPlayerController(
                 null
             }
 
-            if (appError == AppError.StreamExpired && recoveryCoordinator != null && key != null && snapshot != null) {
+            if (recoveryDecision.shouldRefresh && recoveryCoordinator != null && key != null && snapshot != null) {
                 // Trigger auto recovery
                 val preference = snapshot.selectedQuality?.let { QualityPreference.SpecificOption(it) } ?: QualityPreference.Auto
                 recoveryJob?.cancel()

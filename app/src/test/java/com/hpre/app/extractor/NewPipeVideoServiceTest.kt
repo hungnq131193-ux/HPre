@@ -92,7 +92,7 @@ class NewPipeVideoServiceTest {
             listOf(VideoOpenEvent.VIDEO_OPEN_START, VideoOpenEvent.EXTRACTOR_START, VideoOpenEvent.EXTRACTOR_FINISH),
             records.map { it.event }
         )
-        assertTrue(records.all { it.key == key && it.generation == metricsSession.generation })
+        assertTrue(records.all { it.generation == metricsSession.generation })
 
         // Cached subscribers must neither extract again nor fabricate new extractor timings.
         assertEquals(AppResult.Success(streams), service.streamInfo(key))

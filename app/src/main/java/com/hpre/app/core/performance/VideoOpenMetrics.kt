@@ -2,7 +2,6 @@ package com.hpre.app.core.performance
 
 import android.os.SystemClock
 import android.util.Log
-import com.hpre.app.BuildConfig
 import com.hpre.app.model.ContentKey
 import java.util.concurrent.atomic.AtomicLong
 
@@ -14,7 +13,8 @@ enum class VideoOpenEvent {
     STREAM_INFO_READY,
     PLAYER_PREPARE,
     PLAYER_READY,
-    FIRST_FRAME
+    FIRST_FRAME,
+    PLAYBACK_ERROR
 }
 
 class VideoOpenSession internal constructor(
@@ -24,20 +24,20 @@ class VideoOpenSession internal constructor(
 )
 
 data class VideoOpenRecord(
-    val key: ContentKey,
     val generation: Long,
     val event: VideoOpenEvent,
-    val elapsedMs: Long
+    val elapsedMs: Long,
+    val category: String? = null
 )
 
 class VideoOpenMetrics(
-    private val enabled: Boolean = BuildConfig.DEBUG,
+    private val enabled: Boolean = true,
     private val nowMs: () -> Long = SystemClock::elapsedRealtime,
     private val sink: (VideoOpenRecord) -> Unit = { record ->
         Log.d(
             "HPrePerformance",
-            "${record.event} key=${record.key.serviceId}:${record.key.nativeId} " +
-                "generation=${record.generation} elapsedMs=${record.elapsedMs}"
+            "${record.event} generation=${record.generation} elapsedMs=${record.elapsedMs}" +
+                record.category?.let { " category=$it" }.orEmpty()
         )
     }
 ) {
@@ -57,13 +57,13 @@ class VideoOpenMetrics(
 
     fun activeSession(key: ContentKey): VideoOpenSession? = synchronized(lock) { active[key] }
 
-    fun mark(session: VideoOpenSession, event: VideoOpenEvent) {
-        if (isCurrent(session)) emit(session, event)
+    fun mark(session: VideoOpenSession, event: VideoOpenEvent, category: String? = null) {
+        if (isCurrent(session)) emit(session, event, category)
     }
 
-    fun finish(session: VideoOpenSession, event: VideoOpenEvent) {
+    fun finish(session: VideoOpenSession, event: VideoOpenEvent, category: String? = null) {
         if (!isCurrent(session)) return
-        emit(session, event)
+        emit(session, event, category)
         synchronized(lock) {
             if (active[session.key] == session) active.remove(session.key)
         }
@@ -72,14 +72,14 @@ class VideoOpenMetrics(
     private fun isCurrent(session: VideoOpenSession): Boolean =
         synchronized(lock) { active[session.key] == session }
 
-    private fun emit(session: VideoOpenSession, event: VideoOpenEvent) {
+    private fun emit(session: VideoOpenSession, event: VideoOpenEvent, category: String? = null) {
         if (!enabled) return
         sink(
             VideoOpenRecord(
-                key = session.key,
                 generation = session.generation,
                 event = event,
-                elapsedMs = (nowMs() - session.startedAtMs).coerceAtLeast(0L)
+                elapsedMs = (nowMs() - session.startedAtMs).coerceAtLeast(0L),
+                category = category
             )
         )
     }
