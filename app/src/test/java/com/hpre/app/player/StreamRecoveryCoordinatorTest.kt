@@ -44,6 +44,26 @@ class StreamRecoveryCoordinatorTest {
         assertEquals(1, refreshes)
     }
 
+    @Test
+    fun recovery_prefers_an_untried_fresh_delivery_type() = runTest {
+        val refreshed = sampleStreamInfo().copy(
+            hlsManifestUrl = "https://fresh.example.com/master.m3u8"
+        )
+        val service = FakeVideoService(streamResponses = mapOf(testKey.nativeId to refreshed))
+        val coordinator = StreamRecoveryCoordinator(service)
+
+        val result = coordinator.recoverExpiredStream(
+            key = testKey,
+            sessionGen = 1L,
+            positionMs = 1_000L,
+            wasPlaying = true,
+            preference = QualityPreference.Auto,
+            attemptedSourceTypes = setOf(PlaybackStreamType.PROGRESSIVE)
+        ) as RecoveryResult.Recovered
+
+        assertEquals(PlaybackStreamType.HLS, result.selectedQuality?.streamType)
+    }
+
     private fun sampleStreamInfo(
         key: ContentKey = testKey,
         progressiveUrl: String = "https://fresh.example.com/stream.mp4",

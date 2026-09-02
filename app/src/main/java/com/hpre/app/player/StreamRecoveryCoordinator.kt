@@ -45,7 +45,8 @@ class StreamRecoveryCoordinator(
         sessionGen: Long = 0L,
         positionMs: Long,
         wasPlaying: Boolean,
-        preference: QualityPreference
+        preference: QualityPreference,
+        attemptedSourceTypes: Set<PlaybackStreamType> = emptySet()
     ): RecoveryResult {
         val targetSession = Pair(key, sessionGen)
         val currentJob = kotlin.coroutines.coroutineContext[Job]
@@ -94,24 +95,25 @@ class StreamRecoveryCoordinator(
                 is AppResult.Success -> {
                     val freshInfo = streamResult.value
                     val availableQualities = StreamSelector.getAvailableQualities(freshInfo)
-                    val matchedQuality = when (preference) {
+                    fun matchQuality(candidates: List<QualityOption>): QualityOption? = when (preference) {
                         is QualityPreference.SpecificOption -> {
                             val requested = preference.option
-                            availableQualities.firstOrNull {
+                            candidates.firstOrNull {
                                 it.height == requested.height &&
                                         it.isProgressive == requested.isProgressive &&
                                         it.format.equals(requested.format, ignoreCase = true)
-                            } ?: availableQualities.firstOrNull { it.height == requested.height }
-                            ?: availableQualities.firstOrNull()
+                            } ?: candidates.firstOrNull { it.height == requested.height }
+                            ?: candidates.firstOrNull()
                         }
                         is QualityPreference.ExactOrBelow -> {
-                            availableQualities.filter { it.height <= preference.maxHeight }
-                                .maxByOrNull { it.height } ?: availableQualities.firstOrNull()
+                            candidates.filter { it.height <= preference.maxHeight }
+                                .maxByOrNull { it.height } ?: candidates.firstOrNull()
                         }
-                        QualityPreference.Auto -> {
-                            availableQualities.firstOrNull()
-                        }
+                        QualityPreference.Auto -> candidates.firstOrNull()
                     }
+                    val matchedQuality = matchQuality(
+                        availableQualities.filter { it.streamType !in attemptedSourceTypes }
+                    ) ?: matchQuality(availableQualities)
 
                     RecoveryResult.Recovered(
                         key = key,
