@@ -121,10 +121,18 @@ sealed class Screen(val route: String) {
             return ContentKey(serviceId, rawNativeId)
         }
     }
-    data object Watch : Screen("watch/{serviceId}/{nativeId}") {
-        fun createRoute(key: ContentKey): String {
+    data object Watch : Screen("watch/{serviceId}/{nativeId}?thumbnail={thumbnail}") {
+        fun createRoute(key: ContentKey, thumbnailUrl: String? = null): String {
             val encodedId = RouteEncoder.encode(key.nativeId)
-            return "watch/${key.serviceId}/$encodedId"
+            val thumbnail = thumbnailUrl?.takeIf { it.isNotBlank() }?.let(RouteEncoder::encode)
+            return "watch/${key.serviceId}/$encodedId" + (thumbnail?.let { "?thumbnail=$it" } ?: "")
+        }
+
+        fun parseThumbnailArgument(raw: String?): String? {
+            val value = raw?.trim()?.takeIf { it.isNotEmpty() } ?: return null
+            val uri = runCatching { java.net.URI(value) }.getOrNull() ?: return null
+            if (!uri.scheme.equals("http", true) && !uri.scheme.equals("https", true)) return null
+            return value.takeIf { !uri.host.isNullOrBlank() }
         }
 
         /**

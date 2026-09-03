@@ -78,6 +78,7 @@ import com.hpre.app.model.ContentKey
 import com.hpre.app.model.PlaylistSummary
 import com.hpre.app.model.SearchFilter
 import com.hpre.app.model.SearchResultItem
+import com.hpre.app.model.VideoSummary
 import com.hpre.app.ui.common.EmptyPane
 import com.hpre.app.ui.common.ErrorPane
 import com.hpre.app.ui.common.DelayedLinearLoadingIndicator
@@ -95,7 +96,8 @@ fun SearchScreen(
     onChannelClick: (ContentKey) -> Unit = {},
     onPlaylistClick: (ContentKey) -> Unit = {},
     modifier: Modifier = Modifier,
-    prefetchVideos: suspend (List<ContentKey>) -> Unit = {}
+    prefetchVideos: suspend (List<ContentKey>) -> Unit = {},
+    onVideoSelected: ((VideoSummary) -> Unit)? = null
 ) {
     val query by viewModel.query.collectAsStateWithLifecycle()
     val filter by viewModel.filter.collectAsStateWithLifecycle()
@@ -269,7 +271,8 @@ fun SearchScreen(
                         onPlaylistClick = onPlaylistClick,
                         earlierResultsDropped = state.earlierResultsDropped,
                         onRestart = viewModel::retry,
-                        prefetchVideos = prefetchVideos
+                        prefetchVideos = prefetchVideos,
+                        onVideoSelected = onVideoSelected
                     )
 
                     // Previous results stay readable while a newer query runs; this bar is the only
@@ -433,7 +436,8 @@ internal fun SearchResultsList(
     listState: LazyListState = rememberLazyListState(),
     earlierResultsDropped: Boolean = false,
     onRestart: () -> Unit = {},
-    prefetchVideos: suspend (List<ContentKey>) -> Unit = {}
+    prefetchVideos: suspend (List<ContentKey>) -> Unit = {},
+    onVideoSelected: ((VideoSummary) -> Unit)? = null
 ) {
     val triggerPolicy = remember { PaginationTriggerPolicy(threshold = 3) }
 
@@ -515,7 +519,10 @@ internal fun SearchResultsList(
         ) { item ->
             when (item) {
                 is SearchResultItem.VideoItem -> {
-                    VideoCard(video = item.summary, onClick = onVideoClick)
+                    VideoCard(
+                        video = item.summary,
+                        onClick = { if (onVideoSelected != null) onVideoSelected(item.summary) else onVideoClick(it) }
+                    )
                 }
                 is SearchResultItem.ChannelItem -> {
                     ChannelResultCard(

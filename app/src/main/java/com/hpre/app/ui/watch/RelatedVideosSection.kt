@@ -39,7 +39,8 @@ fun LazyListScope.relatedVideoItems(
     state: RefreshableAsyncState<List<VideoSummary>>,
     onVideoClick: (ContentKey) -> Unit,
     onRetry: () -> Unit,
-    onRefresh: () -> Unit = {}
+    onRefresh: () -> Unit = {},
+    onVideoSelected: ((VideoSummary) -> Unit)? = null
 ) {
     item(key = WATCH_KEY_RELATED_HEADER) {
         Column(
@@ -116,7 +117,10 @@ fun LazyListScope.relatedVideoItems(
                 items = state.value,
                 key = { video -> videoPrefetchItemKey(video.key) }
             ) { video ->
-                VideoCard(video = video, onClick = onVideoClick)
+                VideoCard(
+                    video = video,
+                    onClick = { if (onVideoSelected != null) onVideoSelected(video) else onVideoClick(it) }
+                )
             }
         }
         else -> {

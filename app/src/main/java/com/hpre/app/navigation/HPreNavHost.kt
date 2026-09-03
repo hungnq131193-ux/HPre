@@ -74,7 +74,10 @@ fun HPreNavHost(
                     navController.navigate(Screen.Watch.createRoute(key))
                 },
                 onContentIdle = container::prewarmPlaybackInfrastructure,
-                prefetchVideos = container.videoService::prefetch
+                prefetchVideos = container.videoService::prefetch,
+                onVideoSelected = { video ->
+                    navController.navigate(Screen.Watch.createRoute(video.key, video.thumbnailUrl))
+                }
             )
         }
 
@@ -99,7 +102,10 @@ fun HPreNavHost(
                 onPlaylistClick = { key ->
                     navController.navigate(Screen.PlaylistUnavailable.createRoute(key))
                 },
-                prefetchVideos = container.videoService::prefetch
+                prefetchVideos = container.videoService::prefetch,
+                onVideoSelected = { video ->
+                    navController.navigate(Screen.Watch.createRoute(video.key, video.thumbnailUrl))
+                }
             )
         }
 
@@ -221,7 +227,12 @@ fun HPreNavHost(
             route = Screen.Channel.route,
             arguments = listOf(
                 navArgument("serviceId") { type = NavType.IntType },
-                navArgument("nativeId") { type = NavType.StringType }
+                navArgument("nativeId") { type = NavType.StringType },
+                navArgument("thumbnail") {
+                    type = NavType.StringType
+                    nullable = true
+                    defaultValue = null
+                }
             )
         ) { entry ->
             val key = Screen.Channel.parseNavArgument(
@@ -287,6 +298,7 @@ fun HPreNavHost(
             val rawServiceId = backStackEntry.arguments?.getInt("serviceId")
             val rawNativeId = backStackEntry.arguments?.getString("nativeId")
             val key = Screen.Watch.parseNavArgument(rawServiceId, rawNativeId)
+            val thumbnailUrl = Screen.Watch.parseThumbnailArgument(backStackEntry.arguments?.getString("thumbnail"))
 
             if (key == null) {
                 UnavailablePane(
@@ -329,7 +341,14 @@ fun HPreNavHost(
                     },
                     isInPip = playbackUiState.isInPip,
                     playbackUiCoordinator = effectiveCoordinator,
-                    prefetchVideos = container.videoService::prefetch
+                    prefetchVideos = container.videoService::prefetch,
+                    initialThumbnailUrl = thumbnailUrl,
+                    onRelatedVideoSelected = { video ->
+                        if (video.key != key && navController.currentBackStackEntry?.id == backStackEntry.id) {
+                            watchViewModel.cancelPendingLoads()
+                            navController.replaceWatch(Screen.Watch.createRoute(video.key, video.thumbnailUrl))
+                        }
+                    }
                 )
             }
         }

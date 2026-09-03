@@ -33,6 +33,7 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.hpre.app.model.ContentKey
+import com.hpre.app.model.VideoSummary
 import com.hpre.app.R
 import com.hpre.app.ui.common.DelayedLinearLoadingIndicator
 import com.hpre.app.ui.common.DelayedLoadingPane
@@ -72,7 +73,8 @@ internal fun HomeScreen(
     modifier: Modifier = Modifier,
     onContentIdle: () -> Unit = {},
     idleQueueRegistry: IdleQueueRegistry = IdleQueueRegistry.Default,
-    prefetchVideos: suspend (List<ContentKey>) -> Unit = {}
+    prefetchVideos: suspend (List<ContentKey>) -> Unit = {},
+    onVideoSelected: ((VideoSummary) -> Unit)? = null
 ) {
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
     val chipsState by viewModel.chipsState.collectAsStateWithLifecycle()
@@ -159,7 +161,7 @@ internal fun HomeScreen(
                         ) { video ->
                             VideoCard(
                                 video = video,
-                                onClick = onVideoClick
+                                onClick = { if (onVideoSelected != null) onVideoSelected(video) else onVideoClick(it) }
                             )
                         }
                     }

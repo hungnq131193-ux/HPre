@@ -90,6 +90,7 @@ import coil.compose.AsyncImage
 import com.hpre.app.R
 import com.hpre.app.model.ContentKey
 import com.hpre.app.model.VideoDetails
+import com.hpre.app.model.VideoSummary
 import com.hpre.app.ui.common.ErrorPane
 import com.hpre.app.ui.common.VideoViewportPrefetchEffect
 
@@ -266,7 +267,9 @@ fun WatchScreen(
     onMinimizeToHome: () -> Unit = {},
     isInPip: Boolean = false,
     playbackUiCoordinator: com.hpre.app.player.PlaybackUiCoordinator? = null,
-    prefetchVideos: suspend (List<ContentKey>) -> Unit = {}
+    prefetchVideos: suspend (List<ContentKey>) -> Unit = {},
+    initialThumbnailUrl: String? = null,
+    onRelatedVideoSelected: ((VideoSummary) -> Unit)? = null
 ) {
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
     val playbackState by viewModel.structuralPlaybackState.collectAsStateWithLifecycle()
@@ -291,8 +294,8 @@ fun WatchScreen(
         injectedShareLauncher ?: DefaultShareLauncher(context)
     }
 
-    LaunchedEffect(contentKey) {
-        viewModel.load(contentKey)
+    LaunchedEffect(contentKey, initialThumbnailUrl) {
+        viewModel.load(contentKey, initialThumbnailUrl = initialThumbnailUrl)
     }
 
     // Fullscreen back handler: back exits fullscreen first
@@ -358,6 +361,15 @@ fun WatchScreen(
                 modifier = Modifier.fillMaxSize()
             )
 
+            uiState.thumbnailUrl?.let { thumbnail ->
+                AsyncImage(
+                    model = thumbnail,
+                    contentDescription = null,
+                    contentScale = ContentScale.Crop,
+                    modifier = Modifier.fillMaxSize().testTag("player_thumbnail_cover")
+                )
+            }
+
             WatchPlayerControls(
                 structuralState = playbackState,
                 readProgress = { viewModel.playerController.readProgress() },
@@ -400,6 +412,15 @@ fun WatchScreen(
                         owner = com.hpre.app.player.SurfaceOwner.WATCH,
                         modifier = Modifier.fillMaxSize()
                     )
+
+                    uiState.thumbnailUrl?.let { thumbnail ->
+                        AsyncImage(
+                            model = thumbnail,
+                            contentDescription = null,
+                            contentScale = ContentScale.Crop,
+                            modifier = Modifier.fillMaxSize().testTag("player_thumbnail_cover")
+                        )
+                    }
 
                     WatchPlayerControls(
                         structuralState = playbackState,
@@ -454,6 +475,7 @@ fun WatchScreen(
                         onCommentsExpandedChange = viewModel::setCommentsExpanded,
                         onRestartComments = viewModel::restartComments,
                         onRelatedVideoClick = onRelatedVideoClick,
+                        onRelatedVideoSelected = onRelatedVideoSelected,
                         onRetryRelated = viewModel::retryRelated,
                         onRefreshRelated = viewModel::refreshRelated,
                         onRetryComments = viewModel::retryComments,
@@ -534,7 +556,8 @@ fun WatchMetadataContent(
     onRestartComments: () -> Unit = {},
     modifier: Modifier = Modifier,
     lazyListState: LazyListState? = null,
-    prefetchVideos: suspend (List<ContentKey>) -> Unit = {}
+    prefetchVideos: suspend (List<ContentKey>) -> Unit = {},
+    onRelatedVideoSelected: ((VideoSummary) -> Unit)? = null
 ) {
     val effectiveLazyListState = lazyListState ?: rememberLazyListState()
     VideoViewportPrefetchEffect(
@@ -759,7 +782,8 @@ fun WatchMetadataContent(
             state = relatedState,
             onVideoClick = onRelatedVideoClick,
             onRetry = onRetryRelated,
-            onRefresh = onRefreshRelated
+            onRefresh = onRefreshRelated,
+            onVideoSelected = onRelatedVideoSelected
         )
 
         item(key = "section:watch_bottom_spacer") {

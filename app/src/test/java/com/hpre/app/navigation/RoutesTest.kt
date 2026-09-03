@@ -88,4 +88,21 @@ class RoutesTest {
         assertNull(Screen.Watch.parseNavArgument(0, ""))
         assertNull(Screen.Watch.parseNavArgument(0, "   "))
     }
+
+    @Test fun watch_route_carries_encoded_https_thumbnail() {
+        val key = ContentKey(0, "video/id")
+        val thumbnail = "https://i.test/thumb.jpg?x=1&y=2"
+
+        assertEquals(
+            "watch/0/video%2Fid?thumbnail=https%3A%2F%2Fi.test%2Fthumb.jpg%3Fx%3D1%26y%3D2",
+            Screen.Watch.createRoute(key, thumbnail)
+        )
+        assertEquals(thumbnail, Screen.Watch.parseThumbnailArgument(thumbnail))
+    }
+
+    @Test fun watch_thumbnail_rejects_non_http_schemes_and_blank_values() {
+        assertNull(Screen.Watch.parseThumbnailArgument("file:///private/path"))
+        assertNull(Screen.Watch.parseThumbnailArgument("javascript:alert(1)"))
+        assertNull(Screen.Watch.parseThumbnailArgument(" "))
+    }
 }
