@@ -10,9 +10,9 @@ class BuildConfigurationTest {
         assertEquals("com.hpre.app", BuildConfig.APPLICATION_ID)
     }
 
-    @Test fun release_version_is_1_0_23_code_24_and_shrinks_resources() {
-        assertEquals("1.0.23", BuildConfig.VERSION_NAME)
-        assertEquals(24, BuildConfig.VERSION_CODE)
+    @Test fun release_version_is_1_0_24_code_25_and_shrinks_resources() {
+        assertEquals("1.0.24", BuildConfig.VERSION_NAME)
+        assertEquals(25, BuildConfig.VERSION_CODE)
 
         val root = generateSequence(File(".").canonicalFile) { it.parentFile }
             .first { File(it, "settings.gradle.kts").isFile }

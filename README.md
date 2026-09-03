@@ -66,8 +66,6 @@ cd HPre
 
 Trên Windows có thể dùng `gradlew.bat assembleDebug`.
 
-Mã nguồn trên nhánh `fix/hpre-1.0.17-fullscreen-no-crop` chuẩn bị bản **1.0.17 (versionCode 18)**, gồm sửa fullscreen không cắt hình và hoàn thiện loading/player pipeline. Hướng dẫn build, ký, đặt tên APK và kiểm tra dành cho OpenCode: [`docs/releases/1.0.17.md`](docs/releases/1.0.17.md). Không dùng hướng dẫn phiên bản cũ để chọn nhánh hoặc đổi version.
-
 ## Phát hành bản release
 
 Release build phải dùng signing key riêng của người phát hành. Keystore và mật khẩu không thuộc source repository và không được chia sẻ công khai. Mọi bản cập nhật phải dùng cùng signing certificate để có thể cài đè an toàn.
