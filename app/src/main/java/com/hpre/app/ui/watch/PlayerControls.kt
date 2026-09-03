@@ -247,6 +247,18 @@ fun PlayerControlsOverlay(
         minimizeEnabled = minimizeEnabled
     )
 
+    // Delay spinner appearance by 150ms to eliminate visual flicker for instant cache-hits / fast starts
+    var showLoadingSpinner by remember { mutableStateOf(false) }
+    val isLoadingOrBuffering = playbackState.isLoading || playbackState.isBuffering
+    LaunchedEffect(isLoadingOrBuffering) {
+        if (isLoadingOrBuffering) {
+            delay(150L)
+            showLoadingSpinner = true
+        } else {
+            showLoadingSpinner = false
+        }
+    }
+
     var lastUpUptime by remember { mutableLongStateOf(0L) }
     var lastUpPosition by remember { mutableStateOf(Offset.Zero) }
     val currentControlsVisible = rememberUpdatedState(controlsVisible)
@@ -420,7 +432,7 @@ fun PlayerControlsOverlay(
             .testTag("player_controls_overlay")
     ) {
         // Buffering / Loading Indicator
-        if (playbackState.isLoading || playbackState.isBuffering) {
+        if (showLoadingSpinner) {
             CircularProgressIndicator(
                 modifier = Modifier
                     .size(48.dp)
