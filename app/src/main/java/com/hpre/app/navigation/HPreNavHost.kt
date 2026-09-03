@@ -73,7 +73,8 @@ fun HPreNavHost(
                 onVideoClick = { key ->
                     navController.navigate(Screen.Watch.createRoute(key))
                 },
-                onContentIdle = container::prewarmPlaybackInfrastructure
+                onContentIdle = container::prewarmPlaybackInfrastructure,
+                prefetchVideos = container.videoService::prefetch
             )
         }
 
@@ -97,7 +98,8 @@ fun HPreNavHost(
                 },
                 onPlaylistClick = { key ->
                     navController.navigate(Screen.PlaylistUnavailable.createRoute(key))
-                }
+                },
+                prefetchVideos = container.videoService::prefetch
             )
         }
 
@@ -326,7 +328,8 @@ fun HPreNavHost(
                         navController.navigateToHomeFromWatch()
                     },
                     isInPip = playbackUiState.isInPip,
-                    playbackUiCoordinator = effectiveCoordinator
+                    playbackUiCoordinator = effectiveCoordinator,
+                    prefetchVideos = container.videoService::prefetch
                 )
             }
         }

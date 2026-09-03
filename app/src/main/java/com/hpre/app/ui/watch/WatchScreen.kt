@@ -91,6 +91,7 @@ import com.hpre.app.R
 import com.hpre.app.model.ContentKey
 import com.hpre.app.model.VideoDetails
 import com.hpre.app.ui.common.ErrorPane
+import com.hpre.app.ui.common.VideoViewportPrefetchEffect
 
 /**
  * Abstraction for controlling system UI bars (status / navigation bars).
@@ -264,7 +265,8 @@ fun WatchScreen(
     onRelatedVideoClick: (ContentKey) -> Unit = {},
     onMinimizeToHome: () -> Unit = {},
     isInPip: Boolean = false,
-    playbackUiCoordinator: com.hpre.app.player.PlaybackUiCoordinator? = null
+    playbackUiCoordinator: com.hpre.app.player.PlaybackUiCoordinator? = null,
+    prefetchVideos: suspend (List<ContentKey>) -> Unit = {}
 ) {
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
     val playbackState by viewModel.structuralPlaybackState.collectAsStateWithLifecycle()
@@ -456,6 +458,7 @@ fun WatchScreen(
                         onRefreshRelated = viewModel::refreshRelated,
                         onRetryComments = viewModel::retryComments,
                         onLoadMoreComments = viewModel::loadMoreComments,
+                        prefetchVideos = prefetchVideos,
                         modifier = Modifier
                             .fillMaxWidth()
                             .weight(1f)
@@ -530,9 +533,15 @@ fun WatchMetadataContent(
     onCommentsExpandedChange: (Boolean) -> Unit = {},
     onRestartComments: () -> Unit = {},
     modifier: Modifier = Modifier,
-    lazyListState: LazyListState? = null
+    lazyListState: LazyListState? = null,
+    prefetchVideos: suspend (List<ContentKey>) -> Unit = {}
 ) {
     val effectiveLazyListState = lazyListState ?: rememberLazyListState()
+    VideoViewportPrefetchEffect(
+        effectiveLazyListState,
+        relatedState.value.orEmpty().map { it.key },
+        prefetchVideos
+    )
     var isDescriptionExpanded by rememberSaveable(details.key.serviceId, details.key.nativeId) {
         mutableStateOf(false)
     }

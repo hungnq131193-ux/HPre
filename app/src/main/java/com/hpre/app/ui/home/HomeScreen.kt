@@ -11,6 +11,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.FilterChipDefaults
@@ -38,6 +39,8 @@ import com.hpre.app.ui.common.DelayedLoadingPane
 import com.hpre.app.ui.common.EmptyPane
 import com.hpre.app.ui.common.ErrorPane
 import com.hpre.app.ui.common.VideoCard
+import com.hpre.app.ui.common.VideoViewportPrefetchEffect
+import com.hpre.app.ui.common.videoPrefetchItemKey
 
 internal interface IdleQueueRegistry {
     fun addIdleHandler(handler: () -> Boolean): Any
@@ -68,7 +71,8 @@ internal fun HomeScreen(
     onVideoClick: (ContentKey) -> Unit,
     modifier: Modifier = Modifier,
     onContentIdle: () -> Unit = {},
-    idleQueueRegistry: IdleQueueRegistry = IdleQueueRegistry.Default
+    idleQueueRegistry: IdleQueueRegistry = IdleQueueRegistry.Default,
+    prefetchVideos: suspend (List<ContentKey>) -> Unit = {}
 ) {
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
     val chipsState by viewModel.chipsState.collectAsStateWithLifecycle()
@@ -117,6 +121,12 @@ internal fun HomeScreen(
                 )
             }
             is HomeUiState.Content -> {
+                val listState = rememberLazyListState()
+                VideoViewportPrefetchEffect(
+                    listState = listState,
+                    orderedKeys = state.content.videos.map { it.key },
+                    prefetch = prefetchVideos
+                )
                 DisposableEffect(Unit) {
                     var disposed = false
                     val token = idleQueueRegistry.addIdleHandler {
@@ -139,12 +149,13 @@ internal fun HomeScreen(
                     modifier = Modifier.fillMaxSize()
                 ) {
                     LazyColumn(
+                        state = listState,
                         contentPadding = PaddingValues(top = 8.dp, bottom = 16.dp),
                         modifier = Modifier.fillMaxSize().testTag("home_video_list")
                     ) {
                         items(
                             items = state.content.videos,
-                            key = { it.key.toString() }
+                            key = { videoPrefetchItemKey(it.key) }
                         ) { video ->
                             VideoCard(
                                 video = video,

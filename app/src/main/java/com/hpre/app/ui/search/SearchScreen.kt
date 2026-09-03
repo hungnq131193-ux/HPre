@@ -83,6 +83,8 @@ import com.hpre.app.ui.common.ErrorPane
 import com.hpre.app.ui.common.DelayedLinearLoadingIndicator
 import com.hpre.app.ui.common.DelayedLoadingPane
 import com.hpre.app.ui.common.VideoCard
+import com.hpre.app.ui.common.VideoViewportPrefetchEffect
+import com.hpre.app.ui.common.videoPrefetchItemKey
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -92,7 +94,8 @@ fun SearchScreen(
     onVideoClick: (ContentKey) -> Unit,
     onChannelClick: (ContentKey) -> Unit = {},
     onPlaylistClick: (ContentKey) -> Unit = {},
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    prefetchVideos: suspend (List<ContentKey>) -> Unit = {}
 ) {
     val query by viewModel.query.collectAsStateWithLifecycle()
     val filter by viewModel.filter.collectAsStateWithLifecycle()
@@ -265,7 +268,8 @@ fun SearchScreen(
                         onChannelClick = onChannelClick,
                         onPlaylistClick = onPlaylistClick,
                         earlierResultsDropped = state.earlierResultsDropped,
-                        onRestart = viewModel::retry
+                        onRestart = viewModel::retry,
+                        prefetchVideos = prefetchVideos
                     )
 
                     // Previous results stay readable while a newer query runs; this bar is the only
@@ -428,7 +432,8 @@ internal fun SearchResultsList(
     onPlaylistClick: (ContentKey) -> Unit,
     listState: LazyListState = rememberLazyListState(),
     earlierResultsDropped: Boolean = false,
-    onRestart: () -> Unit = {}
+    onRestart: () -> Unit = {},
+    prefetchVideos: suspend (List<ContentKey>) -> Unit = {}
 ) {
     val triggerPolicy = remember { PaginationTriggerPolicy(threshold = 3) }
 
@@ -436,6 +441,8 @@ internal fun SearchResultsList(
     val currentIsLoadingNextPage = rememberUpdatedState(isLoadingNextPage)
     val currentOnLoadMore = rememberUpdatedState(onLoadMore)
     val currentRequestKey = rememberUpdatedState(requestKey)
+    val videoKeys = items.mapNotNull { (it as? SearchResultItem.VideoItem)?.summary?.key }
+    VideoViewportPrefetchEffect(listState, videoKeys, prefetchVideos)
 
     // Reset policy explicitly when normalized query / filter generation / request key changes or list becomes empty
     LaunchedEffect(requestKey, items.isEmpty()) {
@@ -500,7 +507,7 @@ internal fun SearchResultsList(
             items = items,
             key = { item ->
                 when (item) {
-                    is SearchResultItem.VideoItem -> "v_${item.summary.key.serviceId}_${item.summary.key.nativeId}"
+                    is SearchResultItem.VideoItem -> videoPrefetchItemKey(item.summary.key)
                     is SearchResultItem.ChannelItem -> "c_${item.channel.key.serviceId}_${item.channel.key.nativeId}"
                     is SearchResultItem.PlaylistItem -> "p_${item.playlist.key.serviceId}_${item.playlist.key.nativeId}"
                 }

@@ -28,6 +28,7 @@ import com.hpre.app.ui.common.EmptyPane
 import com.hpre.app.ui.common.ErrorPane
 import com.hpre.app.ui.common.LoadingPane
 import com.hpre.app.ui.common.VideoCard
+import com.hpre.app.ui.common.videoPrefetchItemKey
 
 const val WATCH_KEY_RELATED_HEADER = "section:related_header"
 const val WATCH_KEY_RELATED_PROGRESS = "section:related_progress"
@@ -113,7 +114,7 @@ fun LazyListScope.relatedVideoItems(
             }
             items(
                 items = state.value,
-                key = { video -> "related:${video.key.serviceId}:${video.key.nativeId}" }
+                key = { video -> videoPrefetchItemKey(video.key) }
             ) { video ->
                 VideoCard(video = video, onClick = onVideoClick)
             }

@@ -22,4 +22,14 @@ class VideoPrefetchPolicyTest {
     @Test fun returns_empty_when_no_video_key_is_visible() {
         assertTrue(selectPrefetchKeys(keys, emptySet()).isEmpty())
     }
+
+    @Test fun visible_video_keys_ignore_non_video_lazy_rows() {
+        assertEquals(
+            setOf(keys[1], keys[2]),
+            visibleVideoKeys(
+                listOf("header", videoPrefetchItemKey(keys[1]), keys[0], videoPrefetchItemKey(keys[2])),
+                keys.associateBy(::videoPrefetchItemKey)
+            )
+        )
+    }
 }
