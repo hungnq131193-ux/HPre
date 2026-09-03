@@ -55,8 +55,6 @@ class NewPipeVideoService internal constructor(
     private val videoOpenMetrics: VideoOpenMetrics = VideoOpenMetrics.Default
 ) : VideoService {
 
-    private val prefetchSemaphore = Semaphore(2)
-
     constructor(ioDispatcher: CoroutineDispatcher = ExtractorDispatcher.IO) : this(
         ioDispatcher = ioDispatcher,
         operations = DefaultExtractorOperations()
@@ -144,15 +142,7 @@ class NewPipeVideoService internal constructor(
     }
 
     override suspend fun prefetch(keys: List<ContentKey>) {
-        coroutineScope {
-            keys.asSequence()
-                .filter { it.serviceId == serviceId }
-                .distinct()
-                .take(2)
-                .map { key -> async(ioDispatcher) { prefetchSemaphore.withPermit { bundle(key) } } }
-                .toList()
-                .awaitAll()
-        }
+        // Disabled to prevent network queue contention and keep workers free for active video playback.
     }
 
     override suspend fun channel(key: ContentKey): AppResult<ChannelDetails> {

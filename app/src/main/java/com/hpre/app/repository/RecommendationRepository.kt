@@ -23,7 +23,7 @@ import kotlinx.coroutines.withTimeoutOrNull
 
 data class RecommendationRequest(
     val forceRefresh: Boolean = false,
-    val limit: Int = 100,
+    val limit: Int = DEFAULT_FEED_LIMIT,
     val excludedKeys: Set<ContentKey> = emptySet()
 )
 
@@ -44,6 +44,7 @@ internal const val MAX_PAGES_PER_QUERY = 2
 internal const val MAX_TOTAL_CONTINUATIONS = 6
 internal const val COLLECTION_DEADLINE_MS = 1_500L
 internal const val HOME_DEADLINE_MS = 1_900L
+internal const val DEFAULT_FEED_LIMIT = 30
 internal const val MAX_FEED_LIMIT = 100
 
 private fun RecommendationRequest.safeLimit(): Int = limit.coerceIn(0, MAX_FEED_LIMIT)
