@@ -60,7 +60,7 @@ open class OkHttpDownloader(
                 connectTimeoutSeconds = 15,
                 readTimeoutSeconds = 20,
                 callTimeoutSeconds = 30,
-                maxIdleConnections = 5,
+                maxIdleConnections = 8,
                 keepAliveDurationMinutes = 5
             ).createOkHttpClient()
         }
