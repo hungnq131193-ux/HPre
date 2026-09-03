@@ -115,18 +115,15 @@ class RefreshableAsyncState<T> private constructor(
 
 enum class FullScreenResizeMode {
     FIT,
-    FILL;
+    FILL,
+    ZOOM;
 
     @androidx.annotation.OptIn(androidx.media3.common.util.UnstableApi::class)
     fun toMedia3ResizeMode(): Int = when (this) {
         FIT -> androidx.media3.ui.AspectRatioFrameLayout.RESIZE_MODE_FIT
-        FILL -> androidx.media3.ui.AspectRatioFrameLayout.RESIZE_MODE_ZOOM
+        FILL -> androidx.media3.ui.AspectRatioFrameLayout.RESIZE_MODE_FILL
+        ZOOM -> androidx.media3.ui.AspectRatioFrameLayout.RESIZE_MODE_ZOOM
     }
-}
-
-internal fun restoreFullScreenResizeMode(saved: String?): FullScreenResizeMode = when (saved) {
-    "FILL", "ZOOM" -> FullScreenResizeMode.FILL
-    else -> FullScreenResizeMode.FIT
 }
 
 data class WatchUiState(
@@ -238,9 +235,9 @@ class WatchViewModel(
     }
 
     private val initialFullscreen: Boolean = savedStateHandle.get<Boolean>(KEY_IS_FULLSCREEN) ?: false
-    private val initialFullScreenResizeMode = restoreFullScreenResizeMode(
-        savedStateHandle.get(KEY_FULLSCREEN_RESIZE_MODE)
-    )
+    private val initialFullScreenResizeMode: FullScreenResizeMode = savedStateHandle.get<String>(KEY_FULLSCREEN_RESIZE_MODE)?.let {
+        try { FullScreenResizeMode.valueOf(it) } catch (_: Exception) { FullScreenResizeMode.FIT }
+    } ?: FullScreenResizeMode.FIT
 
     private val _uiState = MutableStateFlow(
         WatchUiState(

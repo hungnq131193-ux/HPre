@@ -179,12 +179,12 @@ class PlayerControlsPolicyTest {
             FullScreenResizeMode.FIT.toMedia3ResizeMode()
         )
         assertEquals(
-            androidx.media3.ui.AspectRatioFrameLayout.RESIZE_MODE_ZOOM,
+            androidx.media3.ui.AspectRatioFrameLayout.RESIZE_MODE_FILL,
             FullScreenResizeMode.FILL.toMedia3ResizeMode()
         )
         assertEquals(
-            listOf(FullScreenResizeMode.FIT, FullScreenResizeMode.FILL),
-            FullScreenResizeMode.values().toList()
+            androidx.media3.ui.AspectRatioFrameLayout.RESIZE_MODE_ZOOM,
+            FullScreenResizeMode.ZOOM.toMedia3ResizeMode()
         )
     }
 }
