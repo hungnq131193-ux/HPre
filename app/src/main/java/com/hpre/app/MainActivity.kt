@@ -65,6 +65,16 @@ open class MainActivity : ComponentActivity() {
             }
 
             SideEffect {
+                if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.R) {
+                    window.attributes = window.attributes.apply {
+                        layoutInDisplayCutoutMode = android.view.WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_ALWAYS
+                    }
+                } else if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.P) {
+                    window.attributes = window.attributes.apply {
+                        layoutInDisplayCutoutMode = android.view.WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_SHORT_EDGES
+                    }
+                }
+                
                 enableEdgeToEdge(
                     statusBarStyle = if (darkTheme) {
                         SystemBarStyle.dark(android.graphics.Color.TRANSPARENT)

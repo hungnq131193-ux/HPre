@@ -164,6 +164,15 @@ class DefaultFullscreenHostHandler(
             }
         }
         act.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
+        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.R) {
+            act.window.attributes = act.window.attributes.apply {
+                layoutInDisplayCutoutMode = android.view.WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_ALWAYS
+            }
+        } else if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.P) {
+            act.window.attributes = act.window.attributes.apply {
+                layoutInDisplayCutoutMode = android.view.WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_SHORT_EDGES
+            }
+        }
         systemUiController?.hideSystemBars()
     }
 
@@ -174,6 +183,11 @@ class DefaultFullscreenHostHandler(
         val orig = savedStateHandle?.get<Int>(KEY_ORIG_ORIENTATION)
             ?: ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
         act.requestedOrientation = orig
+        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.P) {
+            act.window.attributes = act.window.attributes.apply {
+                layoutInDisplayCutoutMode = android.view.WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_DEFAULT
+            }
+        }
         systemUiController?.showSystemBars()
         savedStateHandle?.remove<Int>(KEY_ORIG_ORIENTATION)
     }
@@ -187,6 +201,15 @@ class DefaultFullscreenHostHandler(
         if (act.isFinishing || act.isDestroyed) return
 
         act.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
+        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.R) {
+            act.window.attributes = act.window.attributes.apply {
+                layoutInDisplayCutoutMode = android.view.WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_ALWAYS
+            }
+        } else if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.P) {
+            act.window.attributes = act.window.attributes.apply {
+                layoutInDisplayCutoutMode = android.view.WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_SHORT_EDGES
+            }
+        }
         systemUiController?.hideSystemBars()
     }
 }
