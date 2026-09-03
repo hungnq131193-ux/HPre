@@ -72,6 +72,46 @@ class VideoExtractionCoordinatorTest {
         assertEquals(0, coordinator.inFlightCountForTest)
     }
 
+    @Test fun url_expiry_minus_safety_margin_shortens_cache_ttl() = runTest {
+        var now = 100_000L
+        val coordinator = VideoExtractionCoordinator(
+            scope = this,
+            ttlMs = 20_000L,
+            nowMs = { now },
+            expiryMs = { 112_000L }
+        )
+        val key = ContentKey(0, "signed")
+        var calls = 0
+        suspend fun load() = coordinator.execute(key) { calls++; AppResult.Success(bundle(key)) }
+
+        load()
+        now = 106_999L
+        load()
+        assertEquals(1, calls)
+        now = 107_000L
+        load()
+        assertEquals(2, calls)
+    }
+
+    @Test fun url_expiry_never_extends_twenty_second_cache_ttl() = runTest {
+        var now = 0L
+        val coordinator = VideoExtractionCoordinator(this, nowMs = { now }, expiryMs = { 60_000L })
+        val key = ContentKey(0, "ttl-cap")
+        var calls = 0
+        coordinator.execute(key) { calls++; AppResult.Success(bundle(key)) }
+        now = 20_000L
+        coordinator.execute(key) { calls++; AppResult.Success(bundle(key)) }
+        assertEquals(2, calls)
+    }
+
+    @Test fun already_expired_url_result_is_not_cached() = runTest {
+        val coordinator = VideoExtractionCoordinator(this, nowMs = { 100_000L }, expiryMs = { 104_000L })
+        val key = ContentKey(0, "already-expired")
+        var calls = 0
+        repeat(2) { coordinator.execute(key) { calls++; AppResult.Success(bundle(key)) } }
+        assertEquals(2, calls)
+    }
+
     @Test fun cancelling_one_waiter_does_not_cancel_remaining_waiter() = runTest {
         val coordinator = VideoExtractionCoordinator(this)
         val key = ContentKey(0, "cancel-one")

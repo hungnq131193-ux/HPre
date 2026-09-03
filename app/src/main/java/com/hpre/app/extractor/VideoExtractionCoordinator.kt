@@ -21,12 +21,13 @@ internal class VideoExtractionCoordinator(
     private val scope: CoroutineScope,
     private val ttlMs: Long = 20_000L,
     private val maxEntries: Int = 16,
-    private val nowMs: () -> Long = { System.nanoTime() / 1_000_000L },
+    private val nowMs: () -> Long = System::currentTimeMillis,
+    private val expiryMs: (ExtractedVideoBundle) -> Long? = { it.streamInfo.earliestUrlExpiryMs() },
     private val countExtractions: Boolean = BuildConfig.DEBUG
 ) {
     private data class CacheEntry(
         val bundle: ExtractedVideoBundle,
-        val storedAtMs: Long
+        val expiresAtMs: Long
     )
 
     private class InFlight(
@@ -67,11 +68,11 @@ internal class VideoExtractionCoordinator(
         val request: InFlight
         mutex.withLock {
             val now = nowMs()
-            cache.entries.removeAll { now - it.value.storedAtMs >= ttlMs }
+            cache.entries.removeAll { now >= it.value.expiresAtMs }
             if (forceRefresh) cache.remove(key)
             val cached = cache[key]
             if (cached != null) {
-                if (now - cached.storedAtMs < ttlMs) {
+                if (now < cached.expiresAtMs) {
                     return AppResult.Success(cached.bundle)
                 }
                 cache.remove(key)
@@ -102,7 +103,13 @@ internal class VideoExtractionCoordinator(
                                 // A replaced extraction may finish for its original subscribers,
                                 // but must never overwrite the newer recovery result.
                                 if (inFlight[key] === holder[0]) {
-                                    cache[key] = CacheEntry(loaded.value, nowMs())
+                                    val storedAtMs = nowMs()
+                                    val ttlExpiryMs = storedAtMs + ttlMs
+                                    val urlExpiryMs = expiryMs(loaded.value)?.minus(URL_EXPIRY_SAFETY_MARGIN_MS)
+                                    val effectiveExpiryMs = minOf(ttlExpiryMs, urlExpiryMs ?: Long.MAX_VALUE)
+                                    if (effectiveExpiryMs > storedAtMs) {
+                                        cache[key] = CacheEntry(loaded.value, effectiveExpiryMs)
+                                    }
                                 }
                             }
                         }
@@ -146,5 +153,9 @@ internal class VideoExtractionCoordinator(
             }
             throw cancelled
         }
+    }
+
+    private companion object {
+        const val URL_EXPIRY_SAFETY_MARGIN_MS = 5_000L
     }
 }
