@@ -34,24 +34,16 @@ object YouTubeRequestPolicy {
     }
 
     private fun replaceQueryParameter(url: String, name: String, value: String): String {
-        val uri = try {
-            URI(url)
-        } catch (_: Throwable) {
-            return url
+        val baseWithoutQuery = url.substringBefore("?")
+        val rawQuery = url.substringAfter("?", "")
+        if (rawQuery.isEmpty()) {
+            return "$baseWithoutQuery?$name=$value"
         }
-        val retained = uri.rawQuery.orEmpty()
-            .split("&")
+        val retained = rawQuery.split("&")
             .filter { it.isNotEmpty() && it.substringBefore("=") != name }
             .toMutableList()
         retained += "$name=$value"
-
-        return URI(
-            uri.scheme,
-            uri.rawAuthority,
-            uri.rawPath,
-            retained.joinToString("&"),
-            uri.rawFragment
-        ).toString()
+        return "$baseWithoutQuery?${retained.joinToString("&")}"
     }
 
     fun isEligibleYouTubeMediaUrl(urlStr: String): Boolean {

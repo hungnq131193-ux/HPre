@@ -118,4 +118,18 @@ class YouTubeRequestPolicyTest {
         assertFalse(transformed.isEligibleYouTube)
         assertEquals(uri.toString(), transformed.uriString)
     }
+
+    @Test
+    fun queryParameterReplacement_preservesExistingEncodingWithoutDoubleEncoding() {
+        val original = "https://rr1---sn-8qj-i5olr.googlevideo.com/videoplayback?expire=123&spc=abc%3D%3D&mime=video%2Fmp4"
+        val dataSpec = DataSpec.Builder().setUri(Uri.parse(original)).build()
+
+        val transformed = YouTubeRequestPolicy.transformDataSpec(dataSpec, YouTubeRequestProfile.PROGRESSIVE, requestNumber = 0)
+
+        assertTrue(transformed.uriString.contains("spc=abc%3D%3D"))
+        assertTrue(transformed.uriString.contains("mime=video%2Fmp4"))
+        assertTrue(transformed.uriString.contains("rn=0"))
+        assertFalse(transformed.uriString.contains("%253D"))
+        assertFalse(transformed.uriString.contains("%252F"))
+    }
 }
