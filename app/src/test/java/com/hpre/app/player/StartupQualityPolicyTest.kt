@@ -7,6 +7,8 @@ import com.hpre.app.model.StreamInfo
 import com.hpre.app.model.VideoStream
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNull
 import org.junit.Test
 
 class StartupQualityPolicyTest {
@@ -106,6 +108,20 @@ class StartupQualityPolicyTest {
     fun startup_quality_policy_constants() {
         assertEquals(Int.MAX_VALUE, StartupQualityPolicy.UNLIMITED_HEIGHT)
         assertEquals(720, StartupQualityPolicy.PROGRESSIVE_TARGET_HEIGHT)
+    }
+
+    @Test fun auto_video_starts_with_360p_ceiling_but_fixed_and_audio_do_not() {
+        val fixed = QualityOption(360, "360p", true)
+        assertEquals(360, startupAutoCeiling(UserQualityPolicy.Auto(), PlaybackStreamType.HLS))
+        assertNull(startupAutoCeiling(UserQualityPolicy.Fixed(fixed), PlaybackStreamType.HLS))
+        assertNull(startupAutoCeiling(UserQualityPolicy.Auto(), PlaybackStreamType.AUDIO_ONLY))
+    }
+
+    @Test fun only_current_generation_first_frame_releases_auto_ceiling() {
+        assertTrue(shouldReleaseStartupCeiling(4, 4, UserQualityPolicy.Auto(), ceilingApplied = true))
+        assertFalse(shouldReleaseStartupCeiling(3, 4, UserQualityPolicy.Auto(), ceilingApplied = true))
+        assertFalse(shouldReleaseStartupCeiling(4, 4, UserQualityPolicy.Fixed(QualityOption(360, "360p", true)), true))
+        assertFalse(shouldReleaseStartupCeiling(4, 4, UserQualityPolicy.Auto(), ceilingApplied = false))
     }
 }
 

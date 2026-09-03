@@ -118,7 +118,7 @@ class HPrePlaybackService : MediaSessionService() {
 
         internal const val MIN_PLAYBACK_BUFFER_MS = 30_000
         internal const val MAX_PLAYBACK_BUFFER_MS = 90_000
-        internal const val BUFFER_FOR_PLAYBACK_MS = 1_000
+        internal const val BUFFER_FOR_PLAYBACK_MS = 750
         internal const val BUFFER_AFTER_REBUFFER_MS = 8_000
         internal const val BUFFERING_WATCHDOG_TIMEOUT_MS = 15_000L
         private const val ANALYTICS_COUNTER_GENERATIONS = 8L
@@ -190,6 +190,7 @@ class HPrePlaybackService : MediaSessionService() {
     private var activeMetricsSession: VideoOpenSession? = null
     private var activeMetricsPlaybackGeneration: Long = -1L
     private var activeMetricsMediaGeneration: Long = -1L
+    private var startupCeilingMediaGeneration: Long? = null
 
     private var bufferingWatchdog: BufferingWatchdog? = null
 
@@ -376,6 +377,16 @@ class HPrePlaybackService : MediaSessionService() {
                         VideoOpenMetrics.Default.finish(session, VideoOpenEvent.FIRST_FRAME)
                     }
                     activeMetricsSession = null
+                }
+                if (shouldReleaseStartupCeiling(
+                        boundToken = boundToken,
+                        activeToken = mediaOperationGeneration,
+                        policy = currentQualityPolicy,
+                        ceilingApplied = startupCeilingMediaGeneration == boundToken
+                    )
+                ) {
+                    startupCeilingMediaGeneration = null
+                    applyQualityPolicy(currentQualityPolicy)
                 }
                 checkBufferingWatchdog()
             }
@@ -629,6 +640,22 @@ class HPrePlaybackService : MediaSessionService() {
         player.trackSelectionParameters = builder.build()
     }
 
+    private fun applyStartupQualityPolicy(token: Long) {
+        val ceiling = startupAutoCeiling(currentQualityPolicy, currentStreamType)
+        startupCeilingMediaGeneration = ceiling?.let { token }
+        if (ceiling == null) {
+            applyQualityPolicy(currentQualityPolicy)
+            return
+        }
+        val player = exoPlayer ?: return
+        val policy = currentQualityPolicy as UserQualityPolicy.Auto
+        player.trackSelectionParameters = player.trackSelectionParameters.buildUpon()
+            .setForceLowestBitrate(false)
+            .setMaxVideoSize(Int.MAX_VALUE, ceiling)
+            .setMaxVideoBitrate(policy.maxBitrate ?: Int.MAX_VALUE)
+            .build()
+    }
+
     /**
      * Coalesces bursts of snapshot writes. Playback-state transitions (notably buffering) can fire
      * many times per second; without this each one enqueues a DataStore edit plus an atomic file
@@ -779,6 +806,7 @@ class HPrePlaybackService : MediaSessionService() {
                         PlaybackStreamType.AUDIO_ONLY -> null
                     }
 
+                    applyStartupQualityPolicy(currentToken)
                     exoPlayer?.let { player ->
                         registerAnalyticsListener(player, currentToken)
                         player.setMediaSource(mediaSource)
