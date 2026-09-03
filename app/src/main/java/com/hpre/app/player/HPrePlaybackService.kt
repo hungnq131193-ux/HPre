@@ -374,7 +374,11 @@ class HPrePlaybackService : MediaSessionService() {
                 ) {
                     metricsFirstFrameMediaGeneration = boundToken
                     activeMetricsSession?.let { session ->
-                        VideoOpenMetrics.Default.finish(session, VideoOpenEvent.FIRST_FRAME)
+                        VideoOpenMetrics.Default.finish(
+                            session,
+                            VideoOpenEvent.FIRST_FRAME,
+                            category = currentStreamType?.name
+                        )
                     }
                     activeMetricsSession = null
                 }
