@@ -161,7 +161,7 @@ class WatchViewModel(
     companion object {
         const val KEY_IS_FULLSCREEN = "watch_is_fullscreen"
         const val KEY_FULLSCREEN_RESIZE_MODE = "watch_fullscreen_resize_mode"
-        internal const val RESUME_LOOKUP_TIMEOUT_MS = 1_500L
+        internal const val RESUME_LOOKUP_TIMEOUT_MS = 200L
         internal const val FIRST_FRAME_READY_FALLBACK_MS = 300L
         internal const val COMMENTS_READY_FALLBACK_MS = 2_000L
         internal const val MAX_RETAINED_COMMENTS = 200
