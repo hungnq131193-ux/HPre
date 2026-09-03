@@ -242,6 +242,39 @@ class WatchScreenTest {
     }
 
     @Test
+    fun thumbnail_cover_remains_until_video_first_frame() {
+        val fakeService = FakeVideoService(
+            videoHandler = { AppResult.Success(testDetails(it)) },
+            streamInfoHandler = { AppResult.Success(StreamInfo(it, "Title", hlsManifestUrl = "https://manifest.m3u8")) }
+        )
+        val fakePlayer = FakePlayerController()
+        val viewModel = WatchViewModel(fakeService, fakePlayer, androidx.lifecycle.SavedStateHandle())
+
+        composeTestRule.setContent {
+            HPreTheme {
+                WatchScreen(
+                    contentKey = testKey,
+                    viewModel = viewModel,
+                    onNavigateBack = {},
+                    initialThumbnailUrl = "https://i.test/cover.jpg"
+                )
+            }
+        }
+
+        composeTestRule.onNodeWithTag("player_thumbnail_cover").assertExists()
+        composeTestRule.runOnUiThread {
+            fakePlayer._state.value = fakePlayer._state.value.copy(
+                key = testKey,
+                isReady = true,
+                hasRenderedFirstFrame = true
+            )
+        }
+        composeTestRule.waitUntil(5_000) {
+            composeTestRule.onAllNodes(hasTestTag("player_thumbnail_cover")).fetchSemanticsNodes().isEmpty()
+        }
+    }
+
+    @Test
     fun phone_width_layout_keeps_primary_content_in_bounds_and_portrait_back_removed() {
         val fakeService = FakeVideoService(
             videoHandler = { AppResult.Success(testDetails(it)) },

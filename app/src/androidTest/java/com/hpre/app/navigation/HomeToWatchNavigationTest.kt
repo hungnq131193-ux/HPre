@@ -253,6 +253,34 @@ class HomeToWatchNavigationTest {
     }
 
     @Test
+    fun home_prefetches_visible_video_and_at_most_two_following_videos() {
+        val videos = (0..4).map { summary("prefetch$it") }
+        val fakeService = FakeVideoService(trendingResponse = com.hpre.app.core.error.AppResult.Success(videos))
+        val container = TestContainer(fakeService)
+        var prefetched = emptyList<ContentKey>()
+
+        composeTestRule.setContent {
+            HPreTheme {
+                val model: com.hpre.app.ui.home.HomeViewModel = androidx.lifecycle.viewmodel.compose.viewModel(
+                    factory = com.hpre.app.ui.home.HomeViewModel.provideFactory(
+                        container.recommendationRepository,
+                        container.topicFeedSource
+                    )
+                )
+                com.hpre.app.ui.home.HomeScreen(
+                    viewModel = model,
+                    onVideoClick = {},
+                    prefetchVideos = { prefetched = it }
+                )
+            }
+        }
+
+        composeTestRule.waitUntil(5_000) { prefetched.isNotEmpty() }
+        org.junit.Assert.assertTrue(prefetched.size <= 3)
+        org.junit.Assert.assertEquals(ContentKey(0, "prefetch0"), prefetched.first())
+    }
+
+    @Test
     fun home_idle_disposal_removes_idle_handler_and_prevents_callback() {
         val fakeService = FakeVideoService(
             trendingResponse = com.hpre.app.core.error.AppResult.Success(listOf(summary("item999"))),

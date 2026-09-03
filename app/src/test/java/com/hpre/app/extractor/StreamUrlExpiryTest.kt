@@ -3,6 +3,7 @@ package com.hpre.app.extractor
 import com.hpre.app.model.AudioStream
 import com.hpre.app.model.ContentKey
 import com.hpre.app.model.StreamInfo
+import com.hpre.app.model.SubtitleStream
 import com.hpre.app.model.VideoStream
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
@@ -32,5 +33,19 @@ class StreamUrlExpiryTest {
                 .earliestUrlExpiryMs()
         )
         assertNull(StreamInfo(key, "Title", hlsManifestUrl = "https://h.test/x?expire=bad").earliestUrlExpiryMs())
+    }
+
+    @Test
+    fun parses_encoded_case_insensitive_subtitle_expiry_and_ignores_overflow() {
+        val info = StreamInfo(
+            key = key,
+            title = "Title",
+            subtitles = listOf(
+                SubtitleStream("https://s.test/caption?ExPiRe%73=250", "en", "vtt"),
+                SubtitleStream("https://s.test/bad?expire=9999999999", "vi", "vtt")
+            )
+        )
+
+        assertEquals(250_000L, info.earliestUrlExpiryMs())
     }
 }

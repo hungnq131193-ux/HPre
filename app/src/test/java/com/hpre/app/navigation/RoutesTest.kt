@@ -92,12 +92,14 @@ class RoutesTest {
     @Test fun watch_route_carries_encoded_https_thumbnail() {
         val key = ContentKey(0, "video/id")
         val thumbnail = "https://i.test/thumb.jpg?x=1&y=2"
+        val route = Screen.Watch.createRoute(key, thumbnail)
 
         assertEquals(
             "watch/0/video%2Fid?thumbnail=https%3A%2F%2Fi.test%2Fthumb.jpg%3Fx%3D1%26y%3D2",
-            Screen.Watch.createRoute(key, thumbnail)
+            route
         )
         assertEquals(thumbnail, Screen.Watch.parseThumbnailArgument(thumbnail))
+        assertEquals(key, Screen.Watch.parseRawPath(route))
     }
 
     @Test fun watch_thumbnail_rejects_non_http_schemes_and_blank_values() {

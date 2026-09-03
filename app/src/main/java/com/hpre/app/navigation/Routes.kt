@@ -150,7 +150,7 @@ sealed class Screen(val route: String) {
          */
         fun parseRawPath(rawRoute: String): ContentKey? {
             if (!rawRoute.startsWith("watch/")) return null
-            val parts = rawRoute.removePrefix("watch/").split("/", limit = 2)
+            val parts = rawRoute.substringBefore('?').removePrefix("watch/").split("/", limit = 2)
             if (parts.size != 2) return null
             val serviceId = parts[0].toIntOrNull() ?: return null
             val decodedNativeId = RouteEncoder.decode(parts[1]) ?: return null

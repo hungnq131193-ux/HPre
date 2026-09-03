@@ -113,8 +113,11 @@ class StartupQualityPolicyTest {
     @Test fun auto_video_starts_with_360p_ceiling_but_fixed_and_audio_do_not() {
         val fixed = QualityOption(360, "360p", true)
         assertEquals(360, startupAutoCeiling(UserQualityPolicy.Auto(), PlaybackStreamType.HLS))
+        assertEquals(360, startupAutoCeiling(UserQualityPolicy.Auto(maxHeight = 480), PlaybackStreamType.DASH))
         assertNull(startupAutoCeiling(UserQualityPolicy.Fixed(fixed), PlaybackStreamType.HLS))
         assertNull(startupAutoCeiling(UserQualityPolicy.Auto(), PlaybackStreamType.AUDIO_ONLY))
+        assertNull(startupAutoCeiling(UserQualityPolicy.Auto(), PlaybackStreamType.PROGRESSIVE))
+        assertNull(startupAutoCeiling(UserQualityPolicy.Auto(), PlaybackStreamType.MERGED_AV))
     }
 
     @Test fun only_current_generation_first_frame_releases_auto_ceiling() {

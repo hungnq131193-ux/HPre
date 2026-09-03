@@ -366,7 +366,7 @@ fun WatchScreen(
                     model = thumbnail,
                     contentDescription = null,
                     contentScale = ContentScale.Crop,
-                    modifier = Modifier.fillMaxSize().testTag("player_thumbnail_cover")
+                    modifier = Modifier.fillMaxSize().background(Color.Black).testTag("player_thumbnail_cover")
                 )
             }
 
@@ -418,7 +418,7 @@ fun WatchScreen(
                             model = thumbnail,
                             contentDescription = null,
                             contentScale = ContentScale.Crop,
-                            modifier = Modifier.fillMaxSize().testTag("player_thumbnail_cover")
+                            modifier = Modifier.fillMaxSize().background(Color.Black).testTag("player_thumbnail_cover")
                         )
                     }
 

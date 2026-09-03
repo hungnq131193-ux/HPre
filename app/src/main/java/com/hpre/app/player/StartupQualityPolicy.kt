@@ -11,7 +11,9 @@ object StartupQualityPolicy {
 }
 
 internal fun startupAutoCeiling(policy: UserQualityPolicy, streamType: PlaybackStreamType?): Int? =
-    if (policy is UserQualityPolicy.Auto && streamType != null && streamType != PlaybackStreamType.AUDIO_ONLY) {
+    if (policy is UserQualityPolicy.Auto &&
+        (streamType == PlaybackStreamType.HLS || streamType == PlaybackStreamType.DASH)
+    ) {
         minOf(policy.maxHeight ?: Int.MAX_VALUE, StartupQualityPolicy.AUTO_STARTUP_MAX_HEIGHT)
     } else {
         null

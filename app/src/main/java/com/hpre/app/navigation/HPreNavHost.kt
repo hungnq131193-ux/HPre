@@ -227,12 +227,7 @@ fun HPreNavHost(
             route = Screen.Channel.route,
             arguments = listOf(
                 navArgument("serviceId") { type = NavType.IntType },
-                navArgument("nativeId") { type = NavType.StringType },
-                navArgument("thumbnail") {
-                    type = NavType.StringType
-                    nullable = true
-                    defaultValue = null
-                }
+                navArgument("nativeId") { type = NavType.StringType }
             )
         ) { entry ->
             val key = Screen.Channel.parseNavArgument(
@@ -258,7 +253,12 @@ fun HPreNavHost(
             route = Screen.ChannelUnavailable.route,
             arguments = listOf(
                 navArgument("serviceId") { type = NavType.IntType },
-                navArgument("nativeId") { type = NavType.StringType }
+                navArgument("nativeId") { type = NavType.StringType },
+                navArgument("thumbnail") {
+                    type = NavType.StringType
+                    nullable = true
+                    defaultValue = null
+                }
             )
         ) { backStackEntry ->
             val rawServiceId = backStackEntry.arguments?.getInt("serviceId")
