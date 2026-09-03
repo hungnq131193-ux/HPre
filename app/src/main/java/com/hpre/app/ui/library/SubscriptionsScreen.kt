@@ -38,6 +38,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import coil.compose.AsyncImage
 import com.hpre.app.model.ContentKey
+import com.hpre.app.model.VideoSummary
 import com.hpre.app.R
 import com.hpre.app.repository.LocalSubscription
 import com.hpre.app.ui.common.ErrorPane
@@ -50,6 +51,7 @@ fun SubscriptionsScreen(
     feedViewModel: SubscriptionFeedViewModel? = null,
     onChannelClick: (ContentKey) -> Unit,
     onVideoClick: (ContentKey) -> Unit = {},
+    onVideoSelected: ((VideoSummary) -> Unit)? = null,
     modifier: Modifier = Modifier
 ) {
     val subscriptionsList by viewModel.subscriptions.collectAsStateWithLifecycle()
@@ -99,7 +101,10 @@ fun SubscriptionsScreen(
                             }
                         }
                         items(feed.videos, key = { "feed:${it.key}" }) { video ->
-                            VideoCard(video, onVideoClick)
+                            VideoCard(
+                                video = video,
+                                onClick = { if (onVideoSelected != null) onVideoSelected(video) else onVideoClick(it) }
+                            )
                         }
                     }
                 }

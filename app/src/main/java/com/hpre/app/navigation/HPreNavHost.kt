@@ -37,6 +37,7 @@ import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.navArgument
+import com.hpre.app.model.VideoSummary
 import com.hpre.app.di.AppContainer
 import com.hpre.app.R
 import com.hpre.app.model.ContentKey
@@ -131,7 +132,10 @@ fun HPreNavHost(
                 onChannelClick = { key ->
                     navController.navigate(Screen.Channel.createRoute(key))
                 },
-                onVideoClick = { navController.navigate(Screen.Watch.createRoute(it)) }
+                onVideoClick = { navController.navigate(Screen.Watch.createRoute(it)) },
+                onVideoSelected = { video ->
+                    navController.navigate(Screen.Watch.createRoute(video.key, video.thumbnailUrl))
+                }
             )
         }
 
@@ -149,7 +153,8 @@ fun HPreNavHost(
                 onNavigateToSubscriptions = { navController.navigate(Screen.Subscriptions.route) },
                 onNavigateToPlaylists = { navController.navigate(Screen.Playlists.route) },
                 onPlaylistClick = { id -> navController.navigate(Screen.PlaylistDetail.createRoute(id)) },
-                onVideoClick = { key -> navController.navigate(Screen.Watch.createRoute(key)) }
+                onVideoClick = { key -> navController.navigate(Screen.Watch.createRoute(key)) },
+                onVideoSelected = { key, thumb -> navController.navigate(Screen.Watch.createRoute(key, thumb)) }
             )
         }
 
@@ -334,6 +339,12 @@ fun HPreNavHost(
                             navController.replaceWatch(Screen.Watch.createRoute(nextKey))
                         }
                     },
+                    onRelatedVideoSelected = { video ->
+                        if (video.key != key && navController.currentBackStackEntry?.id == backStackEntry.id) {
+                            watchViewModel.cancelPendingLoads()
+                            navController.replaceWatch(Screen.Watch.createRoute(video.key, video.thumbnailUrl))
+                        }
+                    },
                     onMinimizeToHome = {
                         effectiveCoordinator.requestMinimizeToHome()
                         watchViewModel.cancelPendingLoads()
@@ -342,13 +353,7 @@ fun HPreNavHost(
                     isInPip = playbackUiState.isInPip,
                     playbackUiCoordinator = effectiveCoordinator,
                     prefetchVideos = container.videoService::prefetch,
-                    initialThumbnailUrl = thumbnailUrl,
-                    onRelatedVideoSelected = { video ->
-                        if (video.key != key && navController.currentBackStackEntry?.id == backStackEntry.id) {
-                            watchViewModel.cancelPendingLoads()
-                            navController.replaceWatch(Screen.Watch.createRoute(video.key, video.thumbnailUrl))
-                        }
-                    }
+                    initialThumbnailUrl = thumbnailUrl
                 )
             }
         }

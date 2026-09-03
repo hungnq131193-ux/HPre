@@ -80,6 +80,7 @@ fun LibraryScreen(
     onNavigateToPlaylists: () -> Unit,
     onPlaylistClick: (Long) -> Unit,
     onVideoClick: (ContentKey) -> Unit,
+    onVideoSelected: ((ContentKey, String?) -> Unit)? = null,
     modifier: Modifier = Modifier
 ) {
     val historyList by viewModel.recentHistory.collectAsStateWithLifecycle()
@@ -119,7 +120,16 @@ fun LibraryScreen(
                 horizontalArrangement = Arrangement.spacedBy(12.dp)
             ) {
                 items(historyList, key = { it.key.toString() }) { item ->
-                    RecentHistoryCard(item = item, onClick = { onVideoClick(item.key) })
+                    RecentHistoryCard(
+                        item = item,
+                        onClick = {
+                            if (onVideoSelected != null) {
+                                onVideoSelected(item.key, item.thumbnailUrl)
+                            } else {
+                                onVideoClick(item.key)
+                            }
+                        }
+                    )
                 }
             }
         }
