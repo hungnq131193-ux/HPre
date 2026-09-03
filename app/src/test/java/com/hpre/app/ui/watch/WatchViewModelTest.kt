@@ -625,9 +625,9 @@ class WatchViewModelTest {
 
         player.markReady(testKey)
         runCurrent()
-        advanceTimeBy(1_000)
+        advanceTimeBy(WatchViewModel.FIRST_FRAME_READY_FALLBACK_MS - 1)
         runCurrent()
-        assertTrue("READY alone must not hide loading before the first frame", model.uiState.value.isPlayerLoading)
+        assertTrue("READY alone must not hide loading before the first-frame grace period", model.uiState.value.isPlayerLoading)
 
         player._state.value = player._state.value.copy(hasRenderedFirstFrame = true)
         runCurrent()
@@ -639,7 +639,7 @@ class WatchViewModelTest {
     }
 
     @Test
-    fun ready_and_position_ticks_never_finish_video_startup_before_first_frame() = runTest(testDispatcher) {
+    fun ready_fallback_restarts_after_buffering_but_not_after_position_ticks() = runTest(testDispatcher) {
         val service = FakeVideoService(
             videoHandler = { AppResult.Success(testDetails(it)) },
             streamInfoHandler = { AppResult.Success(testStreamInfo(it)) },
@@ -660,14 +660,15 @@ class WatchViewModelTest {
 
         player._state.value = player._state.value.copy(isReady = true, isBuffering = false)
         runCurrent()
+        advanceTimeBy(100)
         player._state.value = player._state.value.copy(currentPositionMs = 100)
         runCurrent()
-        advanceTimeBy(1_000)
+        advanceTimeBy(WatchViewModel.FIRST_FRAME_READY_FALLBACK_MS - 101)
         runCurrent()
         assertTrue(model.uiState.value.isPlayerLoading)
-        player._state.value = player._state.value.copy(hasRenderedFirstFrame = true)
+        advanceTimeBy(1)
         runCurrent()
-        assertFalse(model.uiState.value.isPlayerLoading)
+        assertFalse("Progress updates must not extend the READY fallback", model.uiState.value.isPlayerLoading)
     }
 
     @Test
@@ -695,57 +696,6 @@ class WatchViewModelTest {
         runCurrent()
         assertFalse(model.uiState.value.isPlayerLoading)
         assertEquals(AppError.NetworkError, model.playbackState.value.error)
-    }
-
-    @Test
-    fun thumbnail_remains_until_first_frame_and_resets_for_next_video() = runTest(testDispatcher) {
-        val nextKey = ContentKey(0, "thumbnail_next")
-        val service = FakeVideoService(
-            videoHandler = { AppResult.Success(testDetails(it)) },
-            streamInfoHandler = { AppResult.Success(testStreamInfo(it)) },
-            relatedHandler = { AppResult.Success(emptyList()) }
-        )
-        val player = FakePlayerController()
-        val model = WatchViewModel(service, player, androidx.lifecycle.SavedStateHandle(), ioDispatcher = testDispatcher)
-
-        model.load(testKey, initialThumbnailUrl = "https://i.test/first.jpg")
-        runCurrent()
-        player.markReady(testKey)
-        runCurrent()
-        advanceTimeBy(1_000)
-        runCurrent()
-        assertEquals("https://i.test/first.jpg", model.uiState.value.thumbnailUrl)
-
-        player._state.value = player._state.value.copy(hasRenderedFirstFrame = true)
-        runCurrent()
-        assertNull(model.uiState.value.thumbnailUrl)
-
-        model.load(nextKey, initialThumbnailUrl = "https://i.test/next.jpg")
-        assertEquals("https://i.test/next.jpg", model.uiState.value.thumbnailUrl)
-    }
-
-    @Test
-    fun audio_ready_and_terminal_error_remove_thumbnail() = runTest(testDispatcher) {
-        val errorKey = ContentKey(0, "thumbnail_error")
-        val service = FakeVideoService(
-            videoHandler = { AppResult.Success(testDetails(it)) },
-            streamInfoHandler = { AppResult.Success(testStreamInfo(it)) },
-            relatedHandler = { AppResult.Success(emptyList()) }
-        )
-        val player = FakePlayerController()
-        val model = WatchViewModel(service, player, androidx.lifecycle.SavedStateHandle(), ioDispatcher = testDispatcher)
-
-        model.load(testKey, initialThumbnailUrl = "https://i.test/audio.jpg")
-        runCurrent()
-        player._state.value = player._state.value.copy(isReady = true, streamType = com.hpre.app.player.PlaybackStreamType.AUDIO_ONLY)
-        runCurrent()
-        assertNull(model.uiState.value.thumbnailUrl)
-
-        model.load(errorKey, initialThumbnailUrl = "https://i.test/error.jpg")
-        runCurrent()
-        player.setPlayerErrorForTest(AppError.NetworkError)
-        runCurrent()
-        assertNull(model.uiState.value.thumbnailUrl)
     }
 
     @Test

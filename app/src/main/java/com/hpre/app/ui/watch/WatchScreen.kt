@@ -585,9 +585,10 @@ fun WatchMetadataContent(
     val effectiveLazyListState = lazyListState ?: rememberLazyListState()
     VideoViewportPrefetchEffect(
         effectiveLazyListState,
-        relatedState.value.orEmpty().map { it.key },
-        prefetchVideos
-    )
+        relatedState.value.orEmpty().map { it.key }
+    ) {
+        // No-op prefetch to prevent network queue congestion during playback
+    }
     var isDescriptionExpanded by rememberSaveable(details.key.serviceId, details.key.nativeId) {
         mutableStateOf(false)
     }

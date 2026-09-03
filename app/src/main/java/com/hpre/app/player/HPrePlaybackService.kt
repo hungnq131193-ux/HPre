@@ -118,7 +118,7 @@ class HPrePlaybackService : MediaSessionService() {
 
         internal const val MIN_PLAYBACK_BUFFER_MS = 30_000
         internal const val MAX_PLAYBACK_BUFFER_MS = 90_000
-        internal const val BUFFER_FOR_PLAYBACK_MS = 750
+        internal const val BUFFER_FOR_PLAYBACK_MS = 1_000
         internal const val BUFFER_AFTER_REBUFFER_MS = 8_000
         internal const val BUFFERING_WATCHDOG_TIMEOUT_MS = 15_000L
         private const val ANALYTICS_COUNTER_GENERATIONS = 8L

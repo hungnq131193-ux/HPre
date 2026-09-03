@@ -446,7 +446,9 @@ internal fun SearchResultsList(
     val currentOnLoadMore = rememberUpdatedState(onLoadMore)
     val currentRequestKey = rememberUpdatedState(requestKey)
     val videoKeys = items.mapNotNull { (it as? SearchResultItem.VideoItem)?.summary?.key }
-    VideoViewportPrefetchEffect(listState, videoKeys, prefetchVideos)
+    VideoViewportPrefetchEffect(listState, videoKeys) {
+        // No-op prefetch to prevent network queue congestion and fast start video loading
+    }
 
     // Reset policy explicitly when normalized query / filter generation / request key changes or list becomes empty
     LaunchedEffect(requestKey, items.isEmpty()) {

@@ -127,7 +127,9 @@ internal fun HomeScreen(
                 VideoViewportPrefetchEffect(
                     listState = listState,
                     orderedKeys = state.content.videos.map { it.key },
-                    prefetch = prefetchVideos
+                    prefetch = {
+                        // No-op prefetch to prevent network queue congestion and fast start video loading
+                    }
                 )
                 DisposableEffect(Unit) {
                     var disposed = false

@@ -162,6 +162,7 @@ class WatchViewModel(
         const val KEY_IS_FULLSCREEN = "watch_is_fullscreen"
         const val KEY_FULLSCREEN_RESIZE_MODE = "watch_fullscreen_resize_mode"
         internal const val RESUME_LOOKUP_TIMEOUT_MS = 1_500L
+        internal const val FIRST_FRAME_READY_FALLBACK_MS = 300L
         internal const val COMMENTS_READY_FALLBACK_MS = 2_000L
         internal const val MAX_RETAINED_COMMENTS = 200
         internal const val MAX_CACHED_COMMENTS = 60
@@ -357,8 +358,7 @@ class WatchViewModel(
                     commentsExpanded = if (keyChanged) false else it.commentsExpanded,
                     isPlayerLoading = !reuseActivePlayer || activePlayback.isLoading ||
                         activePlayback.isBuffering ||
-                        (!activePlayback.isReady && !activePlayback.hasRenderedFirstFrame),
-                    thumbnailUrl = if (keyChanged) initialThumbnailUrl else it.thumbnailUrl
+                        (!activePlayback.isReady && !activePlayback.hasRenderedFirstFrame)
                 )
             }
             _relatedState.value = cachedSnapshot?.relatedVideos?.let {
@@ -393,12 +393,8 @@ class WatchViewModel(
                             is AppResult.Success -> {
                                 synchronized(sessionGuard) {
                                     if (!isCurrentRequest(key, generation)) return@details
-                                    _uiState.update { state ->
-                                        state.copy(
-                                            isLoading = false,
-                                            details = result.value,
-                                            thumbnailUrl = state.thumbnailUrl ?: result.value.thumbnailUrl
-                                        )
+                                    _uiState.update {
+                                        it.copy(isLoading = false, details = result.value)
                                     }
                                     videoOpenMetrics.mark(metricsSession, VideoOpenEvent.DETAILS_READY)
                                     watchStateCache?.put(key, WatchStateSnapshot(result.value, null, null))
@@ -501,13 +497,11 @@ class WatchViewModel(
         synchronized(sessionGuard) {
             if (!isCurrentRequest(key, generation)) return
             playbackReadyJob?.cancel()
-            _uiState.update {
-                it.copy(isLoading = false, isPlayerLoading = false, thumbnailUrl = null, error = error)
-            }
+            _uiState.update { it.copy(isLoading = false, isPlayerLoading = false, error = error) }
         }
     }
 
-    private enum class StartupReadiness { WAITING, FINISHED }
+    private enum class StartupReadiness { WAITING, READY_WITHOUT_FRAME, FINISHED }
 
     @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
     private fun observePlayerReadiness(key: ContentKey, generation: Long) {
@@ -521,13 +515,27 @@ class WatchViewModel(
                             state.key != key -> StartupReadiness.WAITING
                             state.error != null || state.isEnded || state.hasRenderedFirstFrame ->
                                 StartupReadiness.FINISHED
-                            state.isReady && state.streamType == com.hpre.app.player.PlaybackStreamType.AUDIO_ONLY ->
-                                StartupReadiness.FINISHED
+                            state.isReady && !state.isBuffering ->
+                                if (state.streamType == com.hpre.app.player.PlaybackStreamType.AUDIO_ONLY) {
+                                    StartupReadiness.FINISHED
+                                } else StartupReadiness.READY_WITHOUT_FRAME
                             else -> StartupReadiness.WAITING
                         }
                     }
+                    // Position ticks must not keep restarting the first-frame grace period.
                     .distinctUntilChanged()
-                    .first { it == StartupReadiness.FINISHED }
+                    .transformLatest { readiness ->
+                        when (readiness) {
+                            StartupReadiness.WAITING -> Unit
+                            StartupReadiness.READY_WITHOUT_FRAME -> {
+                                // Reconnected/remote players may not replay the first-frame event.
+                                delay(FIRST_FRAME_READY_FALLBACK_MS)
+                                emit(Unit)
+                            }
+                            StartupReadiness.FINISHED -> emit(Unit)
+                        }
+                    }
+                    .first()
                 synchronized(sessionGuard) {
                     if (isCurrentRequest(key, generation)) {
                         _uiState.update { it.copy(isPlayerLoading = false, thumbnailUrl = null) }

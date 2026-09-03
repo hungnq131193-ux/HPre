@@ -136,15 +136,7 @@ class NewPipeVideoService internal constructor(
     }
 
     override suspend fun prefetch(keys: List<ContentKey>) {
-        coroutineScope {
-            keys.asSequence()
-                .filter { it.serviceId == serviceId }
-                .distinct()
-                .take(3)
-                .map { key -> async { prefetchSemaphore.withPermit { bundle(key) } } }
-                .toList()
-                .awaitAll()
-        }
+        // Disabled to prevent network overlapping/congestion during active loading.
     }
 
     override suspend fun channel(key: ContentKey): AppResult<ChannelDetails> {
