@@ -8,7 +8,7 @@ data class NetworkPolicy(
     val connectTimeoutSeconds: Long = 15,
     val readTimeoutSeconds: Long = 20,
     val callTimeoutSeconds: Long = 30,
-    val maxIdleConnections: Int = 5,
+    val maxIdleConnections: Int = 16,
     val keepAliveDurationMinutes: Long = 5
 ) {
     fun createOkHttpClient(): OkHttpClient {

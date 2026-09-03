@@ -22,6 +22,10 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Semaphore
 import kotlinx.coroutines.sync.withPermit
 import kotlinx.coroutines.suspendCancellableCoroutine
@@ -42,8 +46,12 @@ import kotlin.coroutines.resumeWithException
 class NewPipeVideoService internal constructor(
     private val ioDispatcher: CoroutineDispatcher = ExtractorDispatcher.IO,
     private val operations: ExtractorOperations = DefaultExtractorOperations(),
-    serviceScope: CoroutineScope = CoroutineScope(SupervisorJob() + ioDispatcher),
-    private val extractionCoordinator: VideoExtractionCoordinator = VideoExtractionCoordinator(serviceScope),
+    private val serviceScope: CoroutineScope = CoroutineScope(SupervisorJob() + ioDispatcher),
+    private val extractionCoordinator: VideoExtractionCoordinator = VideoExtractionCoordinator(
+        serviceScope,
+        ttlMs = 300_000L,
+        maxEntries = 32
+    ),
     private val videoOpenMetrics: VideoOpenMetrics = VideoOpenMetrics.Default
 ) : VideoService {
 
@@ -136,7 +144,15 @@ class NewPipeVideoService internal constructor(
     }
 
     override suspend fun prefetch(keys: List<ContentKey>) {
-        // Disabled to prevent network overlapping/congestion during active loading.
+        coroutineScope {
+            keys.asSequence()
+                .filter { it.serviceId == serviceId }
+                .distinct()
+                .take(2)
+                .map { key -> async(ioDispatcher) { prefetchSemaphore.withPermit { bundle(key) } } }
+                .toList()
+                .awaitAll()
+        }
     }
 
     override suspend fun channel(key: ContentKey): AppResult<ChannelDetails> {

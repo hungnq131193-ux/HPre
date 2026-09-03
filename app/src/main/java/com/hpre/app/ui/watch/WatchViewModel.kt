@@ -358,7 +358,8 @@ class WatchViewModel(
                     commentsExpanded = if (keyChanged) false else it.commentsExpanded,
                     isPlayerLoading = !reuseActivePlayer || activePlayback.isLoading ||
                         activePlayback.isBuffering ||
-                        (!activePlayback.isReady && !activePlayback.hasRenderedFirstFrame)
+                        (!activePlayback.isReady && !activePlayback.hasRenderedFirstFrame),
+                    thumbnailUrl = if (keyChanged) initialThumbnailUrl else (it.thumbnailUrl ?: initialThumbnailUrl)
                 )
             }
             _relatedState.value = cachedSnapshot?.relatedVideos?.let {
@@ -393,8 +394,12 @@ class WatchViewModel(
                             is AppResult.Success -> {
                                 synchronized(sessionGuard) {
                                     if (!isCurrentRequest(key, generation)) return@details
-                                    _uiState.update {
-                                        it.copy(isLoading = false, details = result.value)
+                                    _uiState.update { state ->
+                                        state.copy(
+                                            isLoading = false,
+                                            details = result.value,
+                                            thumbnailUrl = state.thumbnailUrl ?: result.value.thumbnailUrl
+                                        )
                                     }
                                     videoOpenMetrics.mark(metricsSession, VideoOpenEvent.DETAILS_READY)
                                     watchStateCache?.put(key, WatchStateSnapshot(result.value, null, null))
@@ -497,7 +502,9 @@ class WatchViewModel(
         synchronized(sessionGuard) {
             if (!isCurrentRequest(key, generation)) return
             playbackReadyJob?.cancel()
-            _uiState.update { it.copy(isLoading = false, isPlayerLoading = false, error = error) }
+            _uiState.update {
+                it.copy(isLoading = false, isPlayerLoading = false, thumbnailUrl = null, error = error)
+            }
         }
     }
 

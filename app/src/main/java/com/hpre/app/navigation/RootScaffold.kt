@@ -260,7 +260,7 @@ fun RootScaffold(
             navController = navController,
             container = container,
             coordinator = effectiveCoordinator,
-            modifier = Modifier.padding(innerPadding)
+            modifier = if (isWatchScreen) Modifier else Modifier.padding(innerPadding)
         )
     }
 }

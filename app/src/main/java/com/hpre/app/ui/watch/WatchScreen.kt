@@ -108,18 +108,31 @@ class DefaultWindowSystemUiController(
 ) : WindowSystemUiController {
     override fun hideSystemBars() {
         val win = window ?: return
-        val v = view ?: return
+        val v = view ?: win.decorView
         val insetsController = WindowCompat.getInsetsController(win, v)
         insetsController.hide(WindowInsetsCompat.Type.systemBars())
         insetsController.systemBarsBehavior =
             WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
+
+        @Suppress("DEPRECATION")
+        win.decorView.systemUiVisibility = (
+            View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY
+            or View.SYSTEM_UI_FLAG_LAYOUT_STABLE
+            or View.SYSTEM_UI_FLAG_LAYOUT_HIDE_NAVIGATION
+            or View.SYSTEM_UI_FLAG_LAYOUT_FULLSCREEN
+            or View.SYSTEM_UI_FLAG_HIDE_NAVIGATION
+            or View.SYSTEM_UI_FLAG_FULLSCREEN
+        )
     }
 
     override fun showSystemBars() {
         val win = window ?: return
-        val v = view ?: return
+        val v = view ?: win.decorView
         val insetsController = WindowCompat.getInsetsController(win, v)
         insetsController.show(WindowInsetsCompat.Type.systemBars())
+
+        @Suppress("DEPRECATION")
+        win.decorView.systemUiVisibility = View.SYSTEM_UI_FLAG_LAYOUT_STABLE
     }
 }
 
@@ -164,14 +177,16 @@ class DefaultFullscreenHostHandler(
             }
         }
         act.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
-        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.R) {
-            act.window.attributes = act.window.attributes.apply {
-                layoutInDisplayCutoutMode = android.view.WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_ALWAYS
+        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.P) {
+            val attrs = android.view.WindowManager.LayoutParams().apply {
+                copyFrom(act.window.attributes)
+                if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.R) {
+                    layoutInDisplayCutoutMode = android.view.WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_ALWAYS
+                } else {
+                    layoutInDisplayCutoutMode = android.view.WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_SHORT_EDGES
+                }
             }
-        } else if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.P) {
-            act.window.attributes = act.window.attributes.apply {
-                layoutInDisplayCutoutMode = android.view.WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_SHORT_EDGES
-            }
+            act.window.attributes = attrs
         }
         systemUiController?.hideSystemBars()
     }
@@ -184,9 +199,11 @@ class DefaultFullscreenHostHandler(
             ?: ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
         act.requestedOrientation = orig
         if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.P) {
-            act.window.attributes = act.window.attributes.apply {
+            val attrs = android.view.WindowManager.LayoutParams().apply {
+                copyFrom(act.window.attributes)
                 layoutInDisplayCutoutMode = android.view.WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_DEFAULT
             }
+            act.window.attributes = attrs
         }
         systemUiController?.showSystemBars()
         savedStateHandle?.remove<Int>(KEY_ORIG_ORIENTATION)
@@ -201,14 +218,16 @@ class DefaultFullscreenHostHandler(
         if (act.isFinishing || act.isDestroyed) return
 
         act.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
-        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.R) {
-            act.window.attributes = act.window.attributes.apply {
-                layoutInDisplayCutoutMode = android.view.WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_ALWAYS
+        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.P) {
+            val attrs = android.view.WindowManager.LayoutParams().apply {
+                copyFrom(act.window.attributes)
+                if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.R) {
+                    layoutInDisplayCutoutMode = android.view.WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_ALWAYS
+                } else {
+                    layoutInDisplayCutoutMode = android.view.WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_SHORT_EDGES
+                }
             }
-        } else if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.P) {
-            act.window.attributes = act.window.attributes.apply {
-                layoutInDisplayCutoutMode = android.view.WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_SHORT_EDGES
-            }
+            act.window.attributes = attrs
         }
         systemUiController?.hideSystemBars()
     }
@@ -585,10 +604,9 @@ fun WatchMetadataContent(
     val effectiveLazyListState = lazyListState ?: rememberLazyListState()
     VideoViewportPrefetchEffect(
         effectiveLazyListState,
-        relatedState.value.orEmpty().map { it.key }
-    ) {
-        // No-op prefetch to prevent network queue congestion during playback
-    }
+        relatedState.value.orEmpty().map { it.key },
+        prefetchVideos
+    )
     var isDescriptionExpanded by rememberSaveable(details.key.serviceId, details.key.nativeId) {
         mutableStateOf(false)
     }

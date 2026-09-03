@@ -47,6 +47,8 @@ fun PlayerSurface(
             // A reused AndroidView must also switch back to FIT without restarting playback.
             if (playerView.resizeMode != surfaceResizeMode) {
                 playerView.resizeMode = surfaceResizeMode
+                playerView.videoSurfaceView?.requestLayout()
+                playerView.requestLayout()
             }
             if (lease == null) {
                 playerController.attachSurface(playerView)
