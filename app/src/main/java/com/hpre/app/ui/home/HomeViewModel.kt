@@ -14,6 +14,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withTimeoutOrNull
 
 data class HomeContent(
     val videos: List<VideoSummary>,
@@ -106,9 +107,11 @@ class HomeViewModel(
 
         activeLoadJob = viewModelScope.launch {
             val result = try {
-                selectedChip.query?.let { query ->
-                    topicFeedSource.videos(query, RecommendationRequest(forceRefresh = forceRefresh))
-                } ?: repository.home(RecommendationRequest(forceRefresh = forceRefresh))
+                withTimeoutOrNull(INITIAL_LOAD_TIMEOUT_MS) {
+                    selectedChip.query?.let { query ->
+                        topicFeedSource.videos(query, RecommendationRequest(forceRefresh = forceRefresh))
+                    } ?: repository.home(RecommendationRequest(forceRefresh = forceRefresh))
+                } ?: AppResult.Failure(AppError.NetworkError)
             } catch (ce: kotlinx.coroutines.CancellationException) {
                 throw ce
             } catch (t: Throwable) {
@@ -165,20 +168,22 @@ class HomeViewModel(
             val selectedChip = _chipsState.value.chips[_chipsState.value.selectedIndex]
             val cacheKey = selectedChip.query ?: ALL_CHIP_CACHE_KEY
             val result = try {
-                selectedChip.query?.let { query ->
-                    topicFeedSource.videos(
-                        query,
+                withTimeoutOrNull(INITIAL_LOAD_TIMEOUT_MS) {
+                    selectedChip.query?.let { query ->
+                        topicFeedSource.videos(
+                            query,
+                            RecommendationRequest(
+                                forceRefresh = true,
+                                excludedKeys = excludedKeysSnapshot
+                            )
+                        )
+                    } ?: repository.home(
                         RecommendationRequest(
                             forceRefresh = true,
                             excludedKeys = excludedKeysSnapshot
                         )
                     )
-                } ?: repository.home(
-                    RecommendationRequest(
-                        forceRefresh = true,
-                        excludedKeys = excludedKeysSnapshot
-                    )
-                )
+                } ?: AppResult.Failure(AppError.NetworkError)
             } catch (ce: kotlinx.coroutines.CancellationException) {
                 throw ce
             } catch (t: Throwable) {
@@ -222,6 +227,8 @@ class HomeViewModel(
     }
 
     companion object {
+        internal const val INITIAL_LOAD_TIMEOUT_MS = 2_000L
+
         /** Cache key for the "Tất cả" chip, which has no query of its own. */
         private const val ALL_CHIP_CACHE_KEY = "__all__"
 

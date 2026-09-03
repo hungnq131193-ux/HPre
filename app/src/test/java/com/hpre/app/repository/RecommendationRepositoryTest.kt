@@ -454,6 +454,26 @@ class RecommendationRepositoryTest {
 
         assertEquals(10, result.size)
         assertTrue(result.all { it.key.nativeId.startsWith("fast_topic") })
+        assertEquals(1_500L, testScheduler.currentTime)
+    }
+
+    @Test
+    fun `empty history trending fallback is bounded`() = runTest {
+        val service = FakeVideoService()
+        service.trendingHandler = {
+            kotlinx.coroutines.delay(20_000L)
+            AppResult.Success(emptyList())
+        }
+        val repository = RecommendationRepository(
+            CatalogRepository(service, this),
+            searchHistory(emptyList()),
+            history(emptyList())
+        )
+
+        val result = repository.home(RecommendationRequest())
+
+        assertEquals(AppResult.Failure(AppError.NetworkError), result)
+        assertEquals(HOME_DEADLINE_MS, testScheduler.currentTime)
     }
 
     @Test

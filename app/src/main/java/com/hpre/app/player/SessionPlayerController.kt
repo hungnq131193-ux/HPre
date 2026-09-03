@@ -110,6 +110,28 @@ internal fun restoreConnectedPlaybackState(
     playbackSpeed = playbackSpeed.takeIf { it > 0f } ?: current.playbackSpeed
 )
 
+internal fun playbackFailureState(
+    current: PlaybackState,
+    decision: PlaybackRecoveryDecision,
+    canRecover: Boolean
+): PlaybackState = current.copy(
+    isPlaying = false,
+    isLoading = decision.shouldRefresh && canRecover,
+    isBuffering = false,
+    isReady = false,
+    error = decision.error.takeUnless { decision.shouldRefresh && canRecover }
+)
+
+internal fun playbackRecoveryFailedState(
+    current: PlaybackState,
+    error: AppError
+): PlaybackState = current.copy(
+    isLoading = false,
+    isBuffering = false,
+    isReady = false,
+    error = error
+)
+
 internal fun acceptsPlaybackCallback(expectedKey: ContentKey?, eventKey: ContentKey?, transitioning: Boolean): Boolean =
     if (expectedKey != null) expectedKey == eventKey else !transitioning
 
@@ -117,6 +139,12 @@ internal data class SessionRecovery(
     val streamInfo: StreamInfo,
     val pending: PendingPrepare
 )
+
+internal sealed interface SessionRecoveryResult {
+    data class Recovered(val value: SessionRecovery) : SessionRecoveryResult
+    data class Failed(val error: AppError) : SessionRecoveryResult
+    data object Cancelled : SessionRecoveryResult
+}
 
 internal suspend fun recoverSessionPlayback(
     coordinator: StreamRecoveryCoordinator,
@@ -127,7 +155,7 @@ internal suspend fun recoverSessionPlayback(
     quality: QualityOption?,
     playbackSpeed: Float,
     attemptedSourceTypes: Set<PlaybackStreamType>
-): SessionRecovery? {
+): SessionRecoveryResult {
     val preference = quality?.let(QualityPreference::SpecificOption) ?: QualityPreference.Auto
     return when (
         val recovered = coordinator.recoverExpiredStream(
@@ -139,18 +167,20 @@ internal suspend fun recoverSessionPlayback(
             attemptedSourceTypes = attemptedSourceTypes
         )
     ) {
-        is RecoveryResult.Recovered -> SessionRecovery(
-            streamInfo = recovered.streamInfo,
-            pending = PendingPrepare(
-                key = recovered.key,
-                positionMs = recovered.resumePositionMs,
-                playWhenReady = recovered.resumeWhenReady,
-                initialQuality = recovered.selectedQuality,
-                playbackSpeed = playbackSpeed
+        is RecoveryResult.Recovered -> SessionRecoveryResult.Recovered(
+            SessionRecovery(
+                streamInfo = recovered.streamInfo,
+                pending = PendingPrepare(
+                    key = recovered.key,
+                    positionMs = recovered.resumePositionMs,
+                    playWhenReady = recovered.resumeWhenReady,
+                    initialQuality = recovered.selectedQuality,
+                    playbackSpeed = playbackSpeed
+                )
             )
         )
-        is RecoveryResult.Failed,
-        RecoveryResult.Cancelled -> null
+        is RecoveryResult.Failed -> SessionRecoveryResult.Failed(recovered.error)
+        RecoveryResult.Cancelled -> SessionRecoveryResult.Cancelled
     }
 }
 
@@ -287,17 +317,14 @@ class SessionPlayerController internal constructor(
                     )
                 }
             }
+            val coordinator = recoveryCoordinator
+            val recoverySnapshot = snapshot
+            val canRecover = decision.shouldRefresh && coordinator != null && recoverySnapshot != null
             _state.update {
-                it.copy(
-                    isLoading = false,
-                    isBuffering = false,
-                    isReady = false,
-                    error = decision.error,
-                    retrySnapshot = snapshot
-                )
+                playbackFailureState(it, decision, canRecover).copy(retrySnapshot = snapshot)
             }
-            val coordinator = recoveryCoordinator ?: return
-            val recoverySnapshot = snapshot ?: return
+            coordinator ?: return
+            recoverySnapshot ?: return
             if (!decision.shouldRefresh) return
             val expectedRequest = localPrepareRequestGeneration.get()
             val expectedKey = recoverySnapshot.key
@@ -316,19 +343,33 @@ class SessionPlayerController internal constructor(
                         quality = recoverySnapshot.selectedQuality,
                         playbackSpeed = speed,
                         attemptedSourceTypes = attempted
-                    ) ?: return@launch
+                    )
+                    when (recovered) {
+                        SessionRecoveryResult.Cancelled -> return@launch
+                        is SessionRecoveryResult.Failed -> {
+                            if (!isReleased && currentKey == expectedKey &&
+                                localSessionGen == expectedSession &&
+                                localPrepareRequestGeneration.get() == expectedRequest
+                            ) {
+                                _state.update { playbackRecoveryFailedState(it, recovered.error) }
+                            }
+                            return@launch
+                        }
+                        is SessionRecoveryResult.Recovered -> Unit
+                    }
+                    val recovery = recovered.value
                     if (isReleased || currentKey != expectedKey ||
                         localSessionGen != expectedSession ||
                         localPrepareRequestGeneration.get() != expectedRequest
                     ) return@launch
                     recoveryJob = null
                     prepareWithSpeed(
-                        key = recovered.pending.key,
-                        streamInfo = recovered.streamInfo,
-                        startPositionMs = recovered.pending.positionMs,
-                        playWhenReady = recovered.pending.playWhenReady,
-                        initialQuality = recovered.pending.initialQuality,
-                        playbackSpeed = recovered.pending.playbackSpeed
+                        key = recovery.pending.key,
+                        streamInfo = recovery.streamInfo,
+                        startPositionMs = recovery.pending.positionMs,
+                        playWhenReady = recovery.pending.playWhenReady,
+                        initialQuality = recovery.pending.initialQuality,
+                        playbackSpeed = recovery.pending.playbackSpeed
                     )
                 } catch (cancelled: CancellationException) {
                     throw cancelled

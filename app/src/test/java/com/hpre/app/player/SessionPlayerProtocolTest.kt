@@ -52,10 +52,11 @@ class SessionPlayerProtocolTest {
         )
 
         assertEquals(1, service.streamInfoCallCount)
-        assertEquals(key, pending?.pending?.key)
-        assertEquals(12_000L, pending?.pending?.positionMs)
-        assertTrue(pending?.pending?.playWhenReady == true)
-        assertEquals(1.5f, pending?.pending?.playbackSpeed ?: 0f, 0.001f)
+        val recovered = pending as SessionRecoveryResult.Recovered
+        assertEquals(key, recovered.value.pending.key)
+        assertEquals(12_000L, recovered.value.pending.positionMs)
+        assertTrue(recovered.value.pending.playWhenReady)
+        assertEquals(1.5f, recovered.value.pending.playbackSpeed, 0.001f)
     }
 
     @Test
@@ -1404,6 +1405,60 @@ class SessionPlayerProtocolTest {
         assertFalse(terminalState.isLoading)
         assertFalse(terminalState.isReady)
         assertEquals(AppError.StreamExpired, terminalState.error)
+    }
+
+    @Test
+    fun recoverable_playback_failure_keeps_loading_without_showing_terminal_error() {
+        val current = PlaybackState(
+            key = testKey,
+            isLoading = false,
+            isBuffering = true,
+            isReady = false
+        )
+
+        val recovering = playbackFailureState(
+            current = current,
+            decision = PlaybackRecoveryDecision(AppError.StreamExpired, shouldRefresh = true),
+            canRecover = true
+        )
+
+        assertTrue(recovering.isLoading)
+        assertFalse(recovering.isBuffering)
+        assertFalse(recovering.isPlaying)
+        assertEquals(null, recovering.error)
+    }
+
+    @Test
+    fun cancelled_session_recovery_remains_cancelled_instead_of_becoming_terminal_failure() = kotlinx.coroutines.test.runTest {
+        val service = com.hpre.app.testing.FakeVideoService()
+        service.streamInfoHandler = { AppResult.Failure(AppError.NetworkError) }
+        val coordinator = StreamRecoveryCoordinator(service)
+        coordinator.release()
+
+        val result = recoverSessionPlayback(
+            coordinator = coordinator,
+            key = testKey,
+            sessionGen = 1L,
+            positionMs = 0L,
+            playWhenReady = true,
+            quality = null,
+            playbackSpeed = 1f,
+            attemptedSourceTypes = emptySet()
+        )
+
+        assertEquals(SessionRecoveryResult.Cancelled, result)
+    }
+
+    @Test
+    fun failed_playback_recovery_stops_loading_and_surfaces_terminal_error() {
+        val failed = playbackRecoveryFailedState(
+            current = PlaybackState(key = testKey, isLoading = true),
+            error = AppError.StreamExpired
+        )
+
+        assertFalse(failed.isLoading)
+        assertFalse(failed.isBuffering)
+        assertEquals(AppError.StreamExpired, failed.error)
     }
 
     @Test

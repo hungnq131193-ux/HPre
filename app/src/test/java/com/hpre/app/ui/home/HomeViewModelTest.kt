@@ -29,6 +29,7 @@ import kotlinx.coroutines.test.setMain
 import kotlinx.coroutines.withContext
 import org.junit.After
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
 import org.junit.Before
@@ -138,6 +139,47 @@ class HomeViewModelTest {
         val state = viewModel.uiState.value
         assertTrue(state is HomeUiState.Error)
         assertEquals(AppError.NetworkError, (state as HomeUiState.Error).error)
+    }
+
+    @Test
+    fun cold_load_stops_waiting_after_two_seconds_when_source_hangs() = runTest(testDispatcher) {
+        val source = HomeRecommendationSource {
+            kotlinx.coroutines.awaitCancellation()
+        }
+        val viewModel = HomeViewModel(source, FakeTopicFeedSource())
+
+        runCurrent()
+        advanceTimeBy(HomeViewModel.INITIAL_LOAD_TIMEOUT_MS - 1L)
+        runCurrent()
+        assertTrue(viewModel.uiState.value is HomeUiState.Loading)
+
+        advanceTimeBy(1L)
+        runCurrent()
+        val state = viewModel.uiState.value
+        assertTrue("Expected bounded NetworkError, got $state", state is HomeUiState.Error)
+        assertEquals(AppError.NetworkError, (state as HomeUiState.Error).error)
+    }
+
+    @Test
+    fun refresh_stops_waiting_after_two_seconds_and_keeps_visible_content() = runTest(testDispatcher) {
+        var calls = 0
+        val source = HomeRecommendationSource {
+            calls++
+            if (calls == 1) AppResult.Success(listOf(summary("visible")))
+            else kotlinx.coroutines.awaitCancellation()
+        }
+        val viewModel = HomeViewModel(source, FakeTopicFeedSource())
+        advanceUntilIdle()
+
+        viewModel.refresh()
+        runCurrent()
+        advanceTimeBy(HomeViewModel.INITIAL_LOAD_TIMEOUT_MS)
+        runCurrent()
+
+        val content = (viewModel.uiState.value as HomeUiState.Content).content
+        assertEquals("visible", content.videos.single().key.nativeId)
+        assertFalse(content.isRefreshing)
+        assertEquals(AppError.NetworkError, content.refreshError)
     }
 
     @Test

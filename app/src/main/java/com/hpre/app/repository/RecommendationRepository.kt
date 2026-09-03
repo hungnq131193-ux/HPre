@@ -42,7 +42,8 @@ fun interface WatchRecommendationSource {
 internal const val MAX_TOPIC_CONCURRENCY = 6
 internal const val MAX_PAGES_PER_QUERY = 2
 internal const val MAX_TOTAL_CONTINUATIONS = 6
-internal const val COLLECTION_DEADLINE_MS = 5_000L
+internal const val COLLECTION_DEADLINE_MS = 1_500L
+internal const val HOME_DEADLINE_MS = 1_900L
 internal const val MAX_FEED_LIMIT = 100
 
 private fun RecommendationRequest.safeLimit(): Int = limit.coerceIn(0, MAX_FEED_LIMIT)
@@ -69,7 +70,11 @@ class RecommendationRepository(
         val cancellation: CancellationException
     ) : RuntimeException(cancellation)
 
-    override suspend fun home(request: RecommendationRequest): AppResult<List<VideoSummary>> {
+    override suspend fun home(request: RecommendationRequest): AppResult<List<VideoSummary>> =
+        withTimeoutOrNull(HOME_DEADLINE_MS) { collectHome(request) }
+            ?: AppResult.Failure(AppError.NetworkError)
+
+    private suspend fun collectHome(request: RecommendationRequest): AppResult<List<VideoSummary>> {
         val targetLimit = request.safeLimit()
         if (targetLimit <= 0) return AppResult.Success(emptyList())
 
@@ -166,7 +171,6 @@ class RecommendationRepository(
                         }
                     }
                 }
-
                 collectContinuations(topics, targetLimit, request, state)
             }
         } catch (cancelled: SourceRequestCancelled) {
