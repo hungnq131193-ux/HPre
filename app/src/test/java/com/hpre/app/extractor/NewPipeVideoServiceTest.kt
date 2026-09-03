@@ -16,6 +16,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.async
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
@@ -38,6 +39,40 @@ import java.util.concurrent.atomic.AtomicBoolean
 
 @OptIn(ExperimentalCoroutinesApi::class)
 class NewPipeVideoServiceTest {
+
+    @Test
+    fun prefetch_and_stream_info_share_one_bundle_extraction() = runTest {
+        ExtractorBootstrap.init(OkHttpDownloader())
+        val key = ContentKey(0, "prefetch_shared")
+        val expected = ExtractedVideoBundle(
+            VideoDetails(key, "Title", "https://example.test/shared", null, null, null, null, null, null, null, null, null, null),
+            StreamInfo(key, "Title"),
+            emptyList()
+        )
+        val gate = CompletableDeferred<Unit>()
+        var calls = 0
+        val operations = object : ExtractorOperations by DefaultExtractorOperations() {
+            override fun videoBundle(key: ContentKey): ExtractedVideoBundle {
+                calls++
+                runBlocking { gate.await() }
+                return expected
+            }
+        }
+        val service = NewPipeVideoService(
+            ioDispatcher = Dispatchers.IO,
+            operations = operations,
+            serviceScope = backgroundScope
+        )
+
+        val prefetch = async { service.prefetch(listOf(key)) }
+        val stream = async { service.streamInfo(key) }
+        runCurrent()
+        gate.complete(Unit)
+
+        prefetch.await()
+        assertEquals(AppResult.Success(expected.streamInfo), stream.await())
+        assertEquals(1, calls)
+    }
 
     @Test
     fun video_stream_and_related_share_one_bundle_extraction() = runTest {

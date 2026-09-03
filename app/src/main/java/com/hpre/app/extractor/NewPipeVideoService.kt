@@ -19,6 +19,11 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.sync.Semaphore
+import kotlinx.coroutines.sync.withPermit
 import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withContext
 import java.io.InterruptedIOException
@@ -41,6 +46,8 @@ class NewPipeVideoService internal constructor(
     private val extractionCoordinator: VideoExtractionCoordinator = VideoExtractionCoordinator(serviceScope),
     private val videoOpenMetrics: VideoOpenMetrics = VideoOpenMetrics.Default
 ) : VideoService {
+
+    private val prefetchSemaphore = Semaphore(2)
 
     constructor(ioDispatcher: CoroutineDispatcher = ExtractorDispatcher.IO) : this(
         ioDispatcher = ioDispatcher,
@@ -125,6 +132,18 @@ class NewPipeVideoService internal constructor(
         return when (val result = bundle(key)) {
             is AppResult.Success -> AppResult.Success(result.value.streamInfo)
             is AppResult.Failure -> result
+        }
+    }
+
+    override suspend fun prefetch(keys: List<ContentKey>) {
+        coroutineScope {
+            keys.asSequence()
+                .filter { it.serviceId == serviceId }
+                .distinct()
+                .take(3)
+                .map { key -> async { prefetchSemaphore.withPermit { bundle(key) } } }
+                .toList()
+                .awaitAll()
         }
     }
 
