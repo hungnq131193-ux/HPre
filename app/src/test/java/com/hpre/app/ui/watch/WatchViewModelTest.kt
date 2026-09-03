@@ -1405,10 +1405,6 @@ class WatchViewModelTest {
 
         assertEquals(FullScreenResizeMode.FIT, viewModel.uiState.value.fullScreenResizeMode)
 
-        viewModel.setFullScreenResizeMode(FullScreenResizeMode.ZOOM)
-        assertEquals(FullScreenResizeMode.ZOOM, viewModel.uiState.value.fullScreenResizeMode)
-        assertEquals("ZOOM", savedState.get<String>(WatchViewModel.KEY_FULLSCREEN_RESIZE_MODE))
-
         viewModel.setFullScreenResizeMode(FullScreenResizeMode.FILL)
         assertEquals(FullScreenResizeMode.FILL, viewModel.uiState.value.fullScreenResizeMode)
         assertEquals("FILL", savedState.get<String>(WatchViewModel.KEY_FULLSCREEN_RESIZE_MODE))
@@ -1424,7 +1420,7 @@ class WatchViewModelTest {
             ioDispatcher = testDispatcher
         )
 
-        assertEquals(FullScreenResizeMode.ZOOM, viewModel.uiState.value.fullScreenResizeMode)
+        assertEquals(FullScreenResizeMode.FILL, viewModel.uiState.value.fullScreenResizeMode)
     }
 
     @Test

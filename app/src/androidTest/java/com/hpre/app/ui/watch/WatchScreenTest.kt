@@ -487,9 +487,9 @@ class WatchScreenTest {
 
         composeTestRule.onNodeWithTag("control_resize_mode_button").performClick()
         composeTestRule.onNodeWithTag("resize_mode_option_fit").assertIsSelected()
-        composeTestRule.onNodeWithTag("resize_mode_option_zoom").performClick()
+        composeTestRule.onNodeWithTag("resize_mode_option_fill").performClick()
         composeTestRule.runOnIdle {
-            assertEquals(FullScreenResizeMode.ZOOM, selectedMode)
+            assertEquals(FullScreenResizeMode.FILL, selectedMode)
         }
     }
 

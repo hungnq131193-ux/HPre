@@ -654,7 +654,6 @@ fun PlayerControlsOverlay(
                     val currentModeLabel = when (resizeMode) {
                         FullScreenResizeMode.FIT -> stringResource(R.string.resize_mode_fit)
                         FullScreenResizeMode.FILL -> stringResource(R.string.resize_mode_fill)
-                        FullScreenResizeMode.ZOOM -> stringResource(R.string.resize_mode_zoom)
                     }
                     Box {
                         IconButton(
@@ -687,7 +686,6 @@ fun PlayerControlsOverlay(
                                 val modeLabel = when (mode) {
                                     FullScreenResizeMode.FIT -> stringResource(R.string.resize_mode_fit)
                                     FullScreenResizeMode.FILL -> stringResource(R.string.resize_mode_fill)
-                                    FullScreenResizeMode.ZOOM -> stringResource(R.string.resize_mode_zoom)
                                 }
                                 DropdownMenuItem(
                                     text = {
