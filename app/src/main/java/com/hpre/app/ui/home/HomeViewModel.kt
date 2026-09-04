@@ -49,7 +49,8 @@ data class HomeChipsState(
 
 class HomeViewModel(
     private val repository: HomeRecommendationSource,
-    private val topicFeedSource: TopicFeedSource
+    private val topicFeedSource: TopicFeedSource,
+    private val feedStore: HomeFeedStore? = null
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow<HomeUiState>(HomeUiState.Loading)
@@ -85,7 +86,10 @@ class HomeViewModel(
 
         // Cached feed for this chip goes on screen before the request starts. A forced refresh skips
         // the cache because the user explicitly asked for new content.
-        val cached = if (forceRefresh) null else chipCache.getStale(cacheKey)
+        val memoryCached = if (forceRefresh) null else chipCache.getStale(cacheKey)
+        val diskCached = if (memoryCached == null && !forceRefresh) feedStore?.load(cacheKey) else null
+        if (diskCached != null) chipCache.put(cacheKey, diskCached)
+        val cached = memoryCached ?: diskCached?.let { TtlLruCache.StaleEntry(it, isStale = true) }
         if (cached != null && cached.value.isNotEmpty()) {
             _uiState.value = HomeUiState.Content(
                 HomeContent(videos = cached.value, isLoadingSelection = cached.isStale)
@@ -122,9 +126,11 @@ class HomeViewModel(
                     is AppResult.Success -> {
                         if (result.value.isEmpty()) {
                             chipCache.remove(cacheKey)
+                            feedStore?.remove(cacheKey)
                             _uiState.value = HomeUiState.Empty
                         } else {
                             chipCache.put(cacheKey, result.value)
+                            feedStore?.save(cacheKey, result.value)
                             _uiState.value = HomeUiState.Content(HomeContent(result.value))
                         }
                     }
@@ -195,11 +201,13 @@ class HomeViewModel(
                     is AppResult.Success -> {
                         if (result.value.isEmpty()) {
                             chipCache.remove(cacheKey)
+                            feedStore?.remove(cacheKey)
                             _uiState.value = HomeUiState.Empty
                         } else {
                             // Overwrite the cache so leaving and returning to this chip shows what
                             // the user just pulled, not the pre-refresh list.
                             chipCache.put(cacheKey, result.value)
+                            feedStore?.save(cacheKey, result.value)
                             _uiState.value = HomeUiState.Content(
                                 HomeContent(videos = result.value, isRefreshing = false, refreshError = null)
                             )
@@ -236,7 +244,7 @@ class HomeViewModel(
          * Long enough to make chip switching feel instant within a browsing session, short enough
          * that a feed reopened later still revalidates.
          */
-        private const val CHIP_CACHE_TTL_MS = 180_000L
+        private const val CHIP_CACHE_TTL_MS = 900_000L
 
         /** Holds every default chip so a full sweep through them never evicts an earlier one. */
         private const val CHIP_CACHE_MAX_ENTRIES = 8
@@ -254,12 +262,13 @@ class HomeViewModel(
 
         fun provideFactory(
             repository: HomeRecommendationSource,
-            topicFeedSource: TopicFeedSource
+            topicFeedSource: TopicFeedSource,
+            feedStore: HomeFeedStore? = null
         ): ViewModelProvider.Factory =
             object : ViewModelProvider.Factory {
                 @Suppress("UNCHECKED_CAST")
                 override fun <T : ViewModel> create(modelClass: Class<T>): T {
-                    return HomeViewModel(repository, topicFeedSource) as T
+                    return HomeViewModel(repository, topicFeedSource, feedStore) as T
                 }
             }
     }

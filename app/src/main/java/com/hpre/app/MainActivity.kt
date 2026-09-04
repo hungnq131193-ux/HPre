@@ -41,8 +41,8 @@ open class MainActivity : ComponentActivity() {
     /**
      * The player, only if something already built it. Never constructs it.
      *
-     * Cold start on Home must not create ExoPlayer, so every lifecycle callback here treats a null
-     * controller as "nothing is playing" and does nothing.
+     * Startup pre-warming is asynchronous, so lifecycle callbacks still treat a null controller as
+     * "nothing is playing" and do nothing.
      */
     private val activePlayerController: PlayerController?
         get() = app.container.peekPlayerController()

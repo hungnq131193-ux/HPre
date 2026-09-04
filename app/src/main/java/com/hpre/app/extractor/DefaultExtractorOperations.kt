@@ -80,6 +80,18 @@ internal class DefaultExtractorOperations(
             ?: loadVideoBundle(streamingService, key, serviceId)
     }
 
+    override fun refreshStreamInfo(key: ContentKey): StreamInfo {
+        val linkHandler = streamingService.streamLHFactory.fromId(key.nativeId)
+        val streamExtractor = streamingService.getStreamExtractor(linkHandler)
+        streamExtractor.fetchPage()
+        val streams = NewPipeMappers.mapStreamExtractor(streamExtractor, key, serviceId)
+            ?: throw ContentNotSupportedException("No usable playback streams or manifests found")
+        if (streams.key != key) {
+            throw ExtractionException("Returned video key does not match requested key $key")
+        }
+        return streams
+    }
+
     private fun loadVideoBundle(
         service: StreamingService,
         key: ContentKey,
@@ -96,10 +108,14 @@ internal class DefaultExtractorOperations(
         if (details.key != key || streams.key != key) {
             throw ExtractionException("Returned video key does not match requested key $key")
         }
-        val related = info.relatedItems.orEmpty()
+        val relatedItems = info.relatedItems.orEmpty()
             .filterIsInstance<org.schabi.newpipe.extractor.stream.StreamInfoItem>()
-            .mapNotNull { NewPipeMappers.mapStreamInfoItemToSummary(it, serviceId) }
-        return ExtractedVideoBundle(details, streams, related)
+        return ExtractedVideoBundle(
+            details = details,
+            streamInfo = streams,
+            related = emptyList(),
+            deferredRelatedItems = relatedItems
+        )
     }
 
     override fun channel(key: ContentKey): ChannelDetails {

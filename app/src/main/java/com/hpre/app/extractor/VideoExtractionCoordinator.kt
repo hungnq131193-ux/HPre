@@ -22,7 +22,6 @@ internal class VideoExtractionCoordinator(
     private val ttlMs: Long = 20_000L,
     private val maxEntries: Int = 16,
     private val nowMs: () -> Long = System::currentTimeMillis,
-    private val expiryMs: (ExtractedVideoBundle) -> Long? = { it.streamInfo.earliestUrlExpiryMs() },
     private val countExtractions: Boolean = BuildConfig.DEBUG
 ) {
     private data class CacheEntry(
@@ -60,6 +59,16 @@ internal class VideoExtractionCoordinator(
         mutex.withLock { extractionCounts[key] ?: 0 }
     }
 
+    suspend fun peek(key: ContentKey): ExtractedVideoBundle? = mutex.withLock {
+        val now = nowMs()
+        val cached = cache[key] ?: return@withLock null
+        if (now >= cached.expiresAtMs) {
+            cache.remove(key)
+            return@withLock null
+        }
+        cached.bundle
+    }
+
     suspend fun execute(
         key: ContentKey,
         forceRefresh: Boolean = false,
@@ -69,20 +78,15 @@ internal class VideoExtractionCoordinator(
         mutex.withLock {
             val now = nowMs()
             cache.entries.removeAll { now >= it.value.expiresAtMs }
-            if (forceRefresh) cache.remove(key)
-            val cached = cache[key]
-            if (cached != null) {
-                if (now < cached.expiresAtMs) {
-                    return AppResult.Success(cached.bundle)
-                }
-                cache.remove(key)
-            }
-
             val existing = inFlight[key]
             if (existing != null && (!forceRefresh || existing.isRefresh)) {
                 existing.subscribers++
                 request = existing
             } else {
+                val cached = cache[key]
+                if (!forceRefresh && cached != null) {
+                    return AppResult.Success(cached.bundle)
+                }
                 if (countExtractions) {
                     extractionCounts[key] = (extractionCounts[key] ?: 0) + 1
                 }
@@ -104,12 +108,7 @@ internal class VideoExtractionCoordinator(
                                 // but must never overwrite the newer recovery result.
                                 if (inFlight[key] === holder[0]) {
                                     val storedAtMs = nowMs()
-                                    val ttlExpiryMs = storedAtMs + ttlMs
-                                    val urlExpiryMs = expiryMs(loaded.value)?.minus(URL_EXPIRY_SAFETY_MARGIN_MS)
-                                    val effectiveExpiryMs = minOf(ttlExpiryMs, urlExpiryMs ?: Long.MAX_VALUE)
-                                    if (effectiveExpiryMs > storedAtMs) {
-                                        cache[key] = CacheEntry(loaded.value, effectiveExpiryMs)
-                                    }
+                                    cache[key] = CacheEntry(loaded.value, storedAtMs + ttlMs)
                                 }
                             }
                         }
@@ -153,9 +152,5 @@ internal class VideoExtractionCoordinator(
             }
             throw cancelled
         }
-    }
-
-    private companion object {
-        const val URL_EXPIRY_SAFETY_MARGIN_MS = 5_000L
     }
 }

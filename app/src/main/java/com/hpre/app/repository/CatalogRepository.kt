@@ -31,7 +31,7 @@ class CatalogRepository(
     private val videoService: VideoService,
     private val repositoryScope: CoroutineScope,
     private val requestCoordinator: RequestCoordinator = RequestCoordinator(repositoryScope),
-    private val ttlMs: Long = 60_000L, // 1 minute default TTL
+    private val ttlMs: Long = 300_000L,
     private val timeProvider: () -> Long = { System.currentTimeMillis() }
 ) {
     private val mutex = Mutex()

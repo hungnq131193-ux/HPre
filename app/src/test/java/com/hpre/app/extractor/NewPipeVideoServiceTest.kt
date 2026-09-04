@@ -136,6 +136,48 @@ class NewPipeVideoServiceTest {
     }
 
     @Test
+    fun expired_stream_refresh_reuses_cached_metadata_and_only_resolves_playback_urls() = runTest {
+        ExtractorBootstrap.init(OkHttpDownloader())
+        val key = ContentKey(0, "expired_url")
+        val details = VideoDetails(
+            key, "Cached metadata", "https://example.test/expired_url", null, null, null,
+            null, null, null, null, null, null, null
+        )
+        val oldStream = StreamInfo(
+            key,
+            "Old stream",
+            hlsManifestUrl = "https://example.test/old.m3u8?expire=1"
+        )
+        val freshStream = StreamInfo(
+            key,
+            "Fresh stream",
+            hlsManifestUrl = "https://example.test/new.m3u8?expire=4102444800"
+        )
+        var bundleCalls = 0
+        var refreshCalls = 0
+        val service = NewPipeVideoService(
+            operations = object : ExtractorOperations by DefaultExtractorOperations() {
+                override fun videoBundle(key: ContentKey): ExtractedVideoBundle {
+                    bundleCalls++
+                    return ExtractedVideoBundle(details, oldStream, emptyList())
+                }
+
+                override fun refreshStreamInfo(key: ContentKey): StreamInfo {
+                    refreshCalls++
+                    return freshStream
+                }
+            },
+            serviceScope = backgroundScope
+        )
+
+        assertEquals(AppResult.Success(details), service.video(key))
+        assertEquals(AppResult.Success(freshStream), service.streamInfo(key))
+        assertEquals(AppResult.Success(details), service.video(key))
+        assertEquals(1, bundleCalls)
+        assertEquals(1, refreshCalls)
+    }
+
+    @Test
     fun service_initializes_with_correct_service_id_and_capabilities() {
         val fakeOps = object : ExtractorOperations by DefaultExtractorOperations() {
             override val serviceId: Int = 0

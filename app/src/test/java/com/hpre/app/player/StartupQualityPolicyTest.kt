@@ -91,7 +91,7 @@ class StartupQualityPolicyTest {
     }
 
     @Test
-    fun startup_prefers_adaptive_manifest_over_low_progressive() {
+    fun startup_prefers_progressive_over_adaptive_manifest() {
         val result = StartupStreamSelector.select(
             StreamInfo(
                 key,
@@ -101,7 +101,8 @@ class StartupQualityPolicyTest {
             )
         ) as AppResult.Success<SelectedStreams>
 
-        assertEquals(PlaybackStreamType.HLS, result.value.streamType)
+        assertEquals(PlaybackStreamType.PROGRESSIVE, result.value.streamType)
+        assertEquals(360, result.value.videoStream?.height)
     }
 
     @Test

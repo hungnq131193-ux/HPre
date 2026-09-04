@@ -19,15 +19,6 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.SupervisorJob
-import kotlinx.coroutines.async
-import kotlinx.coroutines.awaitAll
-import kotlinx.coroutines.coroutineScope
-import kotlinx.coroutines.async
-import kotlinx.coroutines.awaitAll
-import kotlinx.coroutines.coroutineScope
-import kotlinx.coroutines.launch
-import kotlinx.coroutines.sync.Semaphore
-import kotlinx.coroutines.sync.withPermit
 import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withContext
 import java.io.InterruptedIOException
@@ -49,7 +40,7 @@ class NewPipeVideoService internal constructor(
     private val serviceScope: CoroutineScope = CoroutineScope(SupervisorJob() + ioDispatcher),
     private val extractionCoordinator: VideoExtractionCoordinator = VideoExtractionCoordinator(
         serviceScope,
-        ttlMs = 300_000L,
+        ttlMs = 1_800_000L,
         maxEntries = 32
     ),
     private val videoOpenMetrics: VideoOpenMetrics = VideoOpenMetrics.Default
@@ -135,8 +126,20 @@ class NewPipeVideoService internal constructor(
         if (key.serviceId != serviceId) {
             return AppResult.Failure(AppError.ExtractionFailed)
         }
+        val cached = extractionCoordinator.peek(key)
+        if (cached != null) {
+            return if (cached.streamInfo.hasUsableUrls()) {
+                AppResult.Success(cached.streamInfo)
+            } else {
+                refreshCachedStreamInfo(key, cached)
+            }
+        }
         return when (val result = bundle(key)) {
-            is AppResult.Success -> AppResult.Success(result.value.streamInfo)
+            is AppResult.Success -> if (result.value.streamInfo.hasUsableUrls()) {
+                AppResult.Success(result.value.streamInfo)
+            } else {
+                refreshCachedStreamInfo(key, result.value)
+            }
             is AppResult.Failure -> result
         }
     }
@@ -159,14 +162,47 @@ class NewPipeVideoService internal constructor(
             return AppResult.Failure(AppError.ExtractionFailed)
         }
         return when (val result = bundle(key)) {
-            is AppResult.Success -> AppResult.Success(result.value.related)
+            is AppResult.Success -> AppResult.Success(
+                result.value.deferredRelatedItems
+                    ?.mapNotNull { NewPipeMappers.mapStreamInfoItemToSummary(it, serviceId) }
+                    ?: result.value.related
+            )
             is AppResult.Failure -> result
         }
     }
 
     override suspend fun refreshStreamInfo(key: ContentKey): AppResult<StreamInfo> {
         if (key.serviceId != serviceId) return AppResult.Failure(AppError.ExtractionFailed)
-        return when (val result = bundle(key, forceRefresh = true)) {
+        val cached = extractionCoordinator.peek(key)
+        return if (cached != null) {
+            refreshCachedStreamInfo(key, cached)
+        } else when (val result = bundle(key, forceRefresh = true)) {
+            is AppResult.Success -> AppResult.Success(result.value.streamInfo)
+            is AppResult.Failure -> result
+        }
+    }
+
+    private suspend fun refreshCachedStreamInfo(
+        key: ContentKey,
+        cached: ExtractedVideoBundle
+    ): AppResult<StreamInfo> {
+        val result = extractionCoordinator.execute(key, forceRefresh = true) {
+            val metricsSession = videoOpenMetrics.activeSession(key)
+            metricsSession?.let { videoOpenMetrics.mark(it, VideoOpenEvent.EXTRACTOR_START) }
+            val fresh = extract { operations.refreshStreamInfo(key) }
+            metricsSession?.let { videoOpenMetrics.mark(it, VideoOpenEvent.EXTRACTOR_FINISH) }
+            when (fresh) {
+                is AppResult.Success -> {
+                    if (fresh.value.key == key) {
+                        AppResult.Success(cached.copy(streamInfo = fresh.value))
+                    } else {
+                        AppResult.Failure(AppError.ExtractionFailed)
+                    }
+                }
+                is AppResult.Failure -> fresh
+            }
+        }
+        return when (result) {
             is AppResult.Success -> AppResult.Success(result.value.streamInfo)
             is AppResult.Failure -> result
         }

@@ -23,6 +23,8 @@ class NetworkPolicyTest {
         assertTrue(client.followRedirects)
         assertTrue(client.followSslRedirects)
         assertNotNull(client.connectionPool)
+        assertTrue(client.cookieJar is InMemoryCookieJar)
+        assertTrue(client.interceptors.any { it is okhttp3.brotli.BrotliInterceptor })
     }
 
     @Test

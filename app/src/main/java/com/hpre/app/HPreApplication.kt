@@ -58,6 +58,7 @@ open class HPreApplication : Application(), ImageLoaderFactory {
         super.onCreate()
         ExtractorBootstrap.init(appDownloader)
         _container = createContainer()
+        _container.prewarmPlaybackInfrastructure()
 
         // Collect DataStore playback preferences and sync with coordinator & controller
         container.applicationScope.launch {

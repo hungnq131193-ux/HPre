@@ -547,18 +547,23 @@ class SessionPlayerController internal constructor(
                 }
             }
             val isPrewarm = connectionPurpose == ConnectionPurpose.PREWARM
-            val future = if (connectionCoordinator != null) {
-                connectionCoordinator.createControllerFuture(context.applicationContext, controllerListener, isPrewarm)
-            } else {
-                val sessionToken = SessionToken(
-                    context.applicationContext,
-                    ComponentName(context.applicationContext, HPrePlaybackService::class.java)
-                )
-                val connectionHints = createConnectionHints(isPrewarm)
-                MediaController.Builder(context.applicationContext, sessionToken)
-                    .setConnectionHints(connectionHints)
-                    .setListener(controllerListener)
-                    .buildAsync()
+            val future = try {
+                if (connectionCoordinator != null) {
+                    connectionCoordinator.createControllerFuture(context.applicationContext, controllerListener, isPrewarm)
+                } else {
+                    val sessionToken = SessionToken(
+                        context.applicationContext,
+                        ComponentName(context.applicationContext, HPrePlaybackService::class.java)
+                    )
+                    val connectionHints = createConnectionHints(isPrewarm)
+                    MediaController.Builder(context.applicationContext, sessionToken)
+                        .setConnectionHints(connectionHints)
+                        .setListener(controllerListener)
+                        .buildAsync()
+                }
+            } catch (_: Throwable) {
+                if (attemptToken == connectionAttemptGeneration) handleConnectFailure()
+                return@launch
             }
             if (isReleased || attemptToken != connectionAttemptGeneration) {
                 MediaController.releaseFuture(future)
@@ -708,6 +713,11 @@ class SessionPlayerController internal constructor(
 
     private fun handleConnectFailure() {
         if (isReleased) return
+        if (connectionPurpose == ConnectionPurpose.PREWARM && currentKey == null) {
+            isReconnecting = false
+            reconnectJob = null
+            return
+        }
         _state.update { it.copy(isLoading = false, error = AppError.NetworkError) }
         isReconnecting = true
         reconnectJob?.cancel()

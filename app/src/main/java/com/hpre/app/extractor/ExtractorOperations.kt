@@ -27,6 +27,7 @@ internal interface ExtractorOperations {
     fun videoBundle(key: ContentKey): ExtractedVideoBundle
     fun video(key: ContentKey): VideoDetails = videoBundle(key).details
     fun streamInfo(key: ContentKey): StreamInfo = videoBundle(key).streamInfo
+    fun refreshStreamInfo(key: ContentKey): StreamInfo = streamInfo(key)
     fun channel(key: ContentKey): ChannelDetails
     fun playlist(key: ContentKey): PlaylistDetails
     fun related(key: ContentKey): List<VideoSummary> = videoBundle(key).related

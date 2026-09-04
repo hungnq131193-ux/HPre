@@ -606,8 +606,8 @@ class WatchViewModelTest {
         model.setFullscreen(true)
         runCurrent()
 
-        assertEquals(testDetails(testKey), model.uiState.value.details)
-        assertFalse(model.uiState.value.isLoading)
+        assertNull(model.uiState.value.details)
+        assertTrue(model.uiState.value.isLoading)
         assertTrue(model.uiState.value.isPlayerLoading)
         assertEquals(0, player.prepareCount)
 
@@ -615,12 +615,15 @@ class WatchViewModelTest {
         model.setFullscreen(false)
         model.load(testKey)
         runCurrent()
-        assertEquals(1, detailsCalls)
+        assertEquals(0, detailsCalls)
         assertEquals(1, service.streamInfoCallCount)
 
         stream.complete(AppResult.Success(testStreamInfo(testKey)))
         runCurrent()
         assertEquals(1, player.prepareCount)
+        assertEquals(testDetails(testKey), model.uiState.value.details)
+        assertEquals(1, detailsCalls)
+        assertFalse(model.uiState.value.isLoading)
         assertTrue(model.uiState.value.isPlayerLoading)
 
         player.markReady(testKey)
@@ -1007,11 +1010,12 @@ class WatchViewModelTest {
         )
         model.load(testKey)
         runCurrent()
-        assertEquals(testDetails(testKey), model.uiState.value.details)
+        assertNull(model.uiState.value.details)
         assertTrue(model.uiState.value.isPlayerLoading)
         stream.complete(AppResult.Success(testStreamInfo(testKey)))
         runCurrent()
         assertEquals(1, player.prepareCount)
+        assertEquals(testDetails(testKey), model.uiState.value.details)
         assertEquals(0L, player.startPositionMs)
         assertNull(model.uiState.value.error)
     }

@@ -9,56 +9,37 @@ object StartupStreamSelector {
     /**
      * Picks the stream to prepare first when opening a video.
      *
-     * Progressive/merged playback chooses a usable rendition within [maxHeight] once and keeps it.
-     * Explicit [fastStart] callers may request the lowest rendition; neither path schedules a source
-     * rebuild just to raise quality. A manual quality choice remains available.
-     *
-     * Adaptive manifests are still preferred when present: they start low on their own via ABR and the
-     * service applies an additional height cap, so no rebuffer is needed to climb.
+     * VOD starts from a progressive stream with audio when possible, avoiding manifest parsing and a
+     * second media request. Live playback keeps adaptive manifests first. Manual quality selection can
+     * still switch to merged A/V, HLS, or DASH after startup.
      */
     fun select(
         info: StreamInfo,
         maxHeight: Int = DEFAULT_MAX_HEIGHT,
         fastStart: Boolean = false
     ): AppResult<SelectedStreams> {
-        // Prefer a real adaptive manifest at startup. The height cap is enforced by the service's
-        // track selector; progressive streams cannot provide continuous ABR.
-        val automatic = StreamSelector.selectStream(info, QualityPreference.Auto)
-        val automaticStreams = (automatic as? AppResult.Success)?.value
-        if (automaticStreams?.streamType == PlaybackStreamType.HLS ||
-            automaticStreams?.streamType == PlaybackStreamType.DASH
-        ) {
-            return automatic
+        if (info.isLive) {
+            return StreamSelector.selectStream(info, QualityPreference.Auto)
         }
 
         if (fastStart) {
             lowestStartupStream(info)?.let { return it }
         }
 
-        val preferred = StreamSelector.selectStream(
-            info,
-            QualityPreference.ExactOrBelow(maxHeight)
-        )
-        val preferredStreams = (preferred as? AppResult.Success)?.value
-        if (preferredStreams?.streamType == PlaybackStreamType.PROGRESSIVE) {
-            return preferred
-        }
+        preferredProgressiveStream(info, maxHeight)?.let { return it }
+        return StreamSelector.selectStream(info, QualityPreference.ExactOrBelow(maxHeight))
+    }
 
-        if (automaticStreams?.streamType == PlaybackStreamType.PROGRESSIVE) {
-            return automatic
-        }
-
-        if (preferredStreams != null) {
-            if (preferredStreams.streamType != PlaybackStreamType.AUDIO_ONLY) {
-                return preferred
-            }
-            if (automaticStreams?.videoStream != null) {
-                return automatic
-            }
-            return preferred
-        }
-
-        return automatic
+    private fun preferredProgressiveStream(
+        info: StreamInfo,
+        maxHeight: Int
+    ): AppResult<SelectedStreams>? {
+        val candidates = StreamSelector.getAvailableQualities(info)
+            .filter { it.streamType == PlaybackStreamType.PROGRESSIVE && it.height > 0 }
+        val option = candidates.filter { it.height <= maxHeight }.maxByOrNull { it.height }
+            ?: candidates.minByOrNull { it.height }
+            ?: return null
+        return StreamSelector.selectStream(info, QualityPreference.SpecificOption(option))
     }
 
     /** Lowest non-adaptive video rendition, prioritizing time to first frame. */
