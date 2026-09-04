@@ -3,6 +3,9 @@ package com.hpre.app.ui.home
 import android.content.Context
 import com.hpre.app.model.ContentKey
 import com.hpre.app.model.VideoSummary
+import kotlinx.coroutines.CoroutineDispatcher
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import java.io.ByteArrayInputStream
 import java.io.ByteArrayOutputStream
 import java.io.DataInputStream
@@ -15,7 +18,8 @@ class HomeFeedStore internal constructor(
     private val writeEncoded: (String, String) -> Unit,
     private val removeEncoded: (String) -> Unit,
     private val nowMs: () -> Long = System::currentTimeMillis,
-    private val maxAgeMs: Long = DEFAULT_MAX_AGE_MS
+    private val maxAgeMs: Long = DEFAULT_MAX_AGE_MS,
+    private val ioDispatcher: CoroutineDispatcher = Dispatchers.IO
 ) {
     constructor(context: Context) : this(
         readEncoded = { cacheKey ->
@@ -36,11 +40,29 @@ class HomeFeedStore internal constructor(
                 .edit()
                 .remove(storageKey(cacheKey))
                 .apply()
-        }
+        },
+        ioDispatcher = Dispatchers.IO
     )
 
-    fun load(cacheKey: String): List<VideoSummary>? = runCatching {
-        val encoded = readEncoded(cacheKey) ?: return null
+    suspend fun load(cacheKey: String): List<VideoSummary>? = withContext(ioDispatcher) {
+        runCatching { decode(readEncoded(cacheKey) ?: return@withContext null) }.getOrNull()
+    }
+
+    suspend fun save(cacheKey: String, videos: List<VideoSummary>) = withContext(ioDispatcher) {
+        if (videos.isEmpty()) {
+            runCatching { removeEncoded(cacheKey) }
+        } else {
+            runCatching { writeEncoded(cacheKey, encode(videos)) }
+        }
+        Unit
+    }
+
+    suspend fun remove(cacheKey: String) = withContext(ioDispatcher) {
+        runCatching { removeEncoded(cacheKey) }
+        Unit
+    }
+
+    private fun decode(encoded: String): List<VideoSummary>? {
         if (encoded.length > MAX_ENCODED_BYTES) return null
         val input = DataInputStream(ByteArrayInputStream(Base64.getDecoder().decode(encoded)))
         if (input.readInt() != FORMAT_VERSION) return null
@@ -49,31 +71,21 @@ class HomeFeedStore internal constructor(
         if (ageMs < 0L || ageMs > maxAgeMs) return null
         val count = input.readInt()
         if (count !in 1..MAX_ITEMS) return null
-        List(count) { input.readVideoSummary() }
-    }.getOrNull()
-
-    fun save(cacheKey: String, videos: List<VideoSummary>) {
-        if (videos.isEmpty()) {
-            remove(cacheKey)
-            return
-        }
-        runCatching {
-            val bytes = ByteArrayOutputStream().use { buffer ->
-                DataOutputStream(buffer).use { output ->
-                    output.writeInt(FORMAT_VERSION)
-                    output.writeLong(nowMs())
-                    val retained = videos.take(MAX_ITEMS)
-                    output.writeInt(retained.size)
-                    retained.forEach { output.writeVideoSummary(it) }
-                }
-                buffer.toByteArray()
-            }
-            writeEncoded(cacheKey, Base64.getEncoder().encodeToString(bytes))
-        }
+        return List(count) { input.readVideoSummary() }
     }
 
-    fun remove(cacheKey: String) {
-        runCatching { removeEncoded(cacheKey) }
+    private fun encode(videos: List<VideoSummary>): String {
+        val bytes = ByteArrayOutputStream().use { buffer ->
+            DataOutputStream(buffer).use { output ->
+                output.writeInt(FORMAT_VERSION)
+                output.writeLong(nowMs())
+                val retained = videos.take(MAX_ITEMS)
+                output.writeInt(retained.size)
+                retained.forEach { output.writeVideoSummary(it) }
+            }
+            buffer.toByteArray()
+        }
+        return Base64.getEncoder().encodeToString(bytes)
     }
 
     private fun DataOutputStream.writeVideoSummary(video: VideoSummary) {
