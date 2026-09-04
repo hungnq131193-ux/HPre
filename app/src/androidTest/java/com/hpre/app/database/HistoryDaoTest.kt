@@ -123,4 +123,47 @@ class HistoryDaoTest {
         val list = dao.observeAll().first()
         assertEquals(listOf("v2", "v3", "v1"), list.map { it.videoId })
     }
+
+    @Test
+    fun recordAndTrim_caps_at_fifty_and_promotes_rewatched_key() = runTest {
+        for (i in 1..51) {
+            dao.recordAndTrim(
+                history(videoId = "v$i", watchedTimestamp = i * 1000L),
+                maxEntries = 50
+            )
+        }
+
+        val all = dao.observeAll().first()
+        assertEquals(50, all.size)
+        // Newest is v51, oldest v1 was trimmed so the oldest is v2
+        assertEquals("v51", all.first().videoId)
+        assertEquals("v2", all.last().videoId)
+        assertNull(dao.getByKey(1, "v1"))
+
+        // Rewatching an existing video (v10) with newer timestamp moves it to the top
+        dao.recordAndTrim(
+            history(videoId = "v10", watchedTimestamp = 99_000L),
+            maxEntries = 50
+        )
+        val updated = dao.observeAll().first()
+        assertEquals(50, updated.size)
+        assertEquals("v10", updated.first().videoId)
+    }
+
+    @Test
+    fun tie_breaking_order_is_deterministic_by_serviceId_and_videoId() = runTest {
+        val sameTime = 5_000L
+        dao.upsert(history(serviceId = 2, videoId = "b", watchedTimestamp = sameTime))
+        dao.upsert(history(serviceId = 1, videoId = "z", watchedTimestamp = sameTime))
+        dao.upsert(history(serviceId = 1, videoId = "a", watchedTimestamp = sameTime))
+
+        val all = dao.observeAll().first()
+        assertEquals(listOf(Pair(1, "a"), Pair(1, "z"), Pair(2, "b")), all.map { Pair(it.serviceId, it.videoId) })
+
+        val recent = dao.observeRecent(3).first()
+        assertEquals(listOf(Pair(1, "a"), Pair(1, "z"), Pair(2, "b")), recent.map { Pair(it.serviceId, it.videoId) })
+
+        val page = dao.observePage(3, 0).first()
+        assertEquals(listOf(Pair(1, "a"), Pair(1, "z"), Pair(2, "b")), page.map { Pair(it.serviceId, it.videoId) })
+    }
 }

@@ -9,10 +9,13 @@ import com.hpre.app.model.VideoSummary
 import com.hpre.app.repository.HomeRecommendationSource
 import com.hpre.app.repository.RecommendationRequest
 import com.hpre.app.repository.TtlLruCache
+import kotlinx.coroutines.CoroutineDispatcher
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withTimeoutOrNull
 
@@ -50,7 +53,8 @@ data class HomeChipsState(
 class HomeViewModel(
     private val repository: HomeRecommendationSource,
     private val topicFeedSource: TopicFeedSource,
-    private val feedStore: HomeFeedStore? = null
+    private val feedStore: HomeFeedStore? = null,
+    private val ioDispatcher: CoroutineDispatcher = Dispatchers.IO
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow<HomeUiState>(HomeUiState.Loading)
@@ -84,21 +88,13 @@ class HomeViewModel(
         val selectedChip = _chipsState.value.chips[_chipsState.value.selectedIndex]
         val cacheKey = selectedChip.query ?: ALL_CHIP_CACHE_KEY
 
-        // Cached feed for this chip goes on screen before the request starts. A forced refresh skips
-        // the cache because the user explicitly asked for new content.
         val memoryCached = if (forceRefresh) null else chipCache.getStale(cacheKey)
-        val diskCached = if (memoryCached == null && !forceRefresh) feedStore?.load(cacheKey) else null
-        if (diskCached != null) chipCache.put(cacheKey, diskCached)
-        val cached = memoryCached ?: diskCached?.let { TtlLruCache.StaleEntry(it, isStale = true) }
-        if (cached != null && cached.value.isNotEmpty()) {
+        if (memoryCached != null && memoryCached.value.isNotEmpty()) {
             _uiState.value = HomeUiState.Content(
-                HomeContent(videos = cached.value, isLoadingSelection = cached.isStale)
+                HomeContent(videos = memoryCached.value, isLoadingSelection = memoryCached.isStale)
             )
-            // Fresh cache is good enough on its own; no request, no spinner.
-            if (!cached.isStale) return
+            if (!memoryCached.isStale) return
         } else {
-            // Keep whatever is on screen and mark it as being replaced, so switching chips never
-            // blanks the list. Only a genuinely empty screen falls back to full-screen loading.
             val current = (_uiState.value as? HomeUiState.Content)?.content
             _uiState.value = if (current != null && current.videos.isNotEmpty()) {
                 HomeUiState.Content(
@@ -110,6 +106,17 @@ class HomeViewModel(
         }
 
         activeLoadJob = viewModelScope.launch {
+            if (memoryCached == null && !forceRefresh) {
+                val diskCached = feedStore?.load(cacheKey)
+                if (generation != loadGeneration) return@launch
+                if (diskCached != null && diskCached.isNotEmpty()) {
+                    chipCache.put(cacheKey, diskCached)
+                    _uiState.value = HomeUiState.Content(
+                        HomeContent(videos = diskCached, isLoadingSelection = true)
+                    )
+                }
+            }
+
             val result = try {
                 withTimeoutOrNull(INITIAL_LOAD_TIMEOUT_MS) {
                     selectedChip.query?.let { query ->
@@ -135,8 +142,6 @@ class HomeViewModel(
                         }
                     }
                     is AppResult.Failure -> {
-                        // Stale content beats an error screen: keep the list and surface the failure
-                        // inline. Only report a hard error when there is nothing to show.
                         val visible = (_uiState.value as? HomeUiState.Content)?.content
                         _uiState.value = if (visible != null && visible.videos.isNotEmpty()) {
                             HomeUiState.Content(
@@ -230,6 +235,19 @@ class HomeViewModel(
         load(forceRefresh = false)
     }
 
+    fun onVideoSelected() {
+        activeLoadJob?.cancel()
+        activeLoadJob = null
+        loadGeneration++
+        _uiState.update { state ->
+            if (state is HomeUiState.Content) {
+                HomeUiState.Content(
+                    state.content.copy(isRefreshing = false, isLoadingSelection = false)
+                )
+            } else state
+        }
+    }
+
     fun retry() {
         load(forceRefresh = true)
     }
@@ -263,12 +281,13 @@ class HomeViewModel(
         fun provideFactory(
             repository: HomeRecommendationSource,
             topicFeedSource: TopicFeedSource,
-            feedStore: HomeFeedStore? = null
+            feedStore: HomeFeedStore? = null,
+            ioDispatcher: CoroutineDispatcher = Dispatchers.IO
         ): ViewModelProvider.Factory =
             object : ViewModelProvider.Factory {
                 @Suppress("UNCHECKED_CAST")
                 override fun <T : ViewModel> create(modelClass: Class<T>): T {
-                    return HomeViewModel(repository, topicFeedSource, feedStore) as T
+                    return HomeViewModel(repository, topicFeedSource, feedStore, ioDispatcher) as T
                 }
             }
     }

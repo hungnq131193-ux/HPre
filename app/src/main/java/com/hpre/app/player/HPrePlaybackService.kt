@@ -821,6 +821,13 @@ class HPrePlaybackService : MediaSessionService() {
                         player.playbackParameters = androidx.media3.common.PlaybackParameters(
                             playbackSpeed.takeIf { it.isFinite() }?.coerceIn(0.25f, 3.0f) ?: 1.0f
                         )
+                        activeMetricsSession?.let { session ->
+                            com.hpre.app.core.performance.VideoOpenMetrics.Default.mark(
+                                session,
+                                com.hpre.app.core.performance.VideoOpenEvent.PLAYER_PREPARE,
+                                category = currentStreamType?.name
+                            )
+                        }
                         player.prepare()
                         checkBufferingWatchdog()
                     }
@@ -937,6 +944,13 @@ class HPrePlaybackService : MediaSessionService() {
                         player.seekTo(effectiveSwitchPositionMs)
                     }
                     player.playWhenReady = wasPlaying
+                    activeMetricsSession?.let { session ->
+                        com.hpre.app.core.performance.VideoOpenMetrics.Default.mark(
+                            session,
+                            com.hpre.app.core.performance.VideoOpenEvent.PLAYER_PREPARE,
+                            category = currentStreamType?.name
+                        )
+                    }
                     player.prepare()
                     checkBufferingWatchdog()
                     persistCurrentSnapshot()
@@ -1105,9 +1119,10 @@ class HPrePlaybackService : MediaSessionService() {
                         val playWhenReady = args.getBoolean(EXTRA_PLAY_WHEN_READY, true)
                         val speed = args.getFloat(EXTRA_SPEED, 1.0f)
                         val incomingReqGen = args.getLong(EXTRA_REQUEST_GENERATION, 0L)
-                        val handoffStreamInfo = PlaybackStreamHandoff.takeConditional(
-                            args.getString(EXTRA_HANDOFF_TOKEN),
-                            expectedRequestGen = incomingReqGen
+                        val handoffStreamInfo = PlaybackStreamHandoff.takeIfValid(
+                            token = args.getString(EXTRA_HANDOFF_TOKEN),
+                            expectedKey = key,
+                            expectedRequestGeneration = incomingReqGen
                         )
 
                         val initialQuality = if (args.containsKey(EXTRA_QUALITY_HEIGHT)) {

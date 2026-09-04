@@ -12,6 +12,7 @@ import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNotEquals
 import org.junit.Assert.assertNull
+import org.junit.Assert.assertSame
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -280,12 +281,14 @@ class SessionPlayerProtocolTest {
     fun pending_prepare_contains_quality_and_speed_and_retains_latest() {
         val commands = PendingSessionCommands()
         val quality = QualityOption(1080, "1080p", false, "mp4", "video/mp4", "avc1")
-        val prep1 = PendingPrepare(testKey, 5000L, true, quality, playbackSpeed = 1.5f)
+        val streamInfo = StreamInfo(testKey, "Title")
+        val prep1 = PendingPrepare(testKey, streamInfo, 5000L, true, quality, playbackSpeed = 1.5f)
         commands.setPrepare(prep1)
 
         val retrieved = commands.takePrepare()
         assertNotNull(retrieved)
         assertEquals(testKey, retrieved?.key)
+        assertSame(streamInfo, retrieved?.streamInfo)
         assertEquals(5000L, retrieved?.positionMs)
         assertEquals(true, retrieved?.playWhenReady)
         assertEquals(quality, retrieved?.initialQuality)
@@ -426,13 +429,15 @@ class SessionPlayerProtocolTest {
         val commands = PendingSessionCommands()
         val key = ContentKey(0, "disconnect_reconnect_vid")
         val quality = QualityOption(720, "720p", true)
-        val prep = PendingPrepare(key, 12000L, true, quality, 1.25f)
+        val streamInfo = StreamInfo(key, "Disconnect Title")
+        val prep = PendingPrepare(key, streamInfo, 12000L, true, quality, 1.25f)
         commands.setPrepare(prep)
 
         // Controller disconnect event: mediaController becomes null, pending prepare retained
         val retrieved = commands.takePrepare()
         assertNotNull(retrieved)
         assertEquals(key, retrieved?.key)
+        assertSame(streamInfo, retrieved?.streamInfo)
         assertEquals(12000L, retrieved?.positionMs)
         assertEquals(1.25f, retrieved?.playbackSpeed ?: 0f, 0.001f)
     }
@@ -1566,5 +1571,68 @@ class SessionPlayerProtocolTest {
             onStateUpdate = { observedError = it }
         )
         assertFalse(missingIdentityHandled)
+    }
+
+    @Test
+    fun prewarm_connection_failure_retries_with_backoff_and_prepare_resets_budget() = kotlinx.coroutines.test.runTest {
+        val fakeContext = object : android.content.ContextWrapper(null) {
+            override fun getApplicationContext(): android.content.Context = this
+        }
+        var futureCreations = 0
+        val failFuture = com.google.common.util.concurrent.SettableFuture.create<androidx.media3.session.MediaController>()
+        failFuture.setException(java.io.IOException("Connect failed"))
+
+        val coordinator = object : SessionPlayerController.ConnectionLifecycleCoordinator {
+            override fun createControllerFuture(
+                context: android.content.Context,
+                listener: androidx.media3.session.MediaController.Listener
+            ): com.google.common.util.concurrent.ListenableFuture<androidx.media3.session.MediaController> {
+                futureCreations++
+                return failFuture
+            }
+        }
+
+        val testDispatcher = kotlinx.coroutines.test.StandardTestDispatcher(testScheduler)
+        val controller = SessionPlayerController(
+            context = fakeContext,
+            connectionCoordinator = coordinator,
+            mainDispatcher = testDispatcher,
+            ioDispatcher = testDispatcher,
+            externalScope = this,
+            initialPurpose = ConnectionPurpose.PREWARM
+        )
+
+        testScheduler.runCurrent()
+        assertEquals(1, futureCreations)
+        assertEquals(1, controller.currentRetryCount)
+        assertTrue(controller.isReconnectingState)
+        assertNull(controller.state.value.error)
+
+        // Retry 1 after 500ms
+        testScheduler.advanceTimeBy(500L)
+        testScheduler.runCurrent()
+        assertEquals(2, futureCreations)
+        assertEquals(2, controller.currentRetryCount)
+
+        // Retry 2 after 1000ms
+        testScheduler.advanceTimeBy(1000L)
+        testScheduler.runCurrent()
+        assertEquals(3, futureCreations)
+        assertEquals(3, controller.currentRetryCount)
+
+        // Retry 3 after 1500ms
+        testScheduler.advanceTimeBy(1500L)
+        testScheduler.runCurrent()
+        assertEquals(3, controller.currentRetryCount)
+        assertFalse(controller.isReconnectingState)
+        assertNull(controller.state.value.error)
+
+        // prepare resets retry count and promotes purpose to NORMAL
+        val streamInfo = StreamInfo(testKey, "Title")
+        controller.prepare(testKey, streamInfo, startPositionMs = 0L, playWhenReady = true, initialQuality = null)
+        assertEquals(ConnectionPurpose.NORMAL, controller.currentConnectionPurpose)
+        assertEquals(0, controller.currentRetryCount)
+        assertFalse(controller.isReconnectingState)
+        controller.release()
     }
 }

@@ -1,17 +1,19 @@
 package com.hpre.app.player
 
+import com.hpre.app.model.ContentKey
 import com.hpre.app.model.StreamInfo
+import com.hpre.app.model.hasUsableMediaUrls
 import java.util.UUID
 import java.util.concurrent.ConcurrentHashMap
 
 internal object PlaybackStreamHandoff {
     private const val MAX_ENTRIES = 16
-    private const val DEFAULT_TTL_MS = 60_000L // 60 seconds TTL
+    private const val DEFAULT_TTL_MS = 60_000L
 
     private data class HandoffEntry(
         val streamInfo: StreamInfo,
         val createdAtMs: Long,
-        val requestGen: Long = 0L
+        val requestGen: Long
     )
 
     private val values = ConcurrentHashMap<String, HandoffEntry>()
@@ -19,59 +21,38 @@ internal object PlaybackStreamHandoff {
 
     fun put(
         value: StreamInfo,
-        currentTimeMs: Long = System.currentTimeMillis(),
-        requestGen: Long = 0L
+        requestGeneration: Long,
+        currentTimeMs: Long = System.currentTimeMillis()
     ): String = synchronized(lock) {
         evictExpiredAndOverflow(currentTimeMs)
         val token = UUID.randomUUID().toString()
-        values[token] = HandoffEntry(value, currentTimeMs, requestGen)
+        values[token] = HandoffEntry(value, currentTimeMs, requestGeneration)
         token
     }
 
-    fun take(token: String?, currentTimeMs: Long = System.currentTimeMillis()): StreamInfo? {
-        if (token.isNullOrBlank()) return null
-        val entry = values.remove(token) ?: return null
-        if (currentTimeMs - entry.createdAtMs > DEFAULT_TTL_MS) {
-            return null
-        }
-        return entry.streamInfo
-    }
-
-    fun takeConditional(
+    fun takeIfValid(
         token: String?,
-        expectedRequestGen: Long,
+        expectedKey: ContentKey,
+        expectedRequestGeneration: Long,
         currentTimeMs: Long = System.currentTimeMillis()
     ): StreamInfo? = synchronized(lock) {
         if (token.isNullOrBlank()) return null
-        val entry = values[token] ?: return null
-        if (currentTimeMs - entry.createdAtMs > DEFAULT_TTL_MS) {
-            values.remove(token)
-            return null
-        }
-        if (entry.requestGen != 0L && expectedRequestGen != 0L && entry.requestGen != expectedRequestGen) {
-            values.remove(token)
-            return null
-        }
-        values.remove(token)
+        val entry = values.remove(token) ?: return null
+        val age = currentTimeMs - entry.createdAtMs
+        if (age !in 0L..DEFAULT_TTL_MS) return null
+        if (entry.streamInfo.key != expectedKey) return null
+        if (entry.requestGen != expectedRequestGeneration) return null
+        if (!entry.streamInfo.hasUsableMediaUrls(currentTimeMs)) return null
         return entry.streamInfo
     }
 
-    fun peek(token: String?, currentTimeMs: Long = System.currentTimeMillis()): StreamInfo? {
-        if (token.isNullOrBlank()) return null
-        val entry = values[token] ?: return null
-        if (currentTimeMs - entry.createdAtMs > DEFAULT_TTL_MS) {
-            return null
-        }
-        return entry.streamInfo
-    }
+    fun size(): Int = values.size
 
     fun remove(token: String?) {
         if (!token.isNullOrBlank()) {
             values.remove(token)
         }
     }
-
-    fun size(): Int = values.size
 
     fun clear() = synchronized(lock) {
         values.clear()
@@ -86,7 +67,6 @@ internal object PlaybackStreamHandoff {
             }
         }
         if (values.size >= MAX_ENTRIES) {
-            // Remove oldest entries to keep under limit
             val sorted = values.entries.sortedBy { it.value.createdAtMs }
             val toRemoveCount = (values.size - MAX_ENTRIES) + 1
             for (i in 0 until toRemoveCount.coerceAtMost(sorted.size)) {
@@ -95,4 +75,5 @@ internal object PlaybackStreamHandoff {
         }
     }
 }
+
 

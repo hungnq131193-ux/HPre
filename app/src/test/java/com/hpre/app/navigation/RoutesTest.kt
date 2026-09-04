@@ -1,11 +1,30 @@
 package com.hpre.app.navigation
 
+import com.hpre.app.core.performance.VideoOpenEvent
+import com.hpre.app.core.performance.VideoOpenMetrics
 import com.hpre.app.model.ContentKey
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
 import org.junit.Test
 
 class RoutesTest {
+    @Test
+    fun video_navigation_cancels_background_then_starts_tap_then_navigates() {
+        val order = mutableListOf<String>()
+        val metrics = VideoOpenMetrics(enabled = true, sink = { record ->
+            if (record.event == VideoOpenEvent.VIDEO_OPEN_START) order += "tap"
+        })
+
+        beginVideoNavigation(
+            key = ContentKey(0, "video"),
+            beforeNavigate = { order += "cancel" },
+            navigate = { order += "navigate" },
+            metrics = metrics
+        )
+
+        assertEquals(listOf("cancel", "tap", "navigate"), order)
+    }
+
     @Test
     fun channel_route_round_trips_stable_content_key() {
         val key = ContentKey(3, "creator/id")

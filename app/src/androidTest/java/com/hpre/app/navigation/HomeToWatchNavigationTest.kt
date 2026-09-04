@@ -206,34 +206,6 @@ class HomeToWatchNavigationTest {
     }
 
     @Test
-    fun home_prefetches_visible_video_and_at_most_two_following_videos() {
-        val videos = (0..4).map { summary("prefetch$it") }
-        val fakeService = FakeVideoService(trendingResponse = com.hpre.app.core.error.AppResult.Success(videos))
-        val container = TestContainer(fakeService)
-        var prefetched = emptyList<ContentKey>()
-
-        composeTestRule.setContent {
-            HPreTheme {
-                val model: com.hpre.app.ui.home.HomeViewModel = androidx.lifecycle.viewmodel.compose.viewModel(
-                    factory = com.hpre.app.ui.home.HomeViewModel.provideFactory(
-                        container.recommendationRepository,
-                        container.topicFeedSource
-                    )
-                )
-                com.hpre.app.ui.home.HomeScreen(
-                    viewModel = model,
-                    onVideoClick = {},
-                    prefetchVideos = { prefetched = it }
-                )
-            }
-        }
-
-        composeTestRule.waitUntil(5_000) { prefetched.isNotEmpty() }
-        org.junit.Assert.assertTrue(prefetched.size <= 3)
-        org.junit.Assert.assertEquals(ContentKey(0, "prefetch0"), prefetched.first())
-    }
-
-    @Test
     fun clicking_home_video_card_navigates_to_watch_screen_with_content_key() {
         var streamInfoCallCount = 0
         val fakeService = FakeVideoService(

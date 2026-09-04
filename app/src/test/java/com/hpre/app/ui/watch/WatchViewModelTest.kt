@@ -2,6 +2,8 @@ package com.hpre.app.ui.watch
 
 import com.hpre.app.core.error.AppError
 import com.hpre.app.core.error.AppResult
+import com.hpre.app.core.performance.VideoOpenEvent
+import com.hpre.app.core.performance.VideoOpenMetrics
 import com.hpre.app.model.ContentKey
 import com.hpre.app.model.Comment
 import com.hpre.app.model.CommentPage
@@ -38,6 +40,7 @@ import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
+import org.junit.Assert.assertSame
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
@@ -177,6 +180,34 @@ class WatchViewModelTest {
         fun markReady(key: ContentKey) {
             _state.value = _state.value.copy(key = key, isReady = true, isLoading = false)
         }
+    }
+
+    @Test
+    fun load_claims_tap_and_marks_resolve_then_stream_ready_without_player_prepare() = runTest(testDispatcher) {
+        val events = mutableListOf<VideoOpenEvent>()
+        val metrics = VideoOpenMetrics(enabled = true, sink = { events += it.event })
+        val streamInfo = testStreamInfo(testKey)
+        val player = FakePlayerController()
+        val service = FakeVideoService(
+            videoHandler = { AppResult.Success(testDetails(it)) },
+            streamInfoHandler = { AppResult.Success(streamInfo) }
+        )
+        metrics.startTap(testKey)
+        val model = WatchViewModel(
+            videoService = service,
+            playerController = player,
+            savedStateHandle = androidx.lifecycle.SavedStateHandle(),
+            ioDispatcher = testDispatcher,
+            videoOpenMetrics = metrics
+        )
+
+        model.load(testKey)
+        advanceUntilIdle()
+
+        assertSame(streamInfo, player.preparedStreamInfo)
+        assertEquals(1, events.count { it == VideoOpenEvent.VIDEO_OPEN_START })
+        assertTrue(events.indexOf(VideoOpenEvent.STREAM_RESOLVE_START) < events.indexOf(VideoOpenEvent.STREAM_INFO_READY))
+        assertFalse(events.contains(VideoOpenEvent.PLAYER_PREPARE))
     }
 
     @Test

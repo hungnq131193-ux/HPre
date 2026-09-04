@@ -297,6 +297,7 @@ class WatchViewModel(
     private var retryingPlayback = false
     @Volatile
     private var cleared = false
+    private var currentMetricsSession: com.hpre.app.core.performance.VideoOpenSession? = null
     private var commentsInFlight = false
     private var commentsRequestGeneration = 0L
     private var firstCommentsPage: CommentPage? = null
@@ -346,7 +347,15 @@ class WatchViewModel(
 
             val cachedSnapshot = if (!forceRefresh) watchStateCache?.get(key) else null
             val reuseActivePlayer = activePlayback.key == key && activePlayback.error == null
-            val metricsSession = videoOpenMetrics.start(key)
+            val isSameActiveItem = reuseActivePlayer
+            val metricsSession = if (!isSameActiveItem) {
+                currentMetricsSession?.let { videoOpenMetrics.cancel(it) }
+                (videoOpenMetrics.claimTap(key) ?: videoOpenMetrics.start(key)).also {
+                    currentMetricsSession = it
+                }
+            } else {
+                currentMetricsSession
+            }
             firstCommentsPage = cachedSnapshot?.comments
             _commentsPagination.value = CommentsPaginationState()
             _uiState.update {
@@ -368,7 +377,7 @@ class WatchViewModel(
             _commentsState.value = cachedSnapshot?.comments?.let {
                 if (it.comments.isEmpty()) AsyncState.Empty else AsyncState.Content(it)
             } ?: if (videoService.supportsComments) AsyncState.Loading else AsyncState.Empty
-            if (cachedSnapshot != null) {
+            if (cachedSnapshot != null && metricsSession != null) {
                 videoOpenMetrics.mark(metricsSession, VideoOpenEvent.DETAILS_READY)
             }
 
@@ -401,7 +410,9 @@ class WatchViewModel(
                                             thumbnailUrl = state.thumbnailUrl ?: result.value.thumbnailUrl
                                         )
                                     }
-                                    videoOpenMetrics.mark(metricsSession, VideoOpenEvent.DETAILS_READY)
+                                    metricsSession?.let {
+                                        videoOpenMetrics.mark(it, VideoOpenEvent.DETAILS_READY)
+                                    }
                                     watchStateCache?.put(key, WatchStateSnapshot(result.value, null, null))
                                 }
                                 recordDetailsInHistory(result.value)
@@ -425,20 +436,28 @@ class WatchViewModel(
 
                     if (!reuseActivePlayer) {
                         val resumeDeferred = async { loadResumePosition(key) }
+                        metricsSession?.let { videoOpenMetrics.mark(it, VideoOpenEvent.STREAM_RESOLVE_START) }
                         val streamResult = if (forceRefresh) videoService.refreshStreamInfo(key)
                             else videoService.streamInfo(key)
                         coroutineContext.ensureActive()
                         if (streamResult is AppResult.Failure) {
                             resumeDeferred.cancel()
                             detailsJob?.cancel()
+                            metricsSession?.let {
+                                videoOpenMetrics.finish(
+                                    it,
+                                    VideoOpenEvent.PLAYBACK_ERROR,
+                                    category = streamResult.error::class.java.simpleName
+                                )
+                                currentMetricsSession = null
+                            }
                             publishLoadFailure(key, generation, streamResult.error)
                             return@loadRequest
                         }
-                        videoOpenMetrics.mark(metricsSession, VideoOpenEvent.STREAM_INFO_READY)
+                        metricsSession?.let { videoOpenMetrics.mark(it, VideoOpenEvent.STREAM_INFO_READY) }
                         val resumePositionMs = resumeDeferred.await()
                         synchronized(sessionGuard) {
                             if (!isCurrentRequest(key, generation)) return@loadRequest
-                            videoOpenMetrics.mark(metricsSession, VideoOpenEvent.PLAYER_PREPARE)
                             playerController.prepare(
                                 key,
                                 (streamResult as AppResult.Success).value,
@@ -479,6 +498,8 @@ class WatchViewModel(
     /** Cancel before navigation; the outgoing entry may stay alive during its exit animation. */
     fun cancelPendingLoads() {
         synchronized(sessionGuard) {
+            currentMetricsSession?.let { videoOpenMetrics.cancel(it) }
+            currentMetricsSession = null
             currentKey = null
             currentGeneration++
             relatedGeneration++
@@ -933,7 +954,8 @@ class WatchViewModel(
             relatedGeneration++
             cancelLoadRequests()
             retryingPlayback = true
-            val metricsSession = videoOpenMetrics.start(key)
+            currentMetricsSession?.let { videoOpenMetrics.cancel(it) }
+            val metricsSession = videoOpenMetrics.start(key).also { currentMetricsSession = it }
             _uiState.update { it.copy(isLoading = true, isPlayerLoading = true, error = null) }
             _commentsPagination.update { it.copy(isLoading = false) }
             if (_relatedState.value.isRefreshing) {
@@ -943,6 +965,7 @@ class WatchViewModel(
             viewModelScope.launch(ioDispatcher, start = CoroutineStart.LAZY) {
                 try {
                     val position = snapshot?.positionMs ?: playerController.readProgress().positionMs
+                    videoOpenMetrics.mark(metricsSession, VideoOpenEvent.STREAM_RESOLVE_START)
                     val result = videoService.refreshStreamInfo(key)
                     coroutineContext.ensureActive()
                     synchronized(sessionGuard) {
@@ -950,7 +973,6 @@ class WatchViewModel(
                         when (result) {
                             is AppResult.Success -> {
                                 videoOpenMetrics.mark(metricsSession, VideoOpenEvent.STREAM_INFO_READY)
-                                videoOpenMetrics.mark(metricsSession, VideoOpenEvent.PLAYER_PREPARE)
                                 playerController.prepare(
                                     key = key,
                                     streamInfo = result.value,
@@ -965,7 +987,15 @@ class WatchViewModel(
                                 }
                                 scheduleInitialComments(key, generation)
                             }
-                            is AppResult.Failure -> publishLoadFailure(key, generation, result.error)
+                            is AppResult.Failure -> {
+                                videoOpenMetrics.finish(
+                                    metricsSession,
+                                    VideoOpenEvent.PLAYBACK_ERROR,
+                                    category = result.error::class.java.simpleName
+                                )
+                                currentMetricsSession = null
+                                publishLoadFailure(key, generation, result.error)
+                            }
                         }
                     }
                 } catch (cancelled: CancellationException) {
@@ -1014,6 +1044,8 @@ class WatchViewModel(
 
     override fun onCleared() {
         synchronized(sessionGuard) {
+            currentMetricsSession?.let { videoOpenMetrics.cancel(it) }
+            currentMetricsSession = null
             cleared = true
             currentGeneration++
             relatedGeneration++

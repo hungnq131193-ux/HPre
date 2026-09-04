@@ -46,7 +46,7 @@ class NewPipeVideoServiceTest {
         val key = ContentKey(0, "prefetch_shared")
         val expected = ExtractedVideoBundle(
             VideoDetails(key, "Title", "https://example.test/shared", null, null, null, null, null, null, null, null, null, null),
-            StreamInfo(key, "Title"),
+            StreamInfo(key, "Title", hlsManifestUrl = "https://example.test/master.m3u8?expire=4102444800"),
             emptyList()
         )
         val gate = CompletableDeferred<Unit>()
@@ -82,7 +82,7 @@ class NewPipeVideoServiceTest {
             key, "Details", "https://example.test/shared_bundle", null, null, null,
             null, null, null, null, null, null, null
         )
-        val streams = StreamInfo(key, "Streams")
+        val streams = StreamInfo(key, "Streams", hlsManifestUrl = "https://example.test/master.m3u8?expire=4102444800")
         val related = listOf(
             VideoSummary(
                 ContentKey(0, "related"), "Related", "https://example.test/related",

@@ -565,7 +565,8 @@ class HomeViewModelTest {
         val feedStore = HomeFeedStore(
             readEncoded = values::get,
             writeEncoded = { key, value -> values[key] = value },
-            removeEncoded = values::remove
+            removeEncoded = values::remove,
+            ioDispatcher = testDispatcher
         )
         feedStore.save("__all__", listOf(summary("disk")))
         val viewModel = HomeViewModel(
@@ -574,9 +575,11 @@ class HomeViewModelTest {
                 AppResult.Success(listOf(summary("network")))
             },
             topicFeedSource = FakeTopicFeedSource(),
-            feedStore = feedStore
+            feedStore = feedStore,
+            ioDispatcher = testDispatcher
         )
 
+        runCurrent()
         val immediate = viewModel.uiState.value as HomeUiState.Content
         assertEquals("disk", immediate.content.videos.single().key.nativeId)
         assertTrue(immediate.content.isLoadingSelection)
@@ -585,6 +588,40 @@ class HomeViewModelTest {
         val refreshed = viewModel.uiState.value as HomeUiState.Content
         assertEquals("network", refreshed.content.videos.single().key.nativeId)
         assertEquals(false, refreshed.content.isLoadingSelection)
+    }
+
+    @Test
+    fun disk_snapshot_is_published_before_background_revalidation_completes() = runTest(testDispatcher) {
+        val cached = listOf(summary("stale"))
+        val fresh = listOf(summary("fresh"))
+        val networkGate = CompletableDeferred<Unit>()
+        val values = mutableMapOf<String, String>()
+        val feedStore = HomeFeedStore(
+            readEncoded = values::get,
+            writeEncoded = { key, value -> values[key] = value },
+            removeEncoded = values::remove,
+            ioDispatcher = testDispatcher
+        )
+        feedStore.save("__all__", cached)
+
+        val model = HomeViewModel(
+            repository = HomeRecommendationSource {
+                networkGate.await()
+                AppResult.Success(fresh)
+            },
+            topicFeedSource = FakeTopicFeedSource(),
+            feedStore = feedStore,
+            ioDispatcher = testDispatcher
+        )
+
+        runCurrent()
+        val staleState = model.uiState.value as HomeUiState.Content
+        assertEquals(cached, staleState.content.videos)
+        assertTrue(staleState.content.isLoadingSelection)
+
+        networkGate.complete(Unit)
+        advanceUntilIdle()
+        assertEquals(fresh, (model.uiState.value as HomeUiState.Content).content.videos)
     }
 
     /**
@@ -807,4 +844,41 @@ class HomeViewModelTest {
         )
     }
 
+    @Test
+    fun video_selection_cancels_background_load_and_keeps_visible_feed() = runTest(testDispatcher) {
+        var calls = 0
+        val secondRequestGate = CompletableDeferred<Unit>()
+        var secondRequestCancelled = false
+        val source = HomeRecommendationSource {
+            calls++
+            if (calls == 1) {
+                AppResult.Success(listOf(summary("visible")))
+            } else {
+                try {
+                    secondRequestGate.await()
+                    AppResult.Success(listOf(summary("refreshed")))
+                } catch (ce: kotlinx.coroutines.CancellationException) {
+                    secondRequestCancelled = true
+                    throw ce
+                }
+            }
+        }
+        val model = HomeViewModel(source, FakeTopicFeedSource())
+        advanceUntilIdle()
+
+        val initial = (model.uiState.value as HomeUiState.Content).content
+        assertEquals("visible", initial.videos.single().key.nativeId)
+
+        model.refresh()
+        runCurrent()
+
+        model.onVideoSelected()
+        runCurrent()
+
+        assertTrue(secondRequestCancelled)
+        val content = (model.uiState.value as HomeUiState.Content).content
+        assertEquals("visible", content.videos.single().key.nativeId)
+        assertFalse(content.isRefreshing)
+        assertFalse(content.isLoadingSelection)
+    }
 }

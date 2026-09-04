@@ -36,8 +36,7 @@ import com.hpre.app.ui.common.DelayedLoadingPane
 import com.hpre.app.ui.common.EmptyPane
 import com.hpre.app.ui.common.ErrorPane
 import com.hpre.app.ui.common.VideoCard
-import com.hpre.app.ui.common.VideoViewportPrefetchEffect
-import com.hpre.app.ui.common.videoPrefetchItemKey
+import com.hpre.app.ui.common.videoListItemKey
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -45,7 +44,6 @@ internal fun HomeScreen(
     viewModel: HomeViewModel,
     onVideoClick: (ContentKey) -> Unit,
     modifier: Modifier = Modifier,
-    prefetchVideos: suspend (List<ContentKey>) -> Unit = {},
     onVideoSelected: ((VideoSummary) -> Unit)? = null
 ) {
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
@@ -95,11 +93,6 @@ internal fun HomeScreen(
             }
             is HomeUiState.Content -> {
                 val listState = rememberLazyListState()
-                VideoViewportPrefetchEffect(
-                    listState = listState,
-                    orderedKeys = state.content.videos.map { it.key },
-                    prefetch = prefetchVideos
-                )
                 val pullRefreshState = rememberPullToRefreshState()
                 PullToRefreshBox(
                     isRefreshing = state.content.isRefreshing,
@@ -114,7 +107,7 @@ internal fun HomeScreen(
                     ) {
                         items(
                             items = state.content.videos,
-                            key = { videoPrefetchItemKey(it.key) }
+                            key = { videoListItemKey(it.key) }
                         ) { video ->
                             VideoCard(
                                 video = video,

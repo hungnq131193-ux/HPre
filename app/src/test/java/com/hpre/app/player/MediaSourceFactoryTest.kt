@@ -31,6 +31,15 @@ class MediaSourceFactoryTest {
         assertEquals(baseClient.readTimeoutMillis, playbackClient.readTimeoutMillis)
         assertSame(baseClient.connectionPool, playbackClient.connectionPool)
         assertSame(baseClient.dispatcher, playbackClient.dispatcher)
+        assertSame(baseClient.cookieJar, playbackClient.cookieJar)
+        assertEquals(
+            com.hpre.app.core.network.NetworkPolicy.DEFAULT_USER_AGENT,
+            com.hpre.app.player.PlayerHttpConfig.DEFAULT_USER_AGENT
+        )
+        assertEquals(
+            com.hpre.app.core.network.NetworkPolicy.DEFAULT_USER_AGENT,
+            com.hpre.app.extractor.OkHttpDownloader.USER_AGENT
+        )
     }
 
     private val testKey = com.hpre.app.model.ContentKey(0, "test_item")

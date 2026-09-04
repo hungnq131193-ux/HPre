@@ -172,6 +172,7 @@ internal suspend fun recoverSessionPlayback(
                 streamInfo = recovered.streamInfo,
                 pending = PendingPrepare(
                     key = recovered.key,
+                    streamInfo = recovered.streamInfo,
                     positionMs = recovered.resumePositionMs,
                     playWhenReady = recovered.resumeWhenReady,
                     initialQuality = recovered.selectedQuality,
@@ -676,6 +677,7 @@ class SessionPlayerController internal constructor(
         if (currentK != null && currentInfo != null) {
             val pending = PendingPrepare(
                 key = currentK,
+                streamInfo = currentInfo,
                 positionMs = _state.value.currentPositionMs,
                 playWhenReady = _state.value.playWhenReady,
                 initialQuality = _state.value.selectedQuality,
@@ -713,26 +715,12 @@ class SessionPlayerController internal constructor(
 
     private fun handleConnectFailure() {
         if (isReleased) return
-        if (connectionPurpose == ConnectionPurpose.PREWARM && currentKey == null) {
-            isReconnecting = false
-            reconnectJob = null
-            return
+        val idlePrewarm = connectionPurpose == ConnectionPurpose.PREWARM && currentKey == null
+        if (!idlePrewarm) {
+            _state.update { it.copy(isLoading = false, error = AppError.NetworkError) }
         }
-        _state.update { it.copy(isLoading = false, error = AppError.NetworkError) }
         isReconnecting = true
-        reconnectJob?.cancel()
-        if (connectRetryCount < 3) {
-            connectRetryCount++
-            reconnectJob = scope.launch(mainDispatcher) {
-                delay(500L * connectRetryCount)
-                if (!isReleased && mediaController == null) {
-                    connectController()
-                }
-            }
-        } else {
-            isReconnecting = false
-            reconnectJob = null
-        }
+        triggerBoundedReconnect()
     }
 
     private inline fun <reified T : Throwable> findCause(throwable: Throwable?): T? {
@@ -897,7 +885,11 @@ class SessionPlayerController internal constructor(
         initialQuality: QualityOption?,
         playbackSpeed: Float
     ) {
+        reconnectJob?.cancel()
+        reconnectJob = null
         connectionPurpose = ConnectionPurpose.NORMAL
+        connectRetryCount = 0
+        isReconnecting = false
         if (isReleased) return
         recoveryJob?.cancel()
         currentKey = key
@@ -939,7 +931,7 @@ class SessionPlayerController internal constructor(
             )
         }
 
-        val pending = PendingPrepare(key, effectiveStartPositionMs, playWhenReady, initialQuality, clampedSpeed)
+        val pending = PendingPrepare(key, streamInfo, effectiveStartPositionMs, playWhenReady, initialQuality, clampedSpeed)
         val prepareRequestGeneration = localPrepareRequestGeneration.incrementAndGet()
         connectionPurpose = ConnectionPurpose.NORMAL
         scope.launch(mainDispatcher) {
@@ -962,9 +954,7 @@ class SessionPlayerController internal constructor(
         }
         connectionCoordinator?.onPrepareDelivered(pending)
         val prepareGen = ++localMediaGen
-        val handoffToken = currentStreamInfo?.takeIf { it.key == pending.key }?.let {
-            PlaybackStreamHandoff.put(it, requestGen = prepareGen)
-        }
+        val handoffToken = PlaybackStreamHandoff.put(pending.streamInfo, requestGeneration = prepareGen)
         val args = Bundle().apply {
             putInt(HPrePlaybackService.EXTRA_SERVICE_ID, pending.key.serviceId)
             putString(HPrePlaybackService.EXTRA_NATIVE_ID, pending.key.nativeId)

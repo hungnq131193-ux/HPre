@@ -182,3 +182,9 @@ private fun VideoBadge(
         )
     }
 }
+
+internal fun videoListItemKey(contentKey: ContentKey): String =
+    "video:${contentKey.serviceId}:" + java.util.Base64.getUrlEncoder()
+        .withoutPadding()
+        .encodeToString(contentKey.nativeId.toByteArray(Charsets.UTF_8))
+
