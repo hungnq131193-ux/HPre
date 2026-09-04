@@ -24,6 +24,34 @@ function Get-Median([double[]]$Values) {
     return (([double]$sorted[$middle - 1] + [double]$sorted[$middle]) / 2.0)
 }
 
+function Test-ProcedureMetadata([string]$Metadata) {
+    if ([string]::IsNullOrWhiteSpace($Metadata)) { return $false }
+    foreach ($field in @('avd', 'video', 'network', 'appState', 'cache', 'quality', 'animations')) {
+        if ($Metadata -notmatch "(?:^|\s)$field=\S+") { return $false }
+    }
+    return $true
+}
+
+function New-ComparisonResult(
+    [bool]$Pass,
+    [string]$Reason,
+    [PSObject]$Baseline,
+    [PSObject]$Candidate,
+    [double]$ImprovementPercent = 0.0,
+    [Nullable[double]]$BaselineMedian = $null,
+    [Nullable[double]]$CandidateMedian = $null
+) {
+    return [PSCustomObject]@{
+        Pass = $Pass
+        Reason = $Reason
+        Baseline = $Baseline
+        Candidate = $Candidate
+        ImprovementPercent = $ImprovementPercent
+        BaselineMedian = $BaselineMedian
+        CandidateMedian = $CandidateMedian
+    }
+}
+
 function Parse-PerformanceLog([string[]]$Lines) {
     $metadata = $null
     $rawSessions = [System.Collections.Generic.Dictionary[long, System.Collections.Generic.List[PSObject]]]::new()
@@ -69,7 +97,7 @@ function Parse-PerformanceLog([string[]]$Lines) {
 
     $validSamples = [System.Collections.Generic.List[PSObject]]::new()
     $failureCount = $malformedCount
-    $observedCategory = $null
+    $observedCategories = [System.Collections.Generic.HashSet[string]]::new()
 
     foreach ($gen in @($rawSessions.Keys)) {
         $recs = @($rawSessions[$gen])
@@ -120,11 +148,11 @@ function Parse-PerformanceLog([string[]]$Lines) {
             continue
         }
 
-        if ($null -ne $ff.Category) {
-            if ($null -eq $observedCategory) {
-                $observedCategory = $ff.Category
-            }
+        if ($null -eq $ff.Category) {
+            $failureCount++
+            continue
         }
+        $null = $observedCategories.Add($ff.Category)
 
         $validSamples.Add([PSCustomObject]@{
             Generation = $gen
@@ -138,7 +166,7 @@ function Parse-PerformanceLog([string[]]$Lines) {
 
     return [PSCustomObject]@{
         Metadata = $metadata
-        Category = $observedCategory
+        Category = (@($observedCategories | Sort-Object) -join ',')
         Valid = @($validSamples)
         Failures = $failureCount
     }
@@ -148,40 +176,23 @@ function Invoke-Comparator([string[]]$BaselineLines, [string[]]$CandidateLines, 
     $baseline = Parse-PerformanceLog $BaselineLines
     $candidate = Parse-PerformanceLog $CandidateLines
 
-    $hasMetadataMatch = ($null -ne $baseline.Metadata -and $null -ne $candidate.Metadata -and $baseline.Metadata -eq $candidate.Metadata)
+    $hasValidMetadata = (Test-ProcedureMetadata $baseline.Metadata) -and (Test-ProcedureMetadata $candidate.Metadata)
+    $hasMetadataMatch = $hasValidMetadata -and ($baseline.Metadata -eq $candidate.Metadata)
     $hasCategoryMatch = ($null -ne $baseline.Category -and $null -ne $candidate.Category -and $baseline.Category -eq $candidate.Category)
 
     $baselineValid = @($baseline.Valid)
     $candidateValid = @($candidate.Valid)
 
     if ($baselineValid.Count -lt $MinSamples -or $candidateValid.Count -lt $MinSamples) {
-        return [PSCustomObject]@{
-            Pass = $false
-            Reason = "Insufficient samples: Baseline=$($baselineValid.Count), Candidate=$($candidateValid.Count), Minimum=$MinSamples"
-            Baseline = $baseline
-            Candidate = $candidate
-            ImprovementPercent = 0.0
-        }
+        return New-ComparisonResult $false "Insufficient samples: Baseline=$($baselineValid.Count), Candidate=$($candidateValid.Count), Minimum=$MinSamples" $baseline $candidate
     }
 
     if (-not $hasMetadataMatch) {
-        return [PSCustomObject]@{
-            Pass = $false
-            Reason = "Procedure metadata mismatch: Baseline='$($baseline.Metadata)' vs Candidate='$($candidate.Metadata)'"
-            Baseline = $baseline
-            Candidate = $candidate
-            ImprovementPercent = 0.0
-        }
+        return New-ComparisonResult $false "Procedure metadata missing required fields or mismatched: Baseline='$($baseline.Metadata)' vs Candidate='$($candidate.Metadata)'" $baseline $candidate
     }
 
     if (-not $hasCategoryMatch) {
-        return [PSCustomObject]@{
-            Pass = $false
-            Reason = "Stream category mismatch: Baseline='$($baseline.Category)' vs Candidate='$($candidate.Category)'"
-            Baseline = $baseline
-            Candidate = $candidate
-            ImprovementPercent = 0.0
-        }
+        return New-ComparisonResult $false "Stream category mismatch: Baseline='$($baseline.Category)' vs Candidate='$($candidate.Category)'" $baseline $candidate
     }
 
     $baselineTotals = @($baselineValid | ForEach-Object { [double]$_.TotalElapsedMs })
@@ -197,21 +208,14 @@ function Invoke-Comparator([string[]]$BaselineLines, [string[]]$CandidateLines, 
     $improvement = (($baselineMedian - $candidateMedian) / $baselineMedian) * 100.0
     $passes = ($improvement -ge $ReqImprovement)
 
-    return [PSCustomObject]@{
-        Pass = $passes
-        Reason = if ($passes) { "PASS" } else { "Improvement $improvement% is below required $ReqImprovement%" }
-        ImprovementPercent = $improvement
-        BaselineMedian = $baselineMedian
-        CandidateMedian = $candidateMedian
-        Baseline = $baseline
-        Candidate = $candidate
-    }
+    $reason = if ($passes) { 'PASS' } else { "Improvement $improvement% is below required $ReqImprovement%" }
+    return New-ComparisonResult $passes $reason $baseline $candidate $improvement $baselineMedian $candidateMedian
 }
 
 function Run-SelfTest() {
     Write-Host "Running compare-video-open.ps1 SelfTest..."
 
-    $metadataLine = "# METADATA avd=FlowTubeApi35 video=dQw4w9WgXcQ network=wifi appState=clean cache=reset quality=auto animations=off"
+    $metadataLine = "# METADATA avd=HPreApi35Docs video=dQw4w9WgXcQ network=wifi appState=clean cache=reset quality=auto animations=off"
 
     # Fixture 1: 10 baseline median 1000ms, 10 candidate median 800ms -> 20% improvement -> PASS
     $baseLines = [System.Collections.Generic.List[string]]::new()
@@ -274,6 +278,40 @@ function Run-SelfTest() {
     $res4 = Invoke-Comparator $baseLines $diffMetaLines 10 15.0
     if ($res4.Pass) {
         throw "Self-test 4 failed: Metadata mismatch should be rejected."
+    }
+
+    # Fixture 5: malformed input and duplicate terminal each increase failures.
+    $invalidLines = [System.Collections.Generic.List[string]]::new()
+    $invalidLines.Add($metadataLine)
+    $invalidLines.Add('not a performance record')
+    $invalidLines.Add('VIDEO_OPEN_START generation=1 elapsedMs=0')
+    $invalidLines.Add('STREAM_INFO_READY generation=1 elapsedMs=200 segment=STREAM_RESOLVE_TO_STREAM_INFO_READY segmentMs=200')
+    $invalidLines.Add('PLAYER_PREPARE generation=1 elapsedMs=500 segment=STREAM_INFO_READY_TO_PLAYER_PREPARE segmentMs=300')
+    $invalidLines.Add('FIRST_FRAME generation=1 elapsedMs=1000 segment=PLAYER_PREPARE_TO_FIRST_FRAME segmentMs=500 category=PROGRESSIVE')
+    $invalidLines.Add('FIRST_FRAME generation=1 elapsedMs=1001 segment=PLAYER_PREPARE_TO_FIRST_FRAME segmentMs=501 category=PROGRESSIVE')
+    $parsed5 = Parse-PerformanceLog $invalidLines
+    if ($parsed5.Failures -ne 2 -or $parsed5.Valid.Count -ne 0) {
+        throw "Self-test 5 failed: Expected malformed and duplicate-terminal failures."
+    }
+
+    # Fixture 6: category mismatch is rejected.
+    $dashLines = [System.Collections.Generic.List[string]]::new()
+    $dashLines.Add($metadataLine)
+    for ($i = 1; $i -le 10; $i++) {
+        $dashLines.Add("VIDEO_OPEN_START generation=$i elapsedMs=0")
+        $dashLines.Add("STREAM_INFO_READY generation=$i elapsedMs=150 segment=STREAM_RESOLVE_TO_STREAM_INFO_READY segmentMs=150")
+        $dashLines.Add("PLAYER_PREPARE generation=$i elapsedMs=400 segment=STREAM_INFO_READY_TO_PLAYER_PREPARE segmentMs=250")
+        $dashLines.Add("FIRST_FRAME generation=$i elapsedMs=800 segment=PLAYER_PREPARE_TO_FIRST_FRAME segmentMs=400 category=DASH")
+    }
+    if ((Invoke-Comparator $baseLines $dashLines 10 15.0).Pass) {
+        throw 'Self-test 6 failed: Category mismatch should be rejected.'
+    }
+
+    # Fixture 7: matching but incomplete metadata is rejected.
+    $incompleteMetadataLines = @($candLines)
+    $incompleteMetadataLines[0] = '# METADATA avd=HPreApi35Docs video=dQw4w9WgXcQ'
+    if ((Invoke-Comparator $incompleteMetadataLines $incompleteMetadataLines 10 15.0).Pass) {
+        throw 'Self-test 7 failed: Incomplete metadata should be rejected.'
     }
 
     Write-Host "SELF-TEST PASS"

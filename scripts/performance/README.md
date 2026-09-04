@@ -4,7 +4,7 @@ This document specifies the exact procedure for collecting and evaluating paired
 
 ## Requirements
 
-1. **Device:** `FlowTubeApi35` emulator AVD. If unavailable, use `HPreApi35Docs` (API 35, x86_64, Google Play or Google APIs).
+1. **Device:** `HPreApi35Docs` emulator AVD (API 35, x86_64, Google Play or Google APIs).
 2. **Fixed Video:** `dQw4w9WgXcQ` (Never Gonna Give You Up). If blocked, select a fixed ordinary VOD and use the identical ID for both baseline and candidate.
 3. **App State:**
    - Both builds must be signed release APKs (`HPre-v1.0.30-instrumented.apk` and `HPre-v1.0.31-release.apk`).
@@ -18,7 +18,7 @@ This document specifies the exact procedure for collecting and evaluating paired
    - Capture logs: `adb logcat -d -s HPrePerformance:D *:S > <build>.log`
    - Prepend the mandatory procedure metadata line to the log file:
      ```text
-     # METADATA avd=FlowTubeApi35 video=dQw4w9WgXcQ network=wifi appState=clean cache=reset quality=auto animations=off
+     # METADATA avd=HPreApi35Docs video=dQw4w9WgXcQ network=wifi appState=clean cache=reset quality=auto animations=off
      ```
    - Never discard failed opens, errors, or incomplete sessions.
 
