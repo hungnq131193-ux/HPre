@@ -48,6 +48,22 @@ class GitHubReleaseUpdateCheckerTest {
     }
 
     @Test
+    fun newer_stable_release_without_v_tag_returns_update_available() = runTest {
+        server.enqueue(MockResponse().setResponseCode(200).setBody(releaseJson("1.0.1")))
+
+        val result = checker().check("1.0.0")
+
+        assertTrue(result is UpdateCheckResult.UpdateAvailable)
+        result as UpdateCheckResult.UpdateAvailable
+        assertEquals(SemanticVersion(1, 0, 0), result.installedVersion)
+        assertEquals(SemanticVersion(1, 0, 1), result.latestVersion)
+        assertEquals(
+            "https://github.com/hungnq131193-ux/HPre/releases/tag/1.0.1",
+            result.releasePage.url
+        )
+    }
+
+    @Test
     fun equal_or_older_release_returns_up_to_date() = runTest {
         server.enqueue(MockResponse().setResponseCode(200).setBody(releaseJson("v1.0.0")))
         assertEquals(

@@ -12,7 +12,7 @@ data class SemanticVersion(
 
     companion object {
         private val installedPattern = Regex("(0|[1-9]\\d*)\\.(0|[1-9]\\d*)\\.(0|[1-9]\\d*)")
-        private val tagPattern = Regex("v(0|[1-9]\\d*)\\.(0|[1-9]\\d*)\\.(0|[1-9]\\d*)")
+        private val tagPattern = Regex("v?(0|[1-9]\\d*)\\.(0|[1-9]\\d*)\\.(0|[1-9]\\d*)")
 
         fun parseInstalled(value: String): SemanticVersion? = parse(value, installedPattern)
 

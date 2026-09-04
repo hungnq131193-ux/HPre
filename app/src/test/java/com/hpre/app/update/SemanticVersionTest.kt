@@ -10,6 +10,7 @@ class SemanticVersionTest {
     fun parses_installed_version_and_release_tag() {
         assertEquals(SemanticVersion(1, 2, 3), SemanticVersion.parseInstalled("1.2.3"))
         assertEquals(SemanticVersion(1, 2, 3), SemanticVersion.parseTag("v1.2.3"))
+        assertEquals(SemanticVersion(1, 2, 3), SemanticVersion.parseTag("1.2.3"))
     }
 
     @Test
@@ -33,7 +34,7 @@ class SemanticVersionTest {
             "2147483648.0.0"
         ).forEach { assertNull(SemanticVersion.parseInstalled(it)) }
 
-        listOf("1.2.3", "V1.2.3", "v1.2", "v1.2.3-beta")
+        listOf("V1.2.3", "v1.2", "v1.2.3-beta")
             .forEach { assertNull(SemanticVersion.parseTag(it)) }
     }
 
@@ -43,6 +44,12 @@ class SemanticVersionTest {
             "https://github.com/hungnq131193-ux/HPre/releases/tag/v1.2.3",
             OfficialReleasePage.parse(
                 "https://github.com/hungnq131193-ux/HPre/releases/tag/v1.2.3"
+            )?.url
+        )
+        assertEquals(
+            "https://github.com/hungnq131193-ux/HPre/releases/tag/1.2.3",
+            OfficialReleasePage.parse(
+                "https://github.com/hungnq131193-ux/HPre/releases/tag/1.2.3"
             )?.url
         )
 
