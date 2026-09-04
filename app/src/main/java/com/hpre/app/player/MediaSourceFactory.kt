@@ -36,7 +36,7 @@ data class PlayerHttpConfig(
     val userAgent: String = DEFAULT_USER_AGENT
 ) {
     companion object {
-        const val DEFAULT_USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36"
+        const val DEFAULT_USER_AGENT = com.hpre.app.core.network.NetworkPolicy.DEFAULT_USER_AGENT
     }
 }
 

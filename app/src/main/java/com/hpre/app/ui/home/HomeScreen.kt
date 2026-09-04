@@ -20,12 +20,8 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.material3.pulltorefresh.rememberPullToRefreshState
-import android.os.Looper
-import android.os.MessageQueue
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
@@ -43,42 +39,17 @@ import com.hpre.app.ui.common.VideoCard
 import com.hpre.app.ui.common.VideoViewportPrefetchEffect
 import com.hpre.app.ui.common.videoPrefetchItemKey
 
-internal interface IdleQueueRegistry {
-    fun addIdleHandler(handler: () -> Boolean): Any
-    fun removeIdleHandler(token: Any)
-
-    companion object {
-        val Default: IdleQueueRegistry = object : IdleQueueRegistry {
-            override fun addIdleHandler(handler: () -> Boolean): Any {
-                val queue = Looper.myQueue()
-                val idleHandler = MessageQueue.IdleHandler { handler() }
-                queue.addIdleHandler(idleHandler)
-                return idleHandler
-            }
-
-            override fun removeIdleHandler(token: Any) {
-                if (token is MessageQueue.IdleHandler) {
-                    Looper.myQueue().removeIdleHandler(token)
-                }
-            }
-        }
-    }
-}
-
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 internal fun HomeScreen(
     viewModel: HomeViewModel,
     onVideoClick: (ContentKey) -> Unit,
     modifier: Modifier = Modifier,
-    onContentIdle: () -> Unit = {},
-    idleQueueRegistry: IdleQueueRegistry = IdleQueueRegistry.Default,
     prefetchVideos: suspend (List<ContentKey>) -> Unit = {},
     onVideoSelected: ((VideoSummary) -> Unit)? = null
 ) {
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
     val chipsState by viewModel.chipsState.collectAsStateWithLifecycle()
-    val currentOnContentIdle by rememberUpdatedState(onContentIdle)
 
     Column(modifier = modifier.fillMaxSize().testTag("home_screen")) {
         LazyRow(
@@ -129,20 +100,6 @@ internal fun HomeScreen(
                     orderedKeys = state.content.videos.map { it.key },
                     prefetch = prefetchVideos
                 )
-                DisposableEffect(Unit) {
-                    var disposed = false
-                    val token = idleQueueRegistry.addIdleHandler {
-                        if (!disposed) {
-                            currentOnContentIdle()
-                        }
-                        false
-                    }
-                    onDispose {
-                        disposed = true
-                        idleQueueRegistry.removeIdleHandler(token)
-                    }
-                }
-
                 val pullRefreshState = rememberPullToRefreshState()
                 PullToRefreshBox(
                     isRefreshing = state.content.isRefreshing,

@@ -31,8 +31,8 @@ android {
         applicationId = "com.hpre.app"
         minSdk = 26
         targetSdk = 35
-        versionCode = 30
-        versionName = "1.0.29"
+        versionCode = 31
+        versionName = "1.0.30"
 
         testInstrumentationRunner = "com.hpre.app.testing.HPreTestRunner"
         vectorDrawables {
@@ -158,6 +158,7 @@ dependencies {
 
     // Networking, Image Loading & Async
     implementation(libs.okhttp)
+    implementation(libs.okhttp.brotli)
     implementation(libs.coil.compose)
     implementation(libs.kotlinx.coroutines.android)
     implementation(libs.moshi)

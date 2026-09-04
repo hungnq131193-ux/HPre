@@ -31,6 +31,7 @@ import org.schabi.newpipe.extractor.stream.AudioStream
 import org.schabi.newpipe.extractor.stream.Description
 import org.schabi.newpipe.extractor.stream.StreamInfo
 import org.schabi.newpipe.extractor.stream.StreamInfoItem
+import org.schabi.newpipe.extractor.stream.StreamExtractor
 import org.schabi.newpipe.extractor.stream.StreamType
 import org.schabi.newpipe.extractor.stream.SubtitlesStream
 import org.schabi.newpipe.extractor.stream.VideoStream
@@ -576,6 +577,36 @@ object NewPipeMappers {
             hlsManifestUrl = hlsUrl,
             dashManifestUrl = dashUrl,
             isLive = isLive
+        )
+    }
+
+    fun mapStreamExtractor(
+        extractor: StreamExtractor,
+        key: ContentKey,
+        fallbackServiceId: Int
+    ): DomainStreamInfo? {
+        val serviceId = extractor.serviceId.takeIf { it >= 0 } ?: fallbackServiceId
+        val videoStreams = buildList {
+            extractor.videoStreams.orEmpty().mapNotNullTo(this, ::mapVideoStream)
+            extractor.videoOnlyStreams.orEmpty().mapNotNullTo(this, ::mapVideoStream)
+        }
+        val audioStreams = extractor.audioStreams.orEmpty().mapNotNull(::mapAudioStream)
+        val subtitles = extractor.subtitlesDefault.orEmpty().mapNotNull(::mapSubtitleStream)
+        val hlsUrl = extractor.hlsUrl?.takeIf(::isValidHttpUrl)
+        val dashUrl = extractor.dashMpdUrl?.takeIf(::isValidHttpUrl)
+        if (videoStreams.isEmpty() && audioStreams.isEmpty() && hlsUrl == null && dashUrl == null) {
+            return null
+        }
+        val streamType = extractor.streamType
+        return DomainStreamInfo(
+            key = ContentKey(serviceId, key.nativeId),
+            title = extractor.name.orEmpty(),
+            videoStreams = videoStreams,
+            audioStreams = audioStreams,
+            subtitles = subtitles,
+            hlsManifestUrl = hlsUrl,
+            dashManifestUrl = dashUrl,
+            isLive = streamType == StreamType.LIVE_STREAM || streamType == StreamType.AUDIO_LIVE_STREAM
         )
     }
 

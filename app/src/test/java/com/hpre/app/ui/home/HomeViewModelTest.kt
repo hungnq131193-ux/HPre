@@ -559,6 +559,34 @@ class HomeViewModelTest {
         assertTrue(viewModel.uiState.value is HomeUiState.Content)
     }
 
+    @Test
+    fun cold_start_paints_disk_feed_then_revalidates_in_background() = runTest(testDispatcher) {
+        val values = mutableMapOf<String, String>()
+        val feedStore = HomeFeedStore(
+            readEncoded = values::get,
+            writeEncoded = { key, value -> values[key] = value },
+            removeEncoded = values::remove
+        )
+        feedStore.save("__all__", listOf(summary("disk")))
+        val viewModel = HomeViewModel(
+            repository = HomeRecommendationSource {
+                kotlinx.coroutines.delay(500)
+                AppResult.Success(listOf(summary("network")))
+            },
+            topicFeedSource = FakeTopicFeedSource(),
+            feedStore = feedStore
+        )
+
+        val immediate = viewModel.uiState.value as HomeUiState.Content
+        assertEquals("disk", immediate.content.videos.single().key.nativeId)
+        assertTrue(immediate.content.isLoadingSelection)
+
+        advanceUntilIdle()
+        val refreshed = viewModel.uiState.value as HomeUiState.Content
+        assertEquals("network", refreshed.content.videos.single().key.nativeId)
+        assertEquals(false, refreshed.content.isLoadingSelection)
+    }
+
     /**
      * Returning to an already-loaded chip renders from cache with no request and no loading state.
      */
@@ -779,43 +807,4 @@ class HomeViewModelTest {
         )
     }
 
-    @Test
-    fun idleQueueRegistry_registers_and_removes_handler_correctly() {
-        val registered = mutableListOf<() -> Boolean>()
-        val removed = mutableListOf<Any>()
-
-        val fakeRegistry = object : IdleQueueRegistry {
-            override fun addIdleHandler(handler: () -> Boolean): Any {
-                registered.add(handler)
-                return handler
-            }
-
-            override fun removeIdleHandler(token: Any) {
-                removed.add(token)
-                registered.remove(token)
-            }
-        }
-
-        var executed = false
-        val token = fakeRegistry.addIdleHandler {
-            executed = true
-            false
-        }
-
-        assertEquals(1, registered.size)
-        assertEquals(0, removed.size)
-
-        // Dispose / remove before idle event occurs
-        fakeRegistry.removeIdleHandler(token)
-
-        assertEquals(0, registered.size)
-        assertEquals(1, removed.size)
-        assertEquals(false, executed)
-
-        // Invoking registered handler after removal should not happen because it's removed
-        if (registered.isNotEmpty()) {
-            registered[0]()
-        }
-        assertEquals(false, executed)
-    }
 }

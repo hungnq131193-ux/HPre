@@ -10,9 +10,6 @@ import androidx.compose.ui.test.performScrollTo
 import androidx.compose.ui.test.performTouchInput
 import androidx.compose.ui.test.swipeDown
 import androidx.test.ext.junit.runners.AndroidJUnit4
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.setValue
-import androidx.compose.runtime.mutableStateOf
 import com.hpre.app.core.designsystem.HPreTheme
 import com.hpre.app.di.AppContainer
 import com.hpre.app.model.ContentKey
@@ -209,50 +206,6 @@ class HomeToWatchNavigationTest {
     }
 
     @Test
-    fun home_idle_triggers_prewarm_callback_exactly_once() {
-        val fakeService = FakeVideoService(
-            trendingResponse = com.hpre.app.core.error.AppResult.Success(listOf(summary("item999"))),
-            videoHandler = { com.hpre.app.core.error.AppResult.Success(details(it.nativeId)) }
-        )
-        val container = TestContainer(fakeService)
-
-        var idleCount1 = 0
-        var idleCount2 = 0
-        var callbackHolder by androidx.compose.runtime.mutableStateOf<() -> Unit>({ idleCount1++ })
-
-        composeTestRule.setContent {
-            HPreTheme {
-                val homeViewModel: com.hpre.app.ui.home.HomeViewModel = androidx.lifecycle.viewmodel.compose.viewModel(
-                    factory = com.hpre.app.ui.home.HomeViewModel.provideFactory(
-                        repository = container.recommendationRepository,
-                        topicFeedSource = container.topicFeedSource
-                    )
-                )
-                com.hpre.app.ui.home.HomeScreen(
-                    viewModel = homeViewModel,
-                    onVideoClick = {},
-                    onContentIdle = callbackHolder
-                )
-            }
-        }
-
-        composeTestRule.waitUntil(5000) {
-            composeTestRule.onAllNodes(androidx.compose.ui.test.hasTestTag("video_card_item999"))
-                .fetchSemanticsNodes().isNotEmpty()
-        }
-        composeTestRule.onNodeWithTag("video_card_item999").assertExists()
-        org.junit.Assert.assertEquals("onContentIdle should have executed exactly once on initial idle", 1, idleCount1)
-
-        // Force recomposition with a new callback instance; idle handler should NOT re-trigger because it's a one-shot handler that returned false
-        composeTestRule.runOnUiThread {
-            callbackHolder = { idleCount2++ }
-        }
-        composeTestRule.waitForIdle()
-        org.junit.Assert.assertEquals("initial callback count remains 1", 1, idleCount1)
-        org.junit.Assert.assertEquals("new callback must not be invoked for already completed one-shot idle", 0, idleCount2)
-    }
-
-    @Test
     fun home_prefetches_visible_video_and_at_most_two_following_videos() {
         val videos = (0..4).map { summary("prefetch$it") }
         val fakeService = FakeVideoService(trendingResponse = com.hpre.app.core.error.AppResult.Success(videos))
@@ -278,78 +231,6 @@ class HomeToWatchNavigationTest {
         composeTestRule.waitUntil(5_000) { prefetched.isNotEmpty() }
         org.junit.Assert.assertTrue(prefetched.size <= 3)
         org.junit.Assert.assertEquals(ContentKey(0, "prefetch0"), prefetched.first())
-    }
-
-    @Test
-    fun home_idle_disposal_removes_idle_handler_and_prevents_callback() {
-        val fakeService = FakeVideoService(
-            trendingResponse = com.hpre.app.core.error.AppResult.Success(listOf(summary("item999"))),
-            videoHandler = { com.hpre.app.core.error.AppResult.Success(details(it.nativeId)) }
-        )
-        val container = TestContainer(fakeService)
-
-        var heldHandler: (() -> Boolean)? = null
-        var removeCalled = false
-        var removedToken: Any? = null
-        val expectedToken = Any()
-
-        val fakeRegistry = object : com.hpre.app.ui.home.IdleQueueRegistry {
-            override fun addIdleHandler(handler: () -> Boolean): Any {
-                heldHandler = handler
-                return expectedToken
-            }
-
-            override fun removeIdleHandler(token: Any) {
-                removeCalled = true
-                removedToken = token
-            }
-        }
-
-        var callbackInvoked = false
-        var showHomeScreen by androidx.compose.runtime.mutableStateOf(true)
-
-        composeTestRule.setContent {
-            HPreTheme {
-                if (showHomeScreen) {
-                    val homeViewModel: com.hpre.app.ui.home.HomeViewModel = androidx.lifecycle.viewmodel.compose.viewModel(
-                        factory = com.hpre.app.ui.home.HomeViewModel.provideFactory(
-                            repository = container.recommendationRepository,
-                            topicFeedSource = container.topicFeedSource
-                        )
-                    )
-                    com.hpre.app.ui.home.HomeScreen(
-                        viewModel = homeViewModel,
-                        onVideoClick = {},
-                        onContentIdle = { callbackInvoked = true },
-                        idleQueueRegistry = fakeRegistry
-                    )
-                }
-            }
-        }
-
-        composeTestRule.waitUntil(5000) {
-            composeTestRule.onAllNodes(androidx.compose.ui.test.hasTestTag("video_card_item999"))
-                .fetchSemanticsNodes().isNotEmpty()
-        }
-
-        org.junit.Assert.assertNotNull("Idle handler must have been registered", heldHandler)
-        org.junit.Assert.assertFalse("Remove must not be called while composed", removeCalled)
-        org.junit.Assert.assertFalse("Callback not invoked before handler runs", callbackInvoked)
-
-        // Capture held handler without firing and dispose composition
-        val handlerToFire = heldHandler!!
-        composeTestRule.runOnUiThread {
-            showHomeScreen = false
-        }
-        composeTestRule.waitForIdle()
-
-        org.junit.Assert.assertTrue("removeIdleHandler must be called on disposal", removeCalled)
-        org.junit.Assert.assertSame("removeIdleHandler must be called with token", expectedToken, removedToken)
-
-        // Invoking held handler after disposal must not trigger callback
-        val keepAlive = handlerToFire.invoke()
-        org.junit.Assert.assertFalse("IdleHandler must return false", keepAlive)
-        org.junit.Assert.assertFalse("Callback must not be invoked after disposal", callbackInvoked)
     }
 
     @Test

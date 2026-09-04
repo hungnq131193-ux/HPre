@@ -10,6 +10,8 @@ HPre sử dụng các dự án mã nguồn mở dưới đây. Danh sách này p
 | AndroidX Room | 2.6.1 | https://developer.android.com/jetpack/androidx/releases/room | Apache-2.0 |
 | AndroidX DataStore | 1.1.3 | https://developer.android.com/jetpack/androidx/releases/datastore | Apache-2.0 |
 | OkHttp | 4.12.0 | https://github.com/square/okhttp | Apache-2.0 |
+| OkHttp Brotli | 4.12.0 | https://github.com/square/okhttp | Apache-2.0 |
+| Brotli decoder | 0.1.2 | https://github.com/google/brotli | MIT |
 | Coil | 2.7.0 | https://github.com/coil-kt/coil | Apache-2.0 |
 | Kotlin Coroutines | 1.10.1 | https://github.com/Kotlin/kotlinx.coroutines | Apache-2.0 |
 | Moshi | 1.15.2 | https://github.com/square/moshi | Apache-2.0 |

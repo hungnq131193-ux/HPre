@@ -377,9 +377,9 @@ class WatchViewModel(
                     val prepareGate = kotlinx.coroutines.CompletableDeferred<Unit>()
                     val detailsJob = if (cachedSnapshot == null) launch details@ {
                         val result = try {
-                            if (forceRefresh && !reuseActivePlayer) {
-                                // Let the forced stream refresh replace the extractor cache first.
-                                // Otherwise metadata can start a second, non-refresh extraction.
+                            if (!reuseActivePlayer) {
+                                // Playback gets the extractor first. Metadata then reuses the shared
+                                // bundle/cache without delaying the prepare command.
                                 prepareGate.await()
                             }
                             catalogRepository?.video(key, forceRefresh = forceRefresh)

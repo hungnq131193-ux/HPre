@@ -31,6 +31,7 @@ import com.hpre.app.ui.watch.DefaultFullscreenHostHandler
 import com.hpre.app.ui.watch.FullscreenHostHandlerFactory
 import com.hpre.app.settings.playbackDataStore
 import com.hpre.app.ui.home.CatalogTopicFeedSource
+import com.hpre.app.ui.home.HomeFeedStore
 import com.hpre.app.ui.home.TopicFeedSource
 import com.hpre.app.update.AppUpdateChecker
 import com.hpre.app.update.GitHubReleaseUpdateChecker
@@ -70,6 +71,8 @@ interface AppContainer {
         )
     val topicFeedSource: TopicFeedSource
         get() = CatalogTopicFeedSource(catalogRepository)
+    val homeFeedStore: HomeFeedStore?
+        get() = null
     val fullscreenHostHandlerFactory: FullscreenHostHandlerFactory
     val okHttpClient: OkHttpClient
     val mediaCacheManager: com.hpre.app.player.cache.MediaCacheManager?
@@ -93,7 +96,7 @@ interface AppContainer {
      *
      * UI that merely reacts to playback (mini player visibility, PiP eligibility) collects this
      * instead of touching [createPlayerController]. Opening the app on Home avoids constructing
-     * ExoPlayer during cold-start render; pre-warming occurs only asynchronously after Home reaches idle.
+     * ExoPlayer during state observation; application startup pre-warms it asynchronously.
      *
      * The default implementation falls back to the controller's own state so test doubles keep
      * their existing behaviour.
@@ -235,6 +238,10 @@ class DefaultAppContainer(
         CatalogTopicFeedSource(catalogRepository)
     }
 
+    override val homeFeedStore: HomeFeedStore by lazy {
+        HomeFeedStore(appContext)
+    }
+
     override val fullscreenHostHandlerFactory: FullscreenHostHandlerFactory =
         FullscreenHostHandlerFactory { activity, savedStateHandle ->
             DefaultFullscreenHostHandler(activity, savedStateHandle)
@@ -249,7 +256,7 @@ class DefaultAppContainer(
     }
 
     override val watchStateCache: WatchStateCache by lazy {
-        WatchStateCache(ttlMs = 300_000L, maxEntries = 10)
+        WatchStateCache(ttlMs = 1_800_000L, maxEntries = 16)
     }
 
     override val playbackSnapshotStore: PlaybackSnapshotStore by lazy {

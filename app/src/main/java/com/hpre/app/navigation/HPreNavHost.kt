@@ -66,7 +66,8 @@ fun HPreNavHost(
             val homeViewModel: HomeViewModel = viewModel(
                 factory = HomeViewModel.provideFactory(
                     repository = container.recommendationRepository,
-                    topicFeedSource = container.topicFeedSource
+                    topicFeedSource = container.topicFeedSource,
+                    feedStore = container.homeFeedStore
                 )
             )
             HomeScreen(
@@ -74,7 +75,6 @@ fun HPreNavHost(
                 onVideoClick = { key ->
                     navController.navigate(Screen.Watch.createRoute(key))
                 },
-                onContentIdle = container::prewarmPlaybackInfrastructure,
                 prefetchVideos = container.videoService::prefetch,
                 onVideoSelected = { video ->
                     navController.navigate(Screen.Watch.createRoute(video.key, video.thumbnailUrl))

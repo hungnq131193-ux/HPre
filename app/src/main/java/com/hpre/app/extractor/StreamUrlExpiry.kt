@@ -19,6 +19,11 @@ internal fun StreamInfo.earliestUrlExpiryMs(): Long? = buildList {
     .mapNotNull(::parseExpiryMs)
     .minOrNull()
 
+internal fun StreamInfo.hasUsableUrls(
+    currentTimeMs: Long = System.currentTimeMillis(),
+    safetyMarginMs: Long = 5_000L
+): Boolean = earliestUrlExpiryMs()?.let { currentTimeMs < it - safetyMarginMs } ?: true
+
 private fun expiryValues(url: String): Sequence<String> = sequence {
     val query = runCatching { URI(url).rawQuery }.getOrNull() ?: return@sequence
     for (pair in query.split('&')) {
