@@ -36,6 +36,7 @@ class HistoryRepositoryTest {
         var shouldThrowIoException = false
         var upsertStarted: CompletableDeferred<Unit>? = null
         var upsertGate: CompletableDeferred<Unit>? = null
+        var recordAndTrimMaxEntries: Int? = null
 
         override fun observeAll(): Flow<List<HistoryEntity>> = flow
 
@@ -58,6 +59,25 @@ class HistoryRepositoryTest {
             if (shouldThrowIoException) throw java.io.IOException("Disk write error")
             storage[Pair(entity.serviceId, entity.videoId)] = entity
             updateFlow()
+        }
+
+        override suspend fun trimOldest(maxEntries: Int) {
+            if (storage.size > maxEntries) {
+                val sorted = storage.values.sortedWith(
+                    compareByDescending<HistoryEntity> { it.watchedTimestamp }
+                        .thenBy { it.serviceId }
+                        .thenBy { it.videoId }
+                )
+                val toRetain = sorted.take(maxEntries).map { Pair(it.serviceId, it.videoId) }.toSet()
+                storage.keys.retainAll(toRetain)
+                updateFlow()
+            }
+        }
+
+        override suspend fun recordAndTrim(entity: HistoryEntity, maxEntries: Int) {
+            recordAndTrimMaxEntries = maxEntries
+            upsert(entity)
+            trimOldest(maxEntries)
         }
 
         override suspend fun deleteByKey(serviceId: Int, videoId: String) {
@@ -140,6 +160,7 @@ class HistoryRepositoryTest {
 
         val result = repo.recordHistory(summary, positionMs = 50_000L, watchedTimestamp = 1000L)
         assertTrue(result is AppResult.Success)
+        assertEquals(50, dao.recordAndTrimMaxEntries)
 
         val item = (repo.getHistoryItem(ContentKey(1, "vid1")) as AppResult.Success).value
         assertNotNull(item)

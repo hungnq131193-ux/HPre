@@ -432,6 +432,6 @@ class RecommendationRepository(
          */
         const val MAX_TOTAL_TOPICS = 6
 
-        const val MAX_WATCH_HISTORY_SIGNALS = 100
+        const val MAX_WATCH_HISTORY_SIGNALS = 30
     }
 }

@@ -842,4 +842,49 @@ class RecommendationRepositoryTest {
 
         assertEquals(emptyList<VideoSummary>(), (result as AppResult.Success).value)
     }
+
+    @Test fun home_and_watch_query_at_most_thirty_watch_history_signals() = runTest {
+        var observedLimitHome: Int? = null
+        var observedLimitWatch: Int? = null
+
+        val historyMock = object : HistoryRepository {
+            override fun observeHistory(): Flow<List<WatchHistoryItem>> = flowOf(emptyList())
+            override fun observeRecentHistory(limit: Int): Flow<List<WatchHistoryItem>> {
+                if (observedLimitHome == null) {
+                    observedLimitHome = limit
+                } else {
+                    observedLimitWatch = limit
+                }
+                return flowOf(emptyList())
+            }
+            override fun observeHistoryPage(limit: Int, offset: Int): Flow<List<WatchHistoryItem>> = flowOf(emptyList())
+            override fun observeHistoryCount(): Flow<Int> = flowOf(0)
+            override suspend fun getHistoryItem(key: ContentKey): AppResult<WatchHistoryItem?> = AppResult.Success(null)
+            override suspend fun recordHistory(summary: VideoSummary, positionMs: Long, watchedTimestamp: Long): AppResult<Unit> = AppResult.Success(Unit)
+            override suspend fun deleteHistoryItem(key: ContentKey): AppResult<Unit> = AppResult.Success(Unit)
+            override suspend fun clearHistory(): AppResult<Unit> = AppResult.Success(Unit)
+        }
+
+        val service = FakeVideoService(trendingResponse = AppResult.Success(emptyList()))
+        val repository = RecommendationRepository(
+            CatalogRepository(service, this),
+            searchHistory(emptyList()),
+            historyMock,
+            service,
+            FakePlaybackPreferences(true)
+        )
+
+        repository.home(RecommendationRequest(forceRefresh = false))
+        val current = video("current", "")
+        val details = VideoDetails(
+            key = current.key, title = "", canonicalUrl = current.canonicalUrl,
+            description = null, channelKey = null, channelName = null,
+            channelAvatarUrl = null, subscriberCountText = null, thumbnailUrl = null,
+            durationSeconds = null, viewCount = null, likeCount = null, publishedTimestamp = null
+        )
+        repository.recommendations(current.key, details, RecommendationRequest(forceRefresh = false))
+
+        assertEquals(30, observedLimitHome)
+        assertEquals(30, observedLimitWatch)
+    }
 }

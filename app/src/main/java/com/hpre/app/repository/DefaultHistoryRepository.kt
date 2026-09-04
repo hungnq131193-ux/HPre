@@ -91,7 +91,7 @@ class DefaultHistoryRepository(
                     playbackPositionMs = effectivePosition,
                     watchedTimestamp = watchedTimestamp
                 )
-                historyDao.upsert(entity)
+                historyDao.recordAndTrim(entity, MAX_HISTORY_ENTRIES)
             }
             AppResult.Success(Unit)
         } catch (c: CancellationException) {
@@ -135,5 +135,9 @@ class DefaultHistoryRepository(
             playbackPositionMs = playbackPositionMs,
             watchedTimestamp = watchedTimestamp
         )
+    }
+
+    companion object {
+        internal const val MAX_HISTORY_ENTRIES = 50
     }
 }
