@@ -340,6 +340,17 @@ class SearchViewModel(
         }
     }
 
+    fun onVideoSelected() {
+        cancelAllSearches()
+        activeSearchJob = null
+        activePaginationJob = null
+        _uiState.update { state ->
+            if (state is SearchUiState.Content) {
+                state.copy(isSearching = false, isLoadingNextPage = false)
+            } else state
+        }
+    }
+
     private fun deduplicateItems(items: List<SearchResultItem>): List<SearchResultItem> {
         val seen = mutableSetOf<ContentKey>()
         val result = mutableListOf<SearchResultItem>()

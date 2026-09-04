@@ -13,6 +13,7 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withTimeoutOrNull
 
@@ -228,6 +229,19 @@ class HomeViewModel(
         if (_chipsState.value.selectedIndex == index) return
         _chipsState.value = _chipsState.value.copy(selectedIndex = index)
         load(forceRefresh = false)
+    }
+
+    fun onVideoSelected() {
+        activeLoadJob?.cancel()
+        activeLoadJob = null
+        loadGeneration++
+        _uiState.update { state ->
+            if (state is HomeUiState.Content) {
+                HomeUiState.Content(
+                    state.content.copy(isRefreshing = false, isLoadingSelection = false)
+                )
+            } else state
+        }
     }
 
     fun retry() {

@@ -28,7 +28,7 @@ import com.hpre.app.ui.common.EmptyPane
 import com.hpre.app.ui.common.ErrorPane
 import com.hpre.app.ui.common.LoadingPane
 import com.hpre.app.ui.common.VideoCard
-import com.hpre.app.ui.common.videoPrefetchItemKey
+import com.hpre.app.ui.common.videoListItemKey
 
 const val WATCH_KEY_RELATED_HEADER = "section:related_header"
 const val WATCH_KEY_RELATED_PROGRESS = "section:related_progress"
@@ -105,6 +105,7 @@ fun LazyListScope.relatedVideoItems(
             }
         }
         state.value != null -> {
+            val videos = state.value
             if (state.error != null) {
                 item(key = WATCH_KEY_RELATED_INLINE_ERROR) {
                     Column(modifier = Modifier.fillMaxWidth()) {
@@ -114,8 +115,8 @@ fun LazyListScope.relatedVideoItems(
                 }
             }
             items(
-                items = state.value,
-                key = { video -> videoPrefetchItemKey(video.key) }
+                items = videos,
+                key = { video -> videoListItemKey(video.key) }
             ) { video ->
                 VideoCard(
                     video = video,

@@ -13,6 +13,7 @@ import com.hpre.app.repository.LocalSearchHistoryItem
 import com.hpre.app.repository.SearchHistoryRepository
 import com.hpre.app.settings.PlaybackPreferences
 import com.hpre.app.testing.FakeVideoService
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.Flow
@@ -23,6 +24,7 @@ import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.advanceTimeBy
 import kotlinx.coroutines.test.advanceUntilIdle
 import kotlinx.coroutines.test.resetMain
+import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
 import kotlinx.coroutines.test.setMain
 import org.junit.After
@@ -713,5 +715,72 @@ class SearchViewModelTest {
         assertTrue(state2 is SearchUiState.Content)
         assertFalse((state2 as SearchUiState.Content).isLoadingNextPage)
         assertEquals(1, state2.items.size)
+    }
+
+    @Test
+    fun onVideoSelected_cancels_active_search_and_pagination_without_clearing_content() = runTest(testDispatcher) {
+        val searchGate = CompletableDeferred<Unit>()
+        var searchCancelled = false
+        val paginationGate = CompletableDeferred<Unit>()
+        var paginationCancelled = false
+
+        val fakeService = FakeVideoService()
+        fakeService.searchHandler = { _, _, token ->
+            if (token == null) {
+                AppResult.Success(page("p1", nextToken = PageToken.Id("next_1")))
+            } else {
+                try {
+                    paginationGate.await()
+                    AppResult.Success(page("p2"))
+                } catch (ce: kotlinx.coroutines.CancellationException) {
+                    paginationCancelled = true
+                    throw ce
+                }
+            }
+        }
+
+        val repository = CatalogRepository(videoService = fakeService, repositoryScope = this)
+        val viewModel = SearchViewModel(repository = repository, videoService = fakeService)
+
+        viewModel.onQuerySubmitted("initial")
+        advanceUntilIdle()
+
+        val content1 = viewModel.uiState.value as SearchUiState.Content
+        assertEquals(1, content1.items.size)
+
+        viewModel.loadNextPage()
+        runCurrent()
+        assertTrue((viewModel.uiState.value as SearchUiState.Content).isLoadingNextPage)
+
+        viewModel.onVideoSelected()
+        runCurrent()
+
+        assertTrue(paginationCancelled)
+        val afterPaginationCancel = viewModel.uiState.value as SearchUiState.Content
+        assertEquals(1, afterPaginationCancel.items.size)
+        assertFalse(afterPaginationCancel.isLoadingNextPage)
+        assertFalse(afterPaginationCancel.isSearching)
+
+        // Now test first-page search cancellation
+        fakeService.searchHandler = { _, _, _ ->
+            try {
+                searchGate.await()
+                AppResult.Success(page("new_p1"))
+            } catch (ce: kotlinx.coroutines.CancellationException) {
+                searchCancelled = true
+                throw ce
+            }
+        }
+        viewModel.onQuerySubmitted("new_query")
+        runCurrent()
+
+        viewModel.onVideoSelected()
+        runCurrent()
+
+        assertTrue(searchCancelled)
+        val afterSearchCancel = viewModel.uiState.value as SearchUiState.Content
+        assertEquals(1, afterSearchCancel.items.size)
+        assertFalse(afterSearchCancel.isSearching)
+        assertFalse(afterSearchCancel.isLoadingNextPage)
     }
 }

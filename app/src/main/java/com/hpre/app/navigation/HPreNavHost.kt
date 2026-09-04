@@ -73,15 +73,18 @@ fun HPreNavHost(
             HomeScreen(
                 viewModel = homeViewModel,
                 onVideoClick = { key ->
-                    beginVideoNavigation(key = key, navigate = {
-                        navController.navigate(Screen.Watch.createRoute(key))
-                    })
+                    beginVideoNavigation(
+                        key = key,
+                        beforeNavigate = { homeViewModel.onVideoSelected() },
+                        navigate = { navController.navigate(Screen.Watch.createRoute(key)) }
+                    )
                 },
-                prefetchVideos = container.videoService::prefetch,
                 onVideoSelected = { video ->
-                    beginVideoNavigation(key = video.key, navigate = {
-                        navController.navigate(Screen.Watch.createRoute(video.key, video.thumbnailUrl))
-                    })
+                    beginVideoNavigation(
+                        key = video.key,
+                        beforeNavigate = { homeViewModel.onVideoSelected() },
+                        navigate = { navController.navigate(Screen.Watch.createRoute(video.key, video.thumbnailUrl)) }
+                    )
                 }
             )
         }
@@ -99,9 +102,11 @@ fun HPreNavHost(
                 viewModel = searchViewModel,
                 onNavigateBack = { navController.popBackStack() },
                 onVideoClick = { key ->
-                    beginVideoNavigation(key = key, navigate = {
-                        navController.navigate(Screen.Watch.createRoute(key))
-                    })
+                    beginVideoNavigation(
+                        key = key,
+                        beforeNavigate = { searchViewModel.onVideoSelected() },
+                        navigate = { navController.navigate(Screen.Watch.createRoute(key)) }
+                    )
                 },
                 onChannelClick = { key ->
                     navController.navigate(Screen.Channel.createRoute(key))
@@ -109,11 +114,12 @@ fun HPreNavHost(
                 onPlaylistClick = { key ->
                     navController.navigate(Screen.PlaylistUnavailable.createRoute(key))
                 },
-                prefetchVideos = container.videoService::prefetch,
                 onVideoSelected = { video ->
-                    beginVideoNavigation(key = video.key, navigate = {
-                        navController.navigate(Screen.Watch.createRoute(video.key, video.thumbnailUrl))
-                    })
+                    beginVideoNavigation(
+                        key = video.key,
+                        beforeNavigate = { searchViewModel.onVideoSelected() },
+                        navigate = { navController.navigate(Screen.Watch.createRoute(video.key, video.thumbnailUrl)) }
+                    )
                 }
             )
         }
@@ -392,7 +398,6 @@ fun HPreNavHost(
                     },
                     isInPip = playbackUiState.isInPip,
                     playbackUiCoordinator = effectiveCoordinator,
-                    prefetchVideos = container.videoService::prefetch,
                     initialThumbnailUrl = thumbnailUrl
                 )
             }
