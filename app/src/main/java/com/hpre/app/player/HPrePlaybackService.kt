@@ -1119,9 +1119,10 @@ class HPrePlaybackService : MediaSessionService() {
                         val playWhenReady = args.getBoolean(EXTRA_PLAY_WHEN_READY, true)
                         val speed = args.getFloat(EXTRA_SPEED, 1.0f)
                         val incomingReqGen = args.getLong(EXTRA_REQUEST_GENERATION, 0L)
-                        val handoffStreamInfo = PlaybackStreamHandoff.takeConditional(
-                            args.getString(EXTRA_HANDOFF_TOKEN),
-                            expectedRequestGen = incomingReqGen
+                        val handoffStreamInfo = PlaybackStreamHandoff.takeIfValid(
+                            token = args.getString(EXTRA_HANDOFF_TOKEN),
+                            expectedKey = key,
+                            expectedRequestGeneration = incomingReqGen
                         )
 
                         val initialQuality = if (args.containsKey(EXTRA_QUALITY_HEIGHT)) {

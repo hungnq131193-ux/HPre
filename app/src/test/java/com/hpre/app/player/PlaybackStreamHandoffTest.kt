@@ -2,82 +2,89 @@ package com.hpre.app.player
 
 import com.hpre.app.model.ContentKey
 import com.hpre.app.model.StreamInfo
+import com.hpre.app.model.VideoStream
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
+import org.junit.Assert.assertSame
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class PlaybackStreamHandoffTest {
+    private fun playableInfo(key: ContentKey, expireSeconds: Long = 4_102_444_800L): StreamInfo =
+        StreamInfo(
+            key = key,
+            title = "Title ${key.nativeId}",
+            videoStreams = listOf(
+                VideoStream(
+                    url = "https://cdn.example/video.mp4?expire=$expireSeconds",
+                    format = "mp4",
+                    resolution = "360p",
+                    width = 640,
+                    height = 360,
+                    bitrate = 1_000L
+                )
+            )
+        )
+
     @Test
-    fun stream_info_is_consumed_once_without_serializing_urls() {
-        val info = StreamInfo(ContentKey(0, "video"), "Title", hlsManifestUrl = "https://cdn.example/live.m3u8")
+    fun valid_handoff_returns_the_exact_reference_once() {
+        val info = playableInfo(ContentKey(0, "video"), expireSeconds = 4_102_444_800L)
+        val token = PlaybackStreamHandoff.put(info, requestGeneration = 7L, currentTimeMs = 1_000L)
 
-        val token = PlaybackStreamHandoff.put(info)
-
-        assertEquals(info, PlaybackStreamHandoff.take(token))
-        assertNull(PlaybackStreamHandoff.take(token))
-        assertEquals(false, token.contains("http", ignoreCase = true))
+        assertSame(
+            info,
+            PlaybackStreamHandoff.takeIfValid(token, info.key, 7L, currentTimeMs = 2_000L)
+        )
+        assertNull(PlaybackStreamHandoff.takeIfValid(token, info.key, 7L, currentTimeMs = 2_000L))
     }
 
     @Test
-    fun clear_discards_all_pending_handoffs() {
-        val token = PlaybackStreamHandoff.put(StreamInfo(ContentKey(0, "video"), "Title"))
+    fun rejections_for_wrong_key_generation_ttl_expiry_blank_and_clock_skew_remove_token() {
+        val key = ContentKey(0, "video")
+        val otherKey = ContentKey(0, "other")
 
+        // Wrong key
+        var info = playableInfo(key)
+        var token = PlaybackStreamHandoff.put(info, requestGeneration = 1L, currentTimeMs = 1_000L)
+        assertNull(PlaybackStreamHandoff.takeIfValid(token, otherKey, 1L, currentTimeMs = 1_000L))
+        assertNull(PlaybackStreamHandoff.takeIfValid(token, key, 1L, currentTimeMs = 1_000L))
+
+        // Wrong generation
+        token = PlaybackStreamHandoff.put(info, requestGeneration = 2L, currentTimeMs = 1_000L)
+        assertNull(PlaybackStreamHandoff.takeIfValid(token, key, 99L, currentTimeMs = 1_000L))
+        assertNull(PlaybackStreamHandoff.takeIfValid(token, key, 2L, currentTimeMs = 1_000L))
+
+        // Expired TTL (> 60s)
+        token = PlaybackStreamHandoff.put(info, requestGeneration = 3L, currentTimeMs = 1_000L)
+        assertNull(PlaybackStreamHandoff.takeIfValid(token, key, 3L, currentTimeMs = 62_000L))
+        assertNull(PlaybackStreamHandoff.takeIfValid(token, key, 3L, currentTimeMs = 62_000L))
+
+        // Expired media URL (URL expiry 10s, take at 15s)
+        val expiredInfo = playableInfo(key, expireSeconds = 10L)
+        token = PlaybackStreamHandoff.put(expiredInfo, requestGeneration = 4L, currentTimeMs = 1_000L)
+        assertNull(PlaybackStreamHandoff.takeIfValid(token, key, 4L, currentTimeMs = 15_000L))
+        assertNull(PlaybackStreamHandoff.takeIfValid(token, key, 4L, currentTimeMs = 15_000L))
+
+        // Blank media URLs
+        val blankInfo = StreamInfo(key, "Blank")
+        token = PlaybackStreamHandoff.put(blankInfo, requestGeneration = 5L, currentTimeMs = 1_000L)
+        assertNull(PlaybackStreamHandoff.takeIfValid(token, key, 5L, currentTimeMs = 2_000L))
+        assertNull(PlaybackStreamHandoff.takeIfValid(token, key, 5L, currentTimeMs = 2_000L))
+
+        // Negative clock age (clock skew backward)
+        token = PlaybackStreamHandoff.put(info, requestGeneration = 6L, currentTimeMs = 5_000L)
+        assertNull(PlaybackStreamHandoff.takeIfValid(token, key, 6L, currentTimeMs = 4_000L))
+        assertNull(PlaybackStreamHandoff.takeIfValid(token, key, 6L, currentTimeMs = 5_000L))
+    }
+
+    @Test
+    fun max_entries_evicts_oldest() {
         PlaybackStreamHandoff.clear()
-
-        assertNull(PlaybackStreamHandoff.take(token))
-    }
-
-    @Test
-    fun takeConditional_with_request_generation_rejects_stale_requests() {
-        val info1 = StreamInfo(ContentKey(0, "video_1"), "Title 1")
-        val info2 = StreamInfo(ContentKey(0, "video_2"), "Title 2")
-
-        val token1 = PlaybackStreamHandoff.put(info1, requestGen = 1L)
-        val token2 = PlaybackStreamHandoff.put(info2, requestGen = 2L)
-
-        // Stale request with generation 1 trying to take token2 (gen 2) is rejected and token2 is retired
-        assertNull(PlaybackStreamHandoff.takeConditional(token2, expectedRequestGen = 1L))
-
-        // Stale request with generation 1 trying to peek/take token1 with gen 1 succeeds
-        val consumed1 = PlaybackStreamHandoff.takeConditional(token1, expectedRequestGen = 1L)
-        assertEquals(info1, consumed1)
-
-        // Since token2 was removed/retired on mismatch, subsequent take returns null
-        val consumed2 = PlaybackStreamHandoff.takeConditional(token2, expectedRequestGen = 2L)
-        assertNull(consumed2)
-    }
-
-    @Test
-    fun max_entries_and_ttl_bound_the_handoff_cache() {
-        PlaybackStreamHandoff.clear()
-        // Put more than max entries (e.g. 20)
         for (i in 1..25) {
-            PlaybackStreamHandoff.put(StreamInfo(ContentKey(0, "video_$i"), "Title $i"), currentTimeMs = 1000L)
+            val key = ContentKey(0, "video_$i")
+            PlaybackStreamHandoff.put(playableInfo(key), requestGeneration = i.toLong(), currentTimeMs = 1000L)
         }
-        // Oldest entries are evicted so the handoff keeps the most recent 16 entries.
         assertEquals(16, PlaybackStreamHandoff.size())
-
-        // TTL expiration test
-        val token = PlaybackStreamHandoff.put(StreamInfo(ContentKey(0, "video_exp"), "Title"), currentTimeMs = 1000L)
-        // Taking at time 1000L + 61_000L (TTL 60s)
-        val expired = PlaybackStreamHandoff.take(token, currentTimeMs = 62_000L)
-        assertNull(expired)
-    }
-
-    @Test
-    fun takeConditional_mismatch_removes_token_or_retires_immediately() {
-        PlaybackStreamHandoff.clear()
-        val info = StreamInfo(ContentKey(0, "video_mismatch"), "Title Mismatch")
-        val token = PlaybackStreamHandoff.put(info, requestGen = 10L)
-        assertEquals(1, PlaybackStreamHandoff.size())
-
-        // Request with mismatched expected generation (e.g. 5L != 10L)
-        val consumed = PlaybackStreamHandoff.takeConditional(token, expectedRequestGen = 5L)
-        assertNull(consumed)
-
-        // Token must be cleaned up / removed on mismatch so map size does not leak
-        assertEquals(0, PlaybackStreamHandoff.size())
-        assertNull(PlaybackStreamHandoff.take(token))
     }
 }
+

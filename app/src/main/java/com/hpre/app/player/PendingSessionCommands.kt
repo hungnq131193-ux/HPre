@@ -1,9 +1,11 @@
 package com.hpre.app.player
 
 import com.hpre.app.model.ContentKey
+import com.hpre.app.model.StreamInfo
 
 internal data class PendingPrepare(
     val key: ContentKey,
+    val streamInfo: StreamInfo,
     val positionMs: Long,
     val playWhenReady: Boolean,
     val initialQuality: QualityOption? = null,

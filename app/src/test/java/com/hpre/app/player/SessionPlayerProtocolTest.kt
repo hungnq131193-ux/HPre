@@ -12,6 +12,7 @@ import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNotEquals
 import org.junit.Assert.assertNull
+import org.junit.Assert.assertSame
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -280,12 +281,14 @@ class SessionPlayerProtocolTest {
     fun pending_prepare_contains_quality_and_speed_and_retains_latest() {
         val commands = PendingSessionCommands()
         val quality = QualityOption(1080, "1080p", false, "mp4", "video/mp4", "avc1")
-        val prep1 = PendingPrepare(testKey, 5000L, true, quality, playbackSpeed = 1.5f)
+        val streamInfo = StreamInfo(testKey, "Title")
+        val prep1 = PendingPrepare(testKey, streamInfo, 5000L, true, quality, playbackSpeed = 1.5f)
         commands.setPrepare(prep1)
 
         val retrieved = commands.takePrepare()
         assertNotNull(retrieved)
         assertEquals(testKey, retrieved?.key)
+        assertSame(streamInfo, retrieved?.streamInfo)
         assertEquals(5000L, retrieved?.positionMs)
         assertEquals(true, retrieved?.playWhenReady)
         assertEquals(quality, retrieved?.initialQuality)
@@ -426,13 +429,15 @@ class SessionPlayerProtocolTest {
         val commands = PendingSessionCommands()
         val key = ContentKey(0, "disconnect_reconnect_vid")
         val quality = QualityOption(720, "720p", true)
-        val prep = PendingPrepare(key, 12000L, true, quality, 1.25f)
+        val streamInfo = StreamInfo(key, "Disconnect Title")
+        val prep = PendingPrepare(key, streamInfo, 12000L, true, quality, 1.25f)
         commands.setPrepare(prep)
 
         // Controller disconnect event: mediaController becomes null, pending prepare retained
         val retrieved = commands.takePrepare()
         assertNotNull(retrieved)
         assertEquals(key, retrieved?.key)
+        assertSame(streamInfo, retrieved?.streamInfo)
         assertEquals(12000L, retrieved?.positionMs)
         assertEquals(1.25f, retrieved?.playbackSpeed ?: 0f, 0.001f)
     }

@@ -25,6 +25,8 @@ import java.io.InterruptedIOException
 import kotlin.coroutines.resume
 import kotlin.coroutines.resumeWithException
 
+import com.hpre.app.model.hasUsableMediaUrls
+
 /**
  * Isolated NewPipeExtractor implementation of VideoService.
  *
@@ -128,14 +130,14 @@ class NewPipeVideoService internal constructor(
         }
         val cached = extractionCoordinator.peek(key)
         if (cached != null) {
-            return if (cached.streamInfo.hasUsableUrls()) {
+            return if (cached.streamInfo.hasUsableMediaUrls()) {
                 AppResult.Success(cached.streamInfo)
             } else {
                 refreshCachedStreamInfo(key, cached)
             }
         }
         return when (val result = bundle(key)) {
-            is AppResult.Success -> if (result.value.streamInfo.hasUsableUrls()) {
+            is AppResult.Success -> if (result.value.streamInfo.hasUsableMediaUrls()) {
                 AppResult.Success(result.value.streamInfo)
             } else {
                 refreshCachedStreamInfo(key, result.value)

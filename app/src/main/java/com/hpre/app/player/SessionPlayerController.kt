@@ -172,6 +172,7 @@ internal suspend fun recoverSessionPlayback(
                 streamInfo = recovered.streamInfo,
                 pending = PendingPrepare(
                     key = recovered.key,
+                    streamInfo = recovered.streamInfo,
                     positionMs = recovered.resumePositionMs,
                     playWhenReady = recovered.resumeWhenReady,
                     initialQuality = recovered.selectedQuality,
@@ -676,6 +677,7 @@ class SessionPlayerController internal constructor(
         if (currentK != null && currentInfo != null) {
             val pending = PendingPrepare(
                 key = currentK,
+                streamInfo = currentInfo,
                 positionMs = _state.value.currentPositionMs,
                 playWhenReady = _state.value.playWhenReady,
                 initialQuality = _state.value.selectedQuality,
@@ -939,7 +941,7 @@ class SessionPlayerController internal constructor(
             )
         }
 
-        val pending = PendingPrepare(key, effectiveStartPositionMs, playWhenReady, initialQuality, clampedSpeed)
+        val pending = PendingPrepare(key, streamInfo, effectiveStartPositionMs, playWhenReady, initialQuality, clampedSpeed)
         val prepareRequestGeneration = localPrepareRequestGeneration.incrementAndGet()
         connectionPurpose = ConnectionPurpose.NORMAL
         scope.launch(mainDispatcher) {
@@ -962,9 +964,7 @@ class SessionPlayerController internal constructor(
         }
         connectionCoordinator?.onPrepareDelivered(pending)
         val prepareGen = ++localMediaGen
-        val handoffToken = currentStreamInfo?.takeIf { it.key == pending.key }?.let {
-            PlaybackStreamHandoff.put(it, requestGen = prepareGen)
-        }
+        val handoffToken = PlaybackStreamHandoff.put(pending.streamInfo, requestGeneration = prepareGen)
         val args = Bundle().apply {
             putInt(HPrePlaybackService.EXTRA_SERVICE_ID, pending.key.serviceId)
             putString(HPrePlaybackService.EXTRA_NATIVE_ID, pending.key.nativeId)
