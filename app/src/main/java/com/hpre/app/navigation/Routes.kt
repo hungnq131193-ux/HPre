@@ -159,3 +159,15 @@ sealed class Screen(val route: String) {
         }
     }
 }
+
+internal fun beginVideoNavigation(
+    key: ContentKey,
+    beforeNavigate: () -> Unit = {},
+    navigate: () -> Unit,
+    metrics: com.hpre.app.core.performance.VideoOpenMetrics = com.hpre.app.core.performance.VideoOpenMetrics.Default
+) {
+    beforeNavigate()
+    metrics.startTap(key)
+    navigate()
+}
+

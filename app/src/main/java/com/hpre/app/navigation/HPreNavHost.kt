@@ -73,11 +73,15 @@ fun HPreNavHost(
             HomeScreen(
                 viewModel = homeViewModel,
                 onVideoClick = { key ->
-                    navController.navigate(Screen.Watch.createRoute(key))
+                    beginVideoNavigation(key = key, navigate = {
+                        navController.navigate(Screen.Watch.createRoute(key))
+                    })
                 },
                 prefetchVideos = container.videoService::prefetch,
                 onVideoSelected = { video ->
-                    navController.navigate(Screen.Watch.createRoute(video.key, video.thumbnailUrl))
+                    beginVideoNavigation(key = video.key, navigate = {
+                        navController.navigate(Screen.Watch.createRoute(video.key, video.thumbnailUrl))
+                    })
                 }
             )
         }
@@ -95,7 +99,9 @@ fun HPreNavHost(
                 viewModel = searchViewModel,
                 onNavigateBack = { navController.popBackStack() },
                 onVideoClick = { key ->
-                    navController.navigate(Screen.Watch.createRoute(key))
+                    beginVideoNavigation(key = key, navigate = {
+                        navController.navigate(Screen.Watch.createRoute(key))
+                    })
                 },
                 onChannelClick = { key ->
                     navController.navigate(Screen.Channel.createRoute(key))
@@ -105,7 +111,9 @@ fun HPreNavHost(
                 },
                 prefetchVideos = container.videoService::prefetch,
                 onVideoSelected = { video ->
-                    navController.navigate(Screen.Watch.createRoute(video.key, video.thumbnailUrl))
+                    beginVideoNavigation(key = video.key, navigate = {
+                        navController.navigate(Screen.Watch.createRoute(video.key, video.thumbnailUrl))
+                    })
                 }
             )
         }
@@ -132,9 +140,15 @@ fun HPreNavHost(
                 onChannelClick = { key ->
                     navController.navigate(Screen.Channel.createRoute(key))
                 },
-                onVideoClick = { navController.navigate(Screen.Watch.createRoute(it)) },
+                onVideoClick = { key ->
+                    beginVideoNavigation(key = key, navigate = {
+                        navController.navigate(Screen.Watch.createRoute(key))
+                    })
+                },
                 onVideoSelected = { video ->
-                    navController.navigate(Screen.Watch.createRoute(video.key, video.thumbnailUrl))
+                    beginVideoNavigation(key = video.key, navigate = {
+                        navController.navigate(Screen.Watch.createRoute(video.key, video.thumbnailUrl))
+                    })
                 }
             )
         }
@@ -153,8 +167,16 @@ fun HPreNavHost(
                 onNavigateToSubscriptions = { navController.navigate(Screen.Subscriptions.route) },
                 onNavigateToPlaylists = { navController.navigate(Screen.Playlists.route) },
                 onPlaylistClick = { id -> navController.navigate(Screen.PlaylistDetail.createRoute(id)) },
-                onVideoClick = { key -> navController.navigate(Screen.Watch.createRoute(key)) },
-                onVideoSelected = { key, thumb -> navController.navigate(Screen.Watch.createRoute(key, thumb)) }
+                onVideoClick = { key ->
+                    beginVideoNavigation(key = key, navigate = {
+                        navController.navigate(Screen.Watch.createRoute(key))
+                    })
+                },
+                onVideoSelected = { key, thumb ->
+                    beginVideoNavigation(key = key, navigate = {
+                        navController.navigate(Screen.Watch.createRoute(key, thumb))
+                    })
+                }
             )
         }
 
@@ -168,7 +190,11 @@ fun HPreNavHost(
             )
             com.hpre.app.ui.library.HistoryScreen(
                 viewModel = libraryViewModel,
-                onVideoClick = { key -> navController.navigate(Screen.Watch.createRoute(key)) },
+                onVideoClick = { key ->
+                    beginVideoNavigation(key = key, navigate = {
+                        navController.navigate(Screen.Watch.createRoute(key))
+                    })
+                },
                 onNavigateBack = { navController.popBackStack() }
             )
         }
@@ -203,7 +229,11 @@ fun HPreNavHost(
             com.hpre.app.ui.library.PlaylistDetailScreen(
                 playlistId = playlistId,
                 viewModel = libraryViewModel,
-                onVideoClick = { key -> navController.navigate(Screen.Watch.createRoute(key)) },
+                onVideoClick = { key ->
+                    beginVideoNavigation(key = key, navigate = {
+                        navController.navigate(Screen.Watch.createRoute(key))
+                    })
+                },
                 onNavigateBack = { navController.popBackStack() }
             )
         }
@@ -248,7 +278,11 @@ fun HPreNavHost(
                 com.hpre.app.ui.channel.ChannelScreen(
                     key = key,
                     viewModel = model,
-                    onVideoClick = { navController.navigate(Screen.Watch.createRoute(it)) },
+                    onVideoClick = {
+                        beginVideoNavigation(key = it, navigate = {
+                            navController.navigate(Screen.Watch.createRoute(it))
+                        })
+                    },
                     onBack = { navController.popBackStack() }
                 )
             }
@@ -335,14 +369,20 @@ fun HPreNavHost(
                     },
                     onRelatedVideoClick = { nextKey ->
                         if (nextKey != key && navController.currentBackStackEntry?.id == backStackEntry.id) {
-                            watchViewModel.cancelPendingLoads()
-                            navController.replaceWatch(Screen.Watch.createRoute(nextKey))
+                            beginVideoNavigation(
+                                key = nextKey,
+                                beforeNavigate = { watchViewModel.cancelPendingLoads() },
+                                navigate = { navController.replaceWatch(Screen.Watch.createRoute(nextKey)) }
+                            )
                         }
                     },
                     onRelatedVideoSelected = { video ->
                         if (video.key != key && navController.currentBackStackEntry?.id == backStackEntry.id) {
-                            watchViewModel.cancelPendingLoads()
-                            navController.replaceWatch(Screen.Watch.createRoute(video.key, video.thumbnailUrl))
+                            beginVideoNavigation(
+                                key = video.key,
+                                beforeNavigate = { watchViewModel.cancelPendingLoads() },
+                                navigate = { navController.replaceWatch(Screen.Watch.createRoute(video.key, video.thumbnailUrl)) }
+                            )
                         }
                     },
                     onMinimizeToHome = {

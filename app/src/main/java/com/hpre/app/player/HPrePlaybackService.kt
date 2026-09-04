@@ -821,6 +821,13 @@ class HPrePlaybackService : MediaSessionService() {
                         player.playbackParameters = androidx.media3.common.PlaybackParameters(
                             playbackSpeed.takeIf { it.isFinite() }?.coerceIn(0.25f, 3.0f) ?: 1.0f
                         )
+                        activeMetricsSession?.let { session ->
+                            com.hpre.app.core.performance.VideoOpenMetrics.Default.mark(
+                                session,
+                                com.hpre.app.core.performance.VideoOpenEvent.PLAYER_PREPARE,
+                                category = currentStreamType?.name
+                            )
+                        }
                         player.prepare()
                         checkBufferingWatchdog()
                     }
@@ -937,6 +944,13 @@ class HPrePlaybackService : MediaSessionService() {
                         player.seekTo(effectiveSwitchPositionMs)
                     }
                     player.playWhenReady = wasPlaying
+                    activeMetricsSession?.let { session ->
+                        com.hpre.app.core.performance.VideoOpenMetrics.Default.mark(
+                            session,
+                            com.hpre.app.core.performance.VideoOpenEvent.PLAYER_PREPARE,
+                            category = currentStreamType?.name
+                        )
+                    }
                     player.prepare()
                     checkBufferingWatchdog()
                     persistCurrentSnapshot()
