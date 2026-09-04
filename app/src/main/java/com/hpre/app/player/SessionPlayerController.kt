@@ -715,26 +715,12 @@ class SessionPlayerController internal constructor(
 
     private fun handleConnectFailure() {
         if (isReleased) return
-        if (connectionPurpose == ConnectionPurpose.PREWARM && currentKey == null) {
-            isReconnecting = false
-            reconnectJob = null
-            return
+        val idlePrewarm = connectionPurpose == ConnectionPurpose.PREWARM && currentKey == null
+        if (!idlePrewarm) {
+            _state.update { it.copy(isLoading = false, error = AppError.NetworkError) }
         }
-        _state.update { it.copy(isLoading = false, error = AppError.NetworkError) }
         isReconnecting = true
-        reconnectJob?.cancel()
-        if (connectRetryCount < 3) {
-            connectRetryCount++
-            reconnectJob = scope.launch(mainDispatcher) {
-                delay(500L * connectRetryCount)
-                if (!isReleased && mediaController == null) {
-                    connectController()
-                }
-            }
-        } else {
-            isReconnecting = false
-            reconnectJob = null
-        }
+        triggerBoundedReconnect()
     }
 
     private inline fun <reified T : Throwable> findCause(throwable: Throwable?): T? {
@@ -899,7 +885,11 @@ class SessionPlayerController internal constructor(
         initialQuality: QualityOption?,
         playbackSpeed: Float
     ) {
+        reconnectJob?.cancel()
+        reconnectJob = null
         connectionPurpose = ConnectionPurpose.NORMAL
+        connectRetryCount = 0
+        isReconnecting = false
         if (isReleased) return
         recoveryJob?.cancel()
         currentKey = key

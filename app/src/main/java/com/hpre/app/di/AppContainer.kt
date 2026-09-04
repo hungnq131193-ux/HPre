@@ -151,8 +151,10 @@ internal fun orchestratePlaybackPrewarm(
                 initPlayerController()
             }
         } catch (e: CancellationException) {
+            guard.set(false)
             throw e
         } catch (_: Exception) {
+            guard.set(false)
             // Non-cancellation exceptions are swallowed so normal lazy video-open remains fallback
         }
     }

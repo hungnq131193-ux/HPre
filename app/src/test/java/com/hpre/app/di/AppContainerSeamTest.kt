@@ -20,6 +20,35 @@ import java.lang.reflect.Modifier
 class AppContainerSeamTest {
 
     @Test
+    fun failed_prewarm_reopens_guard_for_a_later_attempt() = kotlinx.coroutines.test.runTest {
+        val guard = java.util.concurrent.atomic.AtomicBoolean(false)
+        var mediaFactoryCalls = 0
+        var controllerCalls = 0
+
+        orchestratePlaybackPrewarm(
+            guard, this, StandardTestDispatcher(testScheduler), StandardTestDispatcher(testScheduler),
+            initMediaSourceFactory = {
+                mediaFactoryCalls++
+                error("first construction fails")
+            },
+            initPlayerController = { controllerCalls++ }
+        )
+        testScheduler.advanceUntilIdle()
+        assertFalse(guard.get())
+
+        orchestratePlaybackPrewarm(
+            guard, this, StandardTestDispatcher(testScheduler), StandardTestDispatcher(testScheduler),
+            initMediaSourceFactory = { mediaFactoryCalls++ },
+            initPlayerController = { controllerCalls++ }
+        )
+        testScheduler.advanceUntilIdle()
+
+        assertEquals(2, mediaFactoryCalls)
+        assertEquals(1, controllerCalls)
+        assertTrue(guard.get())
+    }
+
+    @Test
     fun hPreApplication_has_no_public_setter_or_container_replacement_method() {
         val appClass = HPreApplication::class.java
         val methods = appClass.methods
