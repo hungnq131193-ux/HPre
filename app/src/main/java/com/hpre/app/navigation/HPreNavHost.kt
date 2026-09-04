@@ -371,7 +371,7 @@ fun HPreNavHost(
                     fullscreenHostHandlerFactory = container.fullscreenHostHandlerFactory,
                     onNavigateBack = {
                         watchViewModel.cancelPendingLoads()
-                        navController.navigateToHomeFromWatch()
+                        navController.popBackStack()
                     },
                     onRelatedVideoClick = { nextKey ->
                         if (nextKey != key && navController.currentBackStackEntry?.id == backStackEntry.id) {

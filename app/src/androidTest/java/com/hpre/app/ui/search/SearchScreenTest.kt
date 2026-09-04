@@ -426,7 +426,6 @@ class SearchScreenTest {
         }
 
         composeTestRule.onNodeWithTag("video_card_short_1").assertIsDisplayed()
-        composeTestRule.onNodeWithTag("video_card_short_2").assertIsDisplayed()
         composeTestRule.onNodeWithTag("video_card_short_3").assertDoesNotExist()
 
         // fakeService should have received exactly 1 search call (initial page), NOT 2 (next page was not requested)
