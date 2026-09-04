@@ -142,4 +142,23 @@ class StartupStreamSelectorTest {
         assertTrue(result is AppResult.Failure)
         assertEquals(AppError.UnsupportedFormat, (result as AppResult.Failure).error)
     }
+
+    @Test
+    fun vod_startup_prefers_progressive_with_audio_over_video_only_plus_audio_hls_and_dash() {
+        val prog360 = progressive(360)
+        val vid720 = adaptive(720)
+        val aud = audio()
+        val info = StreamInfo(
+            key = key,
+            title = "Ordinary VOD",
+            videoStreams = listOf(prog360, vid720),
+            audioStreams = listOf(aud),
+            hlsManifestUrl = "https://example.test/master.m3u8",
+            dashManifestUrl = "https://example.test/manifest.mpd"
+        )
+
+        val result = StartupStreamSelector.select(info) as AppResult.Success<SelectedStreams>
+        assertEquals(PlaybackStreamType.PROGRESSIVE, result.value.streamType)
+        org.junit.Assert.assertSame(prog360, result.value.videoStream)
+    }
 }

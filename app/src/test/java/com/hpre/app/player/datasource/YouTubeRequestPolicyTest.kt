@@ -132,4 +132,22 @@ class YouTubeRequestPolicyTest {
         assertFalse(transformed.uriString.contains("%253D"))
         assertFalse(transformed.uriString.contains("%252F"))
     }
+
+    @Test
+    fun allProfiles_assert_origin_referer_te_and_post_body_for_eligible_requests() {
+        for (profile in YouTubeRequestProfile.values()) {
+            val dataSpec = DataSpec.Builder()
+                .setUri(ytUri)
+                .setPosition(50)
+                .setLength(100)
+                .build()
+
+            val transformed = YouTubeRequestPolicy.transformDataSpec(dataSpec, profile, requestNumber = 0)
+            assertEquals("https://www.youtube.com", transformed.headers["Origin"])
+            assertEquals("https://www.youtube.com/", transformed.headers["Referer"])
+            assertEquals("trailers", transformed.headers["TE"])
+            assertEquals(DataSpec.HTTP_METHOD_POST, transformed.httpMethod)
+            assertEquals(listOf<Byte>(0x78, 0x00), transformed.httpBody?.toList())
+        }
+    }
 }
