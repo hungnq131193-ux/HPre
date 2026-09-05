@@ -85,7 +85,8 @@ fun HPreNavHost(
                         beforeNavigate = { homeViewModel.onVideoSelected() },
                         navigate = { navController.navigate(Screen.Watch.createRoute(video.key, video.thumbnailUrl)) }
                     )
-                }
+                },
+                onContentIdle = container::prewarmPlaybackInfrastructure
             )
         }
 
