@@ -17,6 +17,8 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withTimeoutOrNull
 
 data class HomeContent(
@@ -64,6 +66,8 @@ class HomeViewModel(
     val chipsState: StateFlow<HomeChipsState> = _chipsState.asStateFlow()
 
     private var activeLoadJob: Job? = null
+    private var snapshotWriteJob: Job? = null
+    private val snapshotWriteMutex = Mutex()
     private var loadGeneration: Long = 0L
 
     /**
@@ -133,12 +137,12 @@ class HomeViewModel(
                     is AppResult.Success -> {
                         if (result.value.isEmpty()) {
                             chipCache.remove(cacheKey)
-                            feedStore?.remove(cacheKey)
                             _uiState.value = HomeUiState.Empty
+                            persistSnapshot(generation, cacheKey, null)
                         } else {
                             chipCache.put(cacheKey, result.value)
-                            feedStore?.save(cacheKey, result.value)
                             _uiState.value = HomeUiState.Content(HomeContent(result.value))
+                            persistSnapshot(generation, cacheKey, result.value)
                         }
                     }
                     is AppResult.Failure -> {
@@ -206,16 +210,16 @@ class HomeViewModel(
                     is AppResult.Success -> {
                         if (result.value.isEmpty()) {
                             chipCache.remove(cacheKey)
-                            feedStore?.remove(cacheKey)
                             _uiState.value = HomeUiState.Empty
+                            persistSnapshot(generation, cacheKey, null)
                         } else {
                             // Overwrite the cache so leaving and returning to this chip shows what
                             // the user just pulled, not the pre-refresh list.
                             chipCache.put(cacheKey, result.value)
-                            feedStore?.save(cacheKey, result.value)
                             _uiState.value = HomeUiState.Content(
                                 HomeContent(videos = result.value, isRefreshing = false, refreshError = null)
                             )
+                            persistSnapshot(generation, cacheKey, result.value)
                         }
                     }
                     is AppResult.Failure -> {
@@ -245,6 +249,17 @@ class HomeViewModel(
                     state.content.copy(isRefreshing = false, isLoadingSelection = false)
                 )
             } else state
+        }
+    }
+
+    private fun persistSnapshot(generation: Long, cacheKey: String, videos: List<VideoSummary>?) {
+        val store = feedStore ?: return
+        snapshotWriteJob?.cancel()
+        snapshotWriteJob = viewModelScope.launch(ioDispatcher) {
+            snapshotWriteMutex.withLock {
+                if (generation != loadGeneration) return@withLock
+                if (videos == null) store.remove(cacheKey) else store.save(cacheKey, videos)
+            }
         }
     }
 

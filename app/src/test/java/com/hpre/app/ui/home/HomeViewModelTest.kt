@@ -34,6 +34,9 @@ import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
+import java.util.concurrent.CountDownLatch
+import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicInteger
 
 @OptIn(ExperimentalCoroutinesApi::class)
 class HomeViewModelTest {
@@ -77,6 +80,18 @@ class HomeViewModelTest {
         viewCount = 1000,
         publishedTimestamp = 10000L
     )
+
+    private fun waitForCondition(description: String, condition: () -> Boolean) {
+        val deadlineNanos = System.nanoTime() + TimeUnit.SECONDS.toNanos(5)
+        while (!condition()) {
+            testDispatcher.scheduler.runCurrent()
+            if (System.nanoTime() >= deadlineNanos) {
+                throw AssertionError("Timed out waiting for $description")
+            }
+            Thread.sleep(1)
+        }
+        testDispatcher.scheduler.runCurrent()
+    }
 
     private fun recommendations(catalog: CatalogRepository) = RecommendationRepository(
         catalog,
@@ -622,6 +637,153 @@ class HomeViewModelTest {
         networkGate.complete(Unit)
         advanceUntilIdle()
         assertEquals(fresh, (model.uiState.value as HomeUiState.Content).content.videos)
+    }
+
+    @Test
+    fun network_content_is_published_without_waiting_for_disk_save() = runTest(testDispatcher) {
+        val networkStarted = CountDownLatch(1)
+        val saveStarted = CountDownLatch(1)
+        val releaseSave = CountDownLatch(1)
+        val feedStore = HomeFeedStore(
+            readEncoded = { null },
+            writeEncoded = { _, _ ->
+                saveStarted.countDown()
+                releaseSave.await(5, TimeUnit.SECONDS)
+            },
+            removeEncoded = {},
+            ioDispatcher = Dispatchers.IO
+        )
+
+        try {
+            val model = HomeViewModel(
+                repository = HomeRecommendationSource {
+                    networkStarted.countDown()
+                    AppResult.Success(listOf(summary("network")))
+                },
+                topicFeedSource = FakeTopicFeedSource(),
+                feedStore = feedStore,
+                ioDispatcher = Dispatchers.IO
+            )
+
+            runCurrent()
+            waitForCondition("network request after disk lookup") { networkStarted.count == 0L }
+            waitForCondition("disk save to start") { saveStarted.count == 0L }
+            val content = model.uiState.value as HomeUiState.Content
+            assertEquals("network", content.content.videos.single().key.nativeId)
+        } finally {
+            releaseSave.countDown()
+        }
+    }
+
+    @Test
+    fun newer_generation_writes_after_an_older_save_for_the_same_cache_key() = runTest(testDispatcher) {
+        val values = java.util.concurrent.ConcurrentHashMap<String, String>()
+        val firstSaveStarted = CountDownLatch(1)
+        val releaseFirstSave = CountDownLatch(1)
+        val latestSaveFinished = CountDownLatch(1)
+        val writes = AtomicInteger()
+        val feedStore = HomeFeedStore(
+            readEncoded = values::get,
+            writeEncoded = { key, value ->
+                when (writes.incrementAndGet()) {
+                    1 -> {
+                        firstSaveStarted.countDown()
+                        releaseFirstSave.await(5, TimeUnit.SECONDS)
+                    }
+                    2 -> latestSaveFinished.countDown()
+                }
+                values[key] = value
+            },
+            removeEncoded = values::remove,
+            ioDispatcher = Dispatchers.IO
+        )
+        var calls = 0
+        val model = HomeViewModel(
+            repository = HomeRecommendationSource {
+                calls++
+                AppResult.Success(listOf(summary(if (calls == 1) "old" else "new")))
+            },
+            topicFeedSource = FakeTopicFeedSource(),
+            feedStore = feedStore,
+            ioDispatcher = Dispatchers.IO
+        )
+
+        try {
+            runCurrent()
+            waitForCondition("initial feed request") { calls > 0 }
+            waitForCondition("first snapshot write") { firstSaveStarted.count == 0L }
+
+            model.refresh()
+            runCurrent()
+            assertEquals("new", (model.uiState.value as HomeUiState.Content).content.videos.single().key.nativeId)
+
+            releaseFirstSave.countDown()
+            waitForCondition("latest generation snapshot write") { latestSaveFinished.count == 0L }
+            assertEquals("new", feedStore.load("__all__")?.single()?.key?.nativeId)
+        } finally {
+            releaseFirstSave.countDown()
+        }
+    }
+
+    @Test
+    fun rapid_chip_changes_keep_only_the_running_and_latest_snapshot_writes() = runTest(testDispatcher) {
+        val firstSaveStarted = CountDownLatch(1)
+        val releaseFirstSave = CountDownLatch(1)
+        val latestSaveFinished = CountDownLatch(1)
+        val writtenKeys = java.util.concurrent.CopyOnWriteArrayList<String>()
+        val feedStore = HomeFeedStore(
+            readEncoded = { null },
+            writeEncoded = { key, _ ->
+                writtenKeys += key
+                if (writtenKeys.size == 1) {
+                    firstSaveStarted.countDown()
+                    releaseFirstSave.await(5, TimeUnit.SECONDS)
+                } else {
+                    latestSaveFinished.countDown()
+                }
+            },
+            removeEncoded = {},
+            ioDispatcher = Dispatchers.IO
+        )
+        var initialCalls = 0
+        val topicSource = FakeTopicFeedSource().apply {
+            handler = { query, _ -> AppResult.Success(listOf(summary(query))) }
+        }
+        val model = HomeViewModel(
+            repository = HomeRecommendationSource {
+                initialCalls++
+                AppResult.Success(listOf(summary("all")))
+            },
+            topicFeedSource = topicSource,
+            feedStore = feedStore,
+            ioDispatcher = Dispatchers.IO
+        )
+
+        try {
+            runCurrent()
+            waitForCondition("initial feed request") { initialCalls > 0 }
+            waitForCondition("first snapshot write") { firstSaveStarted.count == 0L }
+
+            for (index in 1..4) {
+                model.selectChip(index)
+                runCurrent()
+            }
+            waitForCondition("latest chip content") {
+                (model.uiState.value as? HomeUiState.Content)
+                    ?.content
+                    ?.videos
+                    ?.singleOrNull()
+                    ?.key
+                    ?.nativeId == "thể thao"
+            }
+            assertEquals("thể thao", (model.uiState.value as HomeUiState.Content).content.videos.single().key.nativeId)
+
+            releaseFirstSave.countDown()
+            waitForCondition("latest chip snapshot write") { latestSaveFinished.count == 0L }
+            assertEquals(listOf("__all__", "thể thao"), writtenKeys)
+        } finally {
+            releaseFirstSave.countDown()
+        }
     }
 
     /**
