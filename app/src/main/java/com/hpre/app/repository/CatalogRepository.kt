@@ -20,6 +20,7 @@ import kotlinx.coroutines.async
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
+import java.io.IOException
 
 /**
  * CatalogRepository manages short TTL caching for feeds and search results,
@@ -113,7 +114,7 @@ class CatalogRepository(
             } catch (ce: CancellationException) {
                 throw ce
             } catch (t: Throwable) {
-                AppResult.Failure(AppError.Unknown)
+                AppResult.Failure(t.toAppError())
             }
 
             mutex.withLock {
@@ -205,6 +206,9 @@ class CatalogRepository(
             globalClearGeneration++
         }
     }
+
+    private fun Throwable.toAppError(): AppError =
+        if (this is IOException) AppError.NetworkError else AppError.Unknown
 }
 
 

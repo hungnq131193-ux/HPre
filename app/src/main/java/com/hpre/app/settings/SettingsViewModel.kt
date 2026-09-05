@@ -38,7 +38,8 @@ class SettingsViewModel(
     private val settingsRepository: SettingsRepository,
     private val appUpdateChecker: AppUpdateChecker,
     val installedVersion: String,
-    private val mediaCacheManager: MediaCacheManager? = null
+    private val mediaCacheManager: MediaCacheManager? = null,
+    settingsSnapshot: AppSettingsSnapshot? = null
 ) : ViewModel() {
 
     private val _updateState = MutableStateFlow<UpdateUiState>(UpdateUiState.Idle)
@@ -46,8 +47,8 @@ class SettingsViewModel(
     private val _videoCacheClearState = MutableStateFlow<VideoCacheClearUiState>(VideoCacheClearUiState.Idle)
     val videoCacheClearState: StateFlow<VideoCacheClearUiState> = _videoCacheClearState.asStateFlow()
 
-    val settingsState: StateFlow<AppSettings> = settingsRepository.settings
-        .stateIn(
+    val settingsState: StateFlow<AppSettings> = settingsSnapshot?.settings
+        ?: settingsRepository.settings.stateIn(
             scope = viewModelScope,
             started = SharingStarted.WhileSubscribed(5000),
             initialValue = AppSettings()
@@ -146,12 +147,19 @@ class SettingsViewModel(
             settingsRepository: SettingsRepository,
             appUpdateChecker: AppUpdateChecker,
             installedVersion: String,
-            mediaCacheManager: MediaCacheManager? = null
+            mediaCacheManager: MediaCacheManager? = null,
+            settingsSnapshot: AppSettingsSnapshot? = null
         ): ViewModelProvider.Factory =
             object : ViewModelProvider.Factory {
                 @Suppress("UNCHECKED_CAST")
                 override fun <T : ViewModel> create(modelClass: Class<T>): T {
-                    return SettingsViewModel(settingsRepository, appUpdateChecker, installedVersion, mediaCacheManager) as T
+                    return SettingsViewModel(
+                        settingsRepository,
+                        appUpdateChecker,
+                        installedVersion,
+                        mediaCacheManager,
+                        settingsSnapshot
+                    ) as T
                 }
             }
     }

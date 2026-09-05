@@ -458,6 +458,29 @@ class RecommendationRepositoryTest {
     }
 
     @Test
+    fun `initial fan out timeout with no completed source returns failure instead of empty success`() = runTest {
+        val service = FakeVideoService()
+        service.trendingHandler = {
+            kotlinx.coroutines.delay(20_000L)
+            AppResult.Success(emptyList())
+        }
+        service.searchHandler = { _, _, _ ->
+            kotlinx.coroutines.delay(20_000L)
+            AppResult.Success(SearchPage(emptyList()))
+        }
+        val repository = RecommendationRepository(
+            CatalogRepository(service, this),
+            searchHistory(listOf(LocalSearchHistoryItem("hung_topic", 100L))),
+            history(emptyList())
+        )
+
+        val result = repository.home(RecommendationRequest(limit = 100))
+
+        assertEquals(AppResult.Failure(AppError.NetworkError), result)
+        assertEquals(COLLECTION_DEADLINE_MS, testScheduler.currentTime)
+    }
+
+    @Test
     fun `empty history trending fallback is bounded`() = runTest {
         val service = FakeVideoService()
         service.trendingHandler = {
