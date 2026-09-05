@@ -15,6 +15,7 @@ import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
+import java.net.SocketTimeoutException
 
 class CatalogRepositoryTest {
 
@@ -30,6 +31,19 @@ class CatalogRepositoryTest {
         viewCount = 1000,
         publishedTimestamp = 10000L
     )
+
+    @Test
+    fun raw_metadata_socket_timeout_returns_network_failure() = runTest {
+        val service = FakeVideoService(
+            videoHandler = { throw SocketTimeoutException("Metadata timeout") }
+        )
+        val repository = CatalogRepository(videoService = service, repositoryScope = this)
+
+        assertEquals(
+            AppResult.Failure(AppError.NetworkError),
+            repository.video(ContentKey(0, "raw_metadata_timeout"))
+        )
+    }
 
     @Test
     fun trending_caches_result_within_ttl() = runTest {

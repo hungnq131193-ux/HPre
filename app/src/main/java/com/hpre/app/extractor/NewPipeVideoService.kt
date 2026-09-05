@@ -101,6 +101,9 @@ class NewPipeVideoService internal constructor(
             }
             throw CancellationException("Operation cancelled").apply { initCause(interrupted) }
         } catch (interrupted: InterruptedException) {
+            if (currentCoroutineContext().isActive) {
+                return@withContext AppResult.Failure(AppError.NetworkError)
+            }
             throw CancellationException("Operation cancelled").apply { initCause(interrupted) }
         } catch (error: Throwable) {
             AppResult.Failure(ExtractorErrorMapper.mapExtractorFailure(error))

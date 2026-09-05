@@ -4,6 +4,7 @@ import com.hpre.app.core.error.AppError
 import com.hpre.app.core.error.AppResult
 import com.hpre.app.core.performance.VideoOpenEvent
 import com.hpre.app.core.performance.VideoOpenMetrics
+import com.hpre.app.extractor.BackTimeoutVideoService
 import com.hpre.app.model.ContentKey
 import com.hpre.app.model.Comment
 import com.hpre.app.model.CommentPage
@@ -44,6 +45,7 @@ import org.junit.Assert.assertSame
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
+import java.util.concurrent.TimeUnit
 
 @OptIn(ExperimentalCoroutinesApi::class)
 class WatchViewModelTest {
@@ -858,6 +860,42 @@ class WatchViewModelTest {
     }
 
     @Test
+    fun back_ignores_real_downloader_timeout_from_old_extractor_and_keeps_new_session() = runTest(testDispatcher) {
+        val server = okhttp3.mockwebserver.MockWebServer()
+        server.start()
+        try {
+            server.enqueue(okhttp3.mockwebserver.MockResponse().setHeadersDelay(1, TimeUnit.SECONDS))
+            server.enqueue(okhttp3.mockwebserver.MockResponse().setHeadersDelay(1, TimeUnit.SECONDS))
+            val oldKey = ContentKey(0, "back_timeout_old")
+            val newKey = ContentKey(0, "back_timeout_new")
+            val service = BackTimeoutVideoService(
+                oldKey = oldKey,
+                newKey = newKey,
+                newDetails = testDetails(newKey),
+                newStream = testStreamInfo(newKey),
+                serverUrl = server.url("/").toString().removeSuffix("/")
+            )
+            val player = FakePlayerController()
+            val model = WatchViewModel(service, player, androidx.lifecycle.SavedStateHandle(), ioDispatcher = testDispatcher)
+
+            model.load(oldKey)
+            runCurrent()
+            assertTrue(service.oldCallStarted.await(5, TimeUnit.SECONDS))
+            model.cancelPendingLoads()
+            model.load(newKey)
+            runCurrent()
+            assertTrue(service.oldTimeoutFinished.await(5, TimeUnit.SECONDS))
+            assertTrue(service.newExtractionStarted.await(5, TimeUnit.SECONDS))
+            runCurrent()
+            assertEquals(newKey, player.preparedKey)
+            assertNull(model.uiState.value.error)
+            assertFalse(model.uiState.value.isLoading)
+        } finally {
+            server.shutdown()
+        }
+    }
+
+    @Test
     fun switching_video_cancels_in_flight_related_and_comments_requests() = runTest(testDispatcher) {
         var relatedCancelled = false
         var commentsCancelled = false
@@ -1242,6 +1280,8 @@ class WatchViewModelTest {
     @Test
     fun details_failure_after_stream_success_keeps_prepared_playback() = runTest(testDispatcher) {
         val details = CompletableDeferred<AppResult<VideoDetails>>()
+        val events = mutableListOf<VideoOpenEvent>()
+        val metrics = VideoOpenMetrics(enabled = true, sink = { events += it.event })
         val fakePlayer = FakePlayerController()
         val viewModel = WatchViewModel(
             videoService = FakeVideoService(
@@ -1251,7 +1291,8 @@ class WatchViewModelTest {
             ),
             playerController = fakePlayer,
             savedStateHandle = androidx.lifecycle.SavedStateHandle(),
-            ioDispatcher = testDispatcher
+            ioDispatcher = testDispatcher,
+            videoOpenMetrics = metrics
         )
 
         viewModel.load(testKey)
@@ -1263,6 +1304,9 @@ class WatchViewModelTest {
 
         assertEquals(testKey, fakePlayer.preparedKey)
         assertEquals(AppError.ExtractionFailed, viewModel.uiState.value.error)
+        assertTrue(events.contains(VideoOpenEvent.STREAM_INFO_READY))
+        assertFalse(events.contains(VideoOpenEvent.PLAYBACK_ERROR))
+        assertNotNull(metrics.activeSession(testKey))
     }
 
     @Test
