@@ -26,8 +26,10 @@ import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.NonCancellable
+import kotlinx.coroutines.async
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.advanceTimeBy
@@ -86,6 +88,8 @@ class WatchViewModelTest {
         var clearMediaCount = 0
         var transitionCount = 0
         var onPrepare: (() -> Unit)? = null
+        var autoplaySourceKey: ContentKey? = null
+        var autoplayCandidates: List<ContentKey> = emptyList()
 
         override fun attachSurface(playerView: androidx.media3.ui.PlayerView) {
             attachedViewCount++
@@ -120,6 +124,11 @@ class WatchViewModelTest {
                 currentPositionMs = startPositionMs,
                 selectedQuality = initialQuality
             )
+        }
+
+        override fun updateAutoplayCandidates(sourceKey: ContentKey, candidates: List<ContentKey>) {
+            autoplaySourceKey = sourceKey
+            autoplayCandidates = candidates
         }
 
         override fun play() {
@@ -1339,6 +1348,69 @@ class WatchViewModelTest {
         assertEquals(false, model.relatedState.value.isRefreshing)
         assertEquals(false, model.relatedState.value.isInitialLoading)
         assertEquals(listOf(comment), (model.commentsState.value as AsyncState.Content<CommentPage>).value.comments)
+    }
+
+    @Test
+    fun related_results_publish_a_deduplicated_autoplay_queue_without_the_current_video() = runTest(testDispatcher) {
+        val first = summary("autoplay_first")
+        val duplicate = first.copy(title = "Duplicate")
+        val current = summary(testKey.nativeId)
+        val player = FakePlayerController()
+        val service = FakeVideoService(
+            videoHandler = { AppResult.Success(testDetails(it)) },
+            streamInfoHandler = { AppResult.Success(testStreamInfo(it)) },
+            relatedHandler = { AppResult.Success(listOf(current, first, duplicate)) }
+        )
+        val model = WatchViewModel(
+            videoService = service,
+            playerController = player,
+            savedStateHandle = androidx.lifecycle.SavedStateHandle(),
+            ioDispatcher = testDispatcher
+        )
+
+        model.load(testKey)
+        advanceUntilIdle()
+
+        assertEquals(testKey, player.autoplaySourceKey)
+        assertEquals(listOf(first.key), player.autoplayCandidates)
+    }
+
+    @Test
+    fun service_autoplay_transition_loads_next_metadata_without_preparing_the_media_again() = runTest(testDispatcher) {
+        val nextKey = ContentKey(0, "autoplay_next")
+        val player = FakePlayerController()
+        val service = FakeVideoService(
+            videoHandler = { AppResult.Success(testDetails(it)) },
+            streamInfoHandler = { AppResult.Success(testStreamInfo(it)) },
+            relatedHandler = { AppResult.Success(emptyList()) }
+        )
+        val model = WatchViewModel(
+            videoService = service,
+            playerController = player,
+            savedStateHandle = androidx.lifecycle.SavedStateHandle(),
+            ioDispatcher = testDispatcher
+        )
+
+        model.load(testKey)
+        advanceUntilIdle()
+        assertEquals(1, player.prepareCount)
+
+        val navigation = async { model.autoplayNavigation.first() }
+        runCurrent()
+        player._state.value = PlaybackState(
+            key = nextKey,
+            title = "Autoplay next",
+            isPlaying = true,
+            playWhenReady = true,
+            isReady = true,
+            autoplayTransitionGeneration = 1L
+        )
+        advanceUntilIdle()
+
+        assertEquals(nextKey, model.uiState.value.key)
+        assertEquals(nextKey, model.uiState.value.details?.key)
+        assertEquals(1, player.prepareCount)
+        assertEquals(nextKey, navigation.await())
     }
 
     @Test

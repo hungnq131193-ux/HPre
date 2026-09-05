@@ -30,6 +30,8 @@ import com.hpre.app.repository.WatchStateCache
 import com.hpre.app.ui.watch.DefaultFullscreenHostHandler
 import com.hpre.app.ui.watch.FullscreenHostHandlerFactory
 import com.hpre.app.settings.playbackDataStore
+import com.hpre.app.settings.AppSettingsSnapshot
+import com.hpre.app.settings.shareAppSettings
 import com.hpre.app.ui.home.CatalogTopicFeedSource
 import com.hpre.app.ui.home.HomeFeedStore
 import com.hpre.app.ui.home.TopicFeedSource
@@ -80,6 +82,7 @@ interface AppContainer {
     val mediaSourceFactory: MediaSourceFactory
     val playbackPreferences: com.hpre.app.settings.PlaybackPreferences
     val settingsRepository: com.hpre.app.settings.SettingsRepository
+    val settingsSnapshot: AppSettingsSnapshot
     val watchStateCache: WatchStateCache
     val playbackSnapshotStore: PlaybackSnapshotStore?
         get() = null
@@ -262,6 +265,10 @@ class DefaultAppContainer(
         com.hpre.app.settings.DataStoreSettingsRepository(appContext.playbackDataStore)
     }
 
+    override val settingsSnapshot: AppSettingsSnapshot by lazy {
+        settingsRepository.settings.shareAppSettings(applicationScope, ioDispatcher)
+    }
+
     override val watchStateCache: WatchStateCache by lazy {
         WatchStateCache(ttlMs = 1_800_000L, maxEntries = 16)
     }
@@ -321,7 +328,8 @@ class DefaultAppContainer(
             recoveryCoordinator = coordinator,
             snapshotStore = playbackSnapshotStore,
             externalScope = applicationScope,
-            initialPurpose = initialPurpose
+            initialPurpose = initialPurpose,
+            settingsProvider = { settingsSnapshot.value }
         ).also { controller ->
             controller.updateLifecyclePolicy(
                 backgroundEnabled = backgroundPlaybackEnabled,

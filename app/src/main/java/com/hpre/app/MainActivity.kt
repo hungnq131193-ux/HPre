@@ -68,7 +68,7 @@ open class MainActivity : ComponentActivity() {
             pipActiveOrEntering = initialUiState.isInPip
         )
         setContent {
-            val settings by app.container.settingsRepository.settings.collectAsStateWithLifecycle(initialValue = com.hpre.app.settings.AppSettings())
+            val settings by app.container.settingsSnapshot.settings.collectAsStateWithLifecycle()
             val darkTheme = when (settings.theme) {
                 com.hpre.app.settings.AppTheme.SYSTEM -> androidx.compose.foundation.isSystemInDarkTheme()
                 com.hpre.app.settings.AppTheme.LIGHT -> false

@@ -16,7 +16,86 @@ import org.junit.Assert.assertSame
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
+@OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
 class SessionPlayerProtocolTest {
+
+    @Test
+    fun new_session_uses_network_settings_while_same_key_retry_keeps_session_speed() = kotlinx.coroutines.test.runTest {
+        val fakeContext = object : android.content.ContextWrapper(null) {
+            override fun getApplicationContext(): android.content.Context = this
+        }
+        val pendingFuture = com.google.common.util.concurrent.SettableFuture.create<androidx.media3.session.MediaController>()
+        val coordinator = object : SessionPlayerController.ConnectionLifecycleCoordinator {
+            override fun createControllerFuture(
+                context: android.content.Context,
+                listener: androidx.media3.session.MediaController.Listener,
+                isPrewarm: Boolean
+            ): com.google.common.util.concurrent.ListenableFuture<androidx.media3.session.MediaController> = pendingFuture
+        }
+        var settings = com.hpre.app.settings.AppSettings(
+            wifiQuality = com.hpre.app.settings.QualityPreferenceSetting.MEDIUM_720P,
+            defaultPlaybackSpeed = 1.25f
+        )
+        val dispatcher = kotlinx.coroutines.test.StandardTestDispatcher(testScheduler)
+        val controller = SessionPlayerController(
+            context = fakeContext,
+            connectionCoordinator = coordinator,
+            mainDispatcher = dispatcher,
+            ioDispatcher = dispatcher,
+            externalScope = this,
+            settingsProvider = { settings },
+            wifiConnectionProvider = WifiConnectionProvider { true }
+        )
+        val firstKey = ContentKey(0, "settings-first")
+        val secondKey = ContentKey(0, "settings-second")
+        val firstInfo = StreamInfo(
+            key = firstKey,
+            title = "First",
+            videoStreams = listOf(
+                VideoStream("https://example.test/1080.mp4", "mp4", "1080p", 1920, 1080, 1_000L, false, "video/mp4", "avc1.64001F,mp4a.40.2"),
+                VideoStream("https://example.test/720.mp4", "mp4", "720p", 1280, 720, 800L, false, "video/mp4", "avc1.64001F,mp4a.40.2")
+            )
+        )
+
+        controller.prepare(firstKey, firstInfo)
+        assertEquals(1.25f, controller.state.value.playbackSpeed, 0.001f)
+        assertEquals(720, controller.state.value.selectedQuality?.height)
+        assertEquals(UserQualityPolicy.Auto(maxHeight = 720), controller.state.value.qualityPolicy)
+
+        controller.setPlaybackSpeed(1.75f)
+        testScheduler.runCurrent()
+        settings = settings.copy(defaultPlaybackSpeed = 2.0f)
+        controller.prepare(firstKey, firstInfo, startPositionMs = 5_000L)
+        assertEquals(1.75f, controller.state.value.playbackSpeed, 0.001f)
+
+        controller.stopForTransition()
+        controller.prepare(secondKey, firstInfo.copy(key = secondKey, title = "Second"))
+        assertEquals(2.0f, controller.state.value.playbackSpeed, 0.001f)
+        controller.release()
+    }
+
+    @Test
+    fun autoplay_transition_accepts_only_the_active_key_and_generation() {
+        val current = ContentKey(0, "current")
+        val next = ContentKey(0, "next")
+        var accepted: AutoplayTransition? = null
+        val transition = AutoplayTransition(
+            previousKey = current,
+            previousSessionGeneration = 4L,
+            nextKey = next,
+            nextTitle = "Next",
+            nextSessionGeneration = 5L,
+            nextMediaGeneration = 9L,
+            playbackSpeed = 1.25f,
+            qualityPolicy = UserQualityPolicy.Auto(maxHeight = 360)
+        )
+
+        assertTrue(handleAutoplayTransition(transition, current, 4L, isReleased = false) { accepted = it })
+        assertEquals(transition, accepted)
+        assertFalse(handleAutoplayTransition(transition, current, 3L, isReleased = false) {})
+        assertFalse(handleAutoplayTransition(transition, next, 4L, isReleased = false) {})
+        assertFalse(handleAutoplayTransition(transition, current, 4L, isReleased = true) {})
+    }
 
     @Test
     fun session_recovery_returns_pending_prepare_with_fresh_stream_state() = kotlinx.coroutines.test.runTest {

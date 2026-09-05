@@ -40,9 +40,13 @@ import kotlinx.coroutines.cancelChildren
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.MutableSharedFlow
+import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flowOf
@@ -282,6 +286,9 @@ class WatchViewModel(
         .distinctUntilChanged()
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), playerController.state.value.toStructuralState())
 
+    private val _autoplayNavigation = MutableSharedFlow<ContentKey>(extraBufferCapacity = 1)
+    val autoplayNavigation: SharedFlow<ContentKey> = _autoplayNavigation.asSharedFlow()
+
     @Volatile
     private var currentKey: ContentKey? = null
     @Volatile
@@ -301,6 +308,26 @@ class WatchViewModel(
     private var commentsInFlight = false
     private var commentsRequestGeneration = 0L
     private var firstCommentsPage: CommentPage? = null
+
+    init {
+        viewModelScope.launch {
+            var handledAutoplayGeneration = playerController.state.value.autoplayTransitionGeneration
+            playerController.state
+                .map { state: PlaybackState -> state.key to state.autoplayTransitionGeneration }
+                .distinctUntilChanged()
+                .collect { (activeKey, autoplayGeneration) ->
+                    val shouldFollowAutoplay = synchronized(sessionGuard) {
+                        activeKey != null && autoplayGeneration > handledAutoplayGeneration &&
+                            currentKey != null && currentKey != activeKey && !cleared
+                    }
+                    if (shouldFollowAutoplay && activeKey != null) {
+                        handledAutoplayGeneration = autoplayGeneration
+                        load(activeKey)
+                        _autoplayNavigation.emit(activeKey)
+                    }
+                }
+        }
+    }
 
     private suspend fun loadResumePosition(key: ContentKey): Long {
         val repository = historyRepository ?: return 0L
@@ -374,6 +401,12 @@ class WatchViewModel(
             _relatedState.value = cachedSnapshot?.relatedVideos?.let {
                 RefreshableAsyncState.content(it)
             } ?: RefreshableAsyncState.initial()
+            cachedSnapshot?.relatedVideos?.let { related ->
+                playerController.updateAutoplayCandidates(
+                    key,
+                    related.map(VideoSummary::key).filter { it != key }.distinct()
+                )
+            }
             _commentsState.value = cachedSnapshot?.comments?.let {
                 if (it.comments.isEmpty()) AsyncState.Empty else AsyncState.Content(it)
             } ?: if (videoService.supportsComments) AsyncState.Loading else AsyncState.Empty
@@ -678,6 +711,10 @@ class WatchViewModel(
                             when (result) {
                                 is AppResult.Success -> {
                                     _relatedState.value = RefreshableAsyncState.content(result.value)
+                                    playerController.updateAutoplayCandidates(
+                                        key,
+                                        result.value.map(VideoSummary::key).filter { it != key }.distinct()
+                                    )
                                     _uiState.value.details?.let { details ->
                                         watchStateCache?.updateRelated(key, result.value)
                                     }

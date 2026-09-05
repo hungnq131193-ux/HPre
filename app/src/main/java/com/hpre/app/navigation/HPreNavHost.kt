@@ -252,7 +252,8 @@ fun HPreNavHost(
                     settingsRepository = container.settingsRepository,
                     appUpdateChecker = container.appUpdateChecker,
                     installedVersion = com.hpre.app.BuildConfig.VERSION_NAME,
-                    mediaCacheManager = container.mediaCacheManager
+                    mediaCacheManager = container.mediaCacheManager,
+                    settingsSnapshot = container.settingsSnapshot
                 )
             )
             com.hpre.app.settings.SettingsScreen(
@@ -365,6 +366,13 @@ fun HPreNavHost(
                     )
                 )
                 val playbackUiState by effectiveCoordinator.state.collectAsStateWithLifecycle()
+                androidx.compose.runtime.LaunchedEffect(watchViewModel, backStackEntry.id) {
+                    watchViewModel.autoplayNavigation.collect { nextKey ->
+                        if (navController.currentBackStackEntry?.id == backStackEntry.id) {
+                            navController.replaceWatch(Screen.Watch.createRoute(nextKey))
+                        }
+                    }
+                }
 
                 com.hpre.app.ui.watch.WatchScreen(
                     contentKey = key,
