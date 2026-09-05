@@ -31,6 +31,7 @@ internal class VideoExtractionCoordinator(
 
     private class InFlight(
         val result: CompletableDeferred<AppResult<ExtractedVideoBundle>>,
+        val streamResult: CompletableDeferred<AppResult<com.hpre.app.model.StreamInfo>>,
         val job: Deferred<*>,
         var subscribers: Int,
         val isRefresh: Boolean
@@ -73,7 +74,37 @@ internal class VideoExtractionCoordinator(
         key: ContentKey,
         forceRefresh: Boolean = false,
         loader: suspend () -> AppResult<ExtractedVideoBundle>
-    ): AppResult<ExtractedVideoBundle> {
+    ): AppResult<ExtractedVideoBundle> = executeTarget(
+        key = key,
+        forceRefresh = forceRefresh,
+        cachedValue = { it },
+        resultFor = { it.result },
+        loader = { publishStream ->
+            val loaded = loader()
+            if (loaded is AppResult.Success) publishStream(loaded.value.streamInfo)
+            loaded
+        }
+    )
+
+    suspend fun executeStream(
+        key: ContentKey,
+        forceRefresh: Boolean = false,
+        loader: suspend ((com.hpre.app.model.StreamInfo) -> Unit) -> AppResult<ExtractedVideoBundle>
+    ): AppResult<com.hpre.app.model.StreamInfo> = executeTarget(
+        key = key,
+        forceRefresh = forceRefresh,
+        cachedValue = { it.streamInfo },
+        resultFor = { it.streamResult },
+        loader = loader
+    )
+
+    private suspend fun <T> executeTarget(
+        key: ContentKey,
+        forceRefresh: Boolean,
+        cachedValue: (ExtractedVideoBundle) -> T,
+        resultFor: (InFlight) -> CompletableDeferred<AppResult<T>>,
+        loader: suspend ((com.hpre.app.model.StreamInfo) -> Unit) -> AppResult<ExtractedVideoBundle>
+    ): AppResult<T> {
         val request: InFlight
         mutex.withLock {
             val now = nowMs()
@@ -85,24 +116,28 @@ internal class VideoExtractionCoordinator(
             } else {
                 val cached = cache[key]
                 if (!forceRefresh && cached != null) {
-                    return AppResult.Success(cached.bundle)
+                    return AppResult.Success(cachedValue(cached.bundle))
                 }
                 if (countExtractions) {
                     extractionCounts[key] = (extractionCounts[key] ?: 0) + 1
                 }
                 val result = CompletableDeferred<AppResult<ExtractedVideoBundle>>()
+                val streamResult = CompletableDeferred<AppResult<com.hpre.app.model.StreamInfo>>()
                 val holder = arrayOfNulls<InFlight>(1)
                 val callerContext = coroutineContext.minusKey(Job)
                 val job = scope.async(callerContext, start = CoroutineStart.DEFAULT) {
                     try {
                         val loaded = try {
-                            loader()
+                            loader { stream ->
+                                streamResult.complete(AppResult.Success(stream))
+                            }
                         } catch (cancelled: CancellationException) {
                             throw cancelled
                         } catch (_: Throwable) {
                             AppResult.Failure(AppError.Unknown)
                         }
                         if (loaded is AppResult.Success) {
+                            streamResult.complete(AppResult.Success(loaded.value.streamInfo))
                             mutex.withLock {
                                 // A replaced extraction may finish for its original subscribers,
                                 // but must never overwrite the newer recovery result.
@@ -111,10 +146,13 @@ internal class VideoExtractionCoordinator(
                                     cache[key] = CacheEntry(loaded.value, storedAtMs + ttlMs)
                                 }
                             }
+                        } else if (loaded is AppResult.Failure) {
+                            streamResult.complete(loaded)
                         }
                         result.complete(loaded)
                     } catch (cancelled: CancellationException) {
                         result.completeExceptionally(cancelled)
+                        streamResult.completeExceptionally(cancelled)
                         throw cancelled
                     } finally {
                         withContext(NonCancellable) {
@@ -127,14 +165,20 @@ internal class VideoExtractionCoordinator(
                         }
                     }
                 }
-                request = InFlight(result, job, subscribers = 1, isRefresh = forceRefresh)
+                request = InFlight(
+                    result = result,
+                    streamResult = streamResult,
+                    job = job,
+                    subscribers = 1,
+                    isRefresh = forceRefresh
+                )
                 holder[0] = request
                 inFlight[key] = request
             }
         }
 
         try {
-            return request.result.await()
+            return resultFor(request).await()
         } catch (cancelled: CancellationException) {
             var cancelledUpstream = false
             withContext(NonCancellable) {

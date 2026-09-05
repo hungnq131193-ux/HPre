@@ -144,11 +144,14 @@ class NewPipeVideoService internal constructor(
                 refreshCachedStreamInfo(key, cached)
             }
         }
-        return when (val result = bundle(key)) {
-            is AppResult.Success -> if (result.value.streamInfo.hasUsableMediaUrls()) {
-                AppResult.Success(result.value.streamInfo)
+        return when (val result = streamBundle(key)) {
+            is AppResult.Success -> if (result.value.hasUsableMediaUrls()) {
+                result
             } else {
-                refreshCachedStreamInfo(key, result.value)
+                when (val complete = bundle(key)) {
+                    is AppResult.Success -> refreshCachedStreamInfo(key, complete.value)
+                    is AppResult.Failure -> complete
+                }
             }
             is AppResult.Failure -> result
         }
@@ -186,10 +189,7 @@ class NewPipeVideoService internal constructor(
         val cached = extractionCoordinator.peek(key)
         return if (cached != null) {
             refreshCachedStreamInfo(key, cached)
-        } else when (val result = bundle(key, forceRefresh = true)) {
-            is AppResult.Success -> AppResult.Success(result.value.streamInfo)
-            is AppResult.Failure -> result
-        }
+        } else streamBundle(key, forceRefresh = true)
     }
 
     private suspend fun refreshCachedStreamInfo(
@@ -219,14 +219,42 @@ class NewPipeVideoService internal constructor(
     }
 
     private suspend fun bundle(key: ContentKey, forceRefresh: Boolean = false): AppResult<ExtractedVideoBundle> {
-        val metricsSession = videoOpenMetrics.activeSession(key)
         return extractionCoordinator.execute(key, forceRefresh) {
-            // Only the shared cache-miss loader emits these events, not each subscriber.
-            metricsSession?.let { videoOpenMetrics.mark(it, VideoOpenEvent.EXTRACTOR_START) }
-            val result = extract { operations.videoBundle(key) }
-            metricsSession?.let { videoOpenMetrics.mark(it, VideoOpenEvent.EXTRACTOR_FINISH) }
-            result
+            loadBundle(key) { }
         }
+    }
+
+    private suspend fun streamBundle(key: ContentKey, forceRefresh: Boolean = false): AppResult<StreamInfo> {
+        return extractionCoordinator.executeStream(key, forceRefresh) { onStreamReady ->
+            loadBundle(key, onStreamReady)
+        }
+    }
+
+    private suspend fun loadBundle(
+        key: ContentKey,
+        onStreamReady: (StreamInfo) -> Unit
+    ): AppResult<ExtractedVideoBundle> {
+        val metricsSession = videoOpenMetrics.activeSession(key)
+        // Only the shared cache-miss loader emits these events, not each subscriber.
+        metricsSession?.let { videoOpenMetrics.mark(it, VideoOpenEvent.EXTRACTOR_START) }
+        val result = extract {
+            val publishStream: (StreamInfo) -> Unit = { stream ->
+                if (stream.key != key) {
+                    throw org.schabi.newpipe.extractor.exceptions.ExtractionException(
+                        "Returned video key ${stream.key} does not match requested key $key"
+                    )
+                }
+                onStreamReady(stream)
+            }
+            val stagedOperations = operations as? StagedVideoExtractorOperations
+            if (stagedOperations != null) {
+                stagedOperations.videoBundle(key, publishStream)
+            } else {
+                operations.videoBundle(key).also { publishStream(it.streamInfo) }
+            }
+        }
+        metricsSession?.let { videoOpenMetrics.mark(it, VideoOpenEvent.EXTRACTOR_FINISH) }
+        return result
     }
 
     override suspend fun playlist(key: ContentKey): AppResult<PlaylistDetails> {
