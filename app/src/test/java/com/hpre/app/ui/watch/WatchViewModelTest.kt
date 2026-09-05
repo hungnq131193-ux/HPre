@@ -832,6 +832,32 @@ class WatchViewModelTest {
     }
 
     @Test
+    fun back_cancellation_clears_loading_and_ignores_late_timeout_failure() = runTest(testDispatcher) {
+        val delayedFailure = CompletableDeferred<AppResult<StreamInfo>>()
+        val service = FakeVideoService(
+            videoHandler = { AppResult.Success(testDetails(it)) },
+            streamInfoHandler = { withContext(NonCancellable) { delayedFailure.await() } },
+            relatedHandler = { AppResult.Success(emptyList()) }
+        )
+        val player = FakePlayerController()
+        val model = WatchViewModel(service, player, androidx.lifecycle.SavedStateHandle(), ioDispatcher = testDispatcher)
+
+        model.load(testKey)
+        runCurrent()
+        assertTrue(model.uiState.value.isLoading)
+        assertTrue(model.uiState.value.isPlayerLoading)
+
+        model.cancelPendingLoads()
+        assertFalse(model.uiState.value.isLoading)
+        assertFalse(model.uiState.value.isPlayerLoading)
+        delayedFailure.complete(AppResult.Failure(AppError.NetworkError))
+        runCurrent()
+
+        assertNull(model.uiState.value.error)
+        assertEquals(0, player.prepareCount)
+    }
+
+    @Test
     fun switching_video_cancels_in_flight_related_and_comments_requests() = runTest(testDispatcher) {
         var relatedCancelled = false
         var commentsCancelled = false

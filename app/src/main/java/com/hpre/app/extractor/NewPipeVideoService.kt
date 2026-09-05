@@ -19,6 +19,8 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withContext
 import java.io.InterruptedIOException
@@ -94,6 +96,9 @@ class NewPipeVideoService internal constructor(
         } catch (cancelled: CancellationException) {
             throw cancelled
         } catch (interrupted: InterruptedIOException) {
+            if (currentCoroutineContext().isActive) {
+                return@withContext AppResult.Failure(ExtractorErrorMapper.mapExtractorFailure(interrupted))
+            }
             throw CancellationException("Operation cancelled").apply { initCause(interrupted) }
         } catch (interrupted: InterruptedException) {
             throw CancellationException("Operation cancelled").apply { initCause(interrupted) }

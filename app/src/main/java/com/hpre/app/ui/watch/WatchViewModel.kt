@@ -504,6 +504,7 @@ class WatchViewModel(
             currentGeneration++
             relatedGeneration++
             cancelLoadRequests()
+            _uiState.update { it.copy(isLoading = false, isPlayerLoading = false) }
         }
     }
 

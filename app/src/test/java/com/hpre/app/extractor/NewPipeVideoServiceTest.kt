@@ -15,10 +15,14 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.async
+import kotlinx.coroutines.asCoroutineDispatcher
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
+import okhttp3.OkHttpClient
+import okhttp3.mockwebserver.MockResponse
+import okhttp3.mockwebserver.MockWebServer
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
@@ -31,6 +35,7 @@ import org.schabi.newpipe.extractor.downloader.Request
 import org.schabi.newpipe.extractor.downloader.Response
 import java.io.IOException
 import java.io.InterruptedIOException
+import java.net.SocketTimeoutException
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.CopyOnWriteArrayList
 import java.util.concurrent.Executors
@@ -39,6 +44,130 @@ import java.util.concurrent.atomic.AtomicBoolean
 
 @OptIn(ExperimentalCoroutinesApi::class)
 class NewPipeVideoServiceTest {
+
+    @Test
+    fun active_socket_timeout_returns_network_failure() = runBlocking {
+        ExtractorBootstrap.init(OkHttpDownloader())
+        val service = NewPipeVideoService(
+            ioDispatcher = ExtractorDispatcher.IO,
+            operations = object : ExtractorOperations by DefaultExtractorOperations() {
+                override fun videoBundle(key: ContentKey): ExtractedVideoBundle {
+                    throw SocketTimeoutException("Socket timed out")
+                }
+            }
+        )
+
+        assertEquals(
+            AppResult.Failure(AppError.NetworkError),
+            service.video(ContentKey(0, "socket_timeout"))
+        )
+    }
+
+    @Test
+    fun active_wrapped_socket_timeout_returns_network_failure() = runBlocking {
+        ExtractorBootstrap.init(OkHttpDownloader())
+        val service = NewPipeVideoService(
+            ioDispatcher = ExtractorDispatcher.IO,
+            operations = object : ExtractorOperations by DefaultExtractorOperations() {
+                override fun videoBundle(key: ContentKey): ExtractedVideoBundle {
+                    throw IOException("Extractor request failed", SocketTimeoutException("Socket timed out"))
+                }
+            }
+        )
+
+        assertEquals(
+            AppResult.Failure(AppError.NetworkError),
+            service.video(ContentKey(0, "wrapped_socket_timeout"))
+        )
+    }
+
+    @Test
+    fun active_timeout_wrapped_in_interrupted_io_returns_network_failure() = runBlocking {
+        ExtractorBootstrap.init(OkHttpDownloader())
+        val service = NewPipeVideoService(
+            ioDispatcher = ExtractorDispatcher.IO,
+            operations = object : ExtractorOperations by DefaultExtractorOperations() {
+                override fun videoBundle(key: ContentKey): ExtractedVideoBundle {
+                    throw InterruptedIOException("Call timeout").apply {
+                        initCause(SocketTimeoutException("Socket timed out"))
+                    }
+                }
+            }
+        )
+
+        assertEquals(
+            AppResult.Failure(AppError.NetworkError),
+            service.video(ContentKey(0, "wrapped_interrupted_timeout"))
+        )
+    }
+
+    @Test
+    fun active_okhttp_call_timeout_returns_network_failure() = runBlocking {
+        val server = MockWebServer()
+        server.start()
+        try {
+            server.enqueue(MockResponse().setHeadersDelay(1, TimeUnit.SECONDS))
+            val downloader = OkHttpDownloader(
+                OkHttpClient.Builder().callTimeout(100, TimeUnit.MILLISECONDS).build()
+            )
+            ExtractorBootstrap.init(downloader)
+            val service = NewPipeVideoService(
+                ioDispatcher = ExtractorDispatcher.IO,
+                operations = object : ExtractorOperations by DefaultExtractorOperations() {
+                    override fun videoBundle(key: ContentKey): ExtractedVideoBundle {
+                        downloader.execute(
+                            Request.newBuilder()
+                                .url(server.url("/call-timeout").toString())
+                                .httpMethod("GET")
+                                .build()
+                        )
+                        error("Expected OkHttp call timeout")
+                    }
+                }
+            )
+
+            assertEquals(
+                AppResult.Failure(AppError.NetworkError),
+                service.video(ContentKey(0, "okhttp_call_timeout"))
+            )
+        } finally {
+            server.shutdown()
+        }
+    }
+
+    @Test
+    fun worker_after_active_interrupted_timeout_can_complete_next_request() = runBlocking {
+        val executor = Executors.newSingleThreadExecutor()
+        val dispatcher = executor.asCoroutineDispatcher()
+        try {
+            ExtractorBootstrap.init(OkHttpDownloader())
+            val firstKey = ContentKey(0, "interrupted_timeout")
+            val secondKey = ContentKey(0, "next_request")
+            val expected = ExtractedVideoBundle(
+                VideoDetails(secondKey, "Next", "https://example.test/next", null, null, null, null, null, null, null, null, null, null),
+                StreamInfo(secondKey, "Next", hlsManifestUrl = "https://example.test/next.m3u8"),
+                emptyList()
+            )
+            val service = NewPipeVideoService(
+                ioDispatcher = dispatcher,
+                operations = object : ExtractorOperations by DefaultExtractorOperations() {
+                    override fun videoBundle(key: ContentKey): ExtractedVideoBundle {
+                        if (key == firstKey) {
+                            Thread.currentThread().interrupt()
+                            throw InterruptedIOException("Call timeout")
+                        }
+                        return expected
+                    }
+                }
+            )
+
+            assertEquals(AppResult.Failure(AppError.NetworkError), service.video(firstKey))
+            assertEquals(AppResult.Success(expected.details), service.video(secondKey))
+        } finally {
+            dispatcher.close()
+            executor.shutdownNow()
+        }
+    }
 
     @Test
     fun prefetch_and_stream_info_share_one_bundle_extraction() = runTest {
