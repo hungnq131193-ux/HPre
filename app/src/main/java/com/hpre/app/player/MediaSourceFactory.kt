@@ -102,19 +102,22 @@ class MediaSourceFactory(
             cacheManager: MediaCacheManager?
         ): DataSource.Factory {
             val defaultUpstreamFactory = createProfileFactory(context, okHttpClient, httpConfig, YouTubeRequestProfile.PROGRESSIVE)
-            val cache = cacheManager?.cache
-            return if (cache != null) {
-                val sinkFactory = CacheDataSink.Factory()
-                    .setCache(cache)
-                    .setFragmentSize(MediaCacheConstants.FRAGMENT_SIZE_BYTES)
+            return DataSource.Factory {
+                val cache = cacheManager?.cache
+                if (cache == null) {
+                    defaultUpstreamFactory.createDataSource()
+                } else {
+                    val sinkFactory = CacheDataSink.Factory()
+                        .setCache(cache)
+                        .setFragmentSize(MediaCacheConstants.FRAGMENT_SIZE_BYTES)
 
-                CacheDataSource.Factory()
-                    .setCache(cache)
-                    .setUpstreamDataSourceFactory(defaultUpstreamFactory)
-                    .setCacheWriteDataSinkFactory(sinkFactory)
-                    .setFlags(CacheDataSource.FLAG_IGNORE_CACHE_ON_ERROR)
-            } else {
-                defaultUpstreamFactory
+                    CacheDataSource.Factory()
+                        .setCache(cache)
+                        .setUpstreamDataSourceFactory(defaultUpstreamFactory)
+                        .setCacheWriteDataSinkFactory(sinkFactory)
+                        .setFlags(CacheDataSource.FLAG_IGNORE_CACHE_ON_ERROR)
+                        .createDataSource()
+                }
             }
         }
     }

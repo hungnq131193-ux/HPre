@@ -1,9 +1,13 @@
 package com.hpre.app.player
 
+import android.content.ContextWrapper
 import androidx.annotation.OptIn
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.datasource.DataSource
+import androidx.media3.datasource.cache.Cache
+import androidx.media3.datasource.cache.CacheDataSource
 import androidx.media3.exoplayer.source.MediaSource
+import com.hpre.app.player.cache.MediaCacheManager
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertSame
@@ -15,6 +19,61 @@ import okhttp3.OkHttpClient
 
 @OptIn(UnstableApi::class)
 class MediaSourceFactoryTest {
+
+    @Test
+    fun construction_does_not_read_the_potentially_blocking_cache_getter() {
+        var cacheReads = 0
+        val cacheManager = object : MediaCacheManager {
+            override val cache: Cache?
+                get() {
+                    cacheReads++
+                    error("cache initialization must not run during factory construction")
+                }
+            override val isAvailable: Boolean = false
+            override suspend fun clearCache(): Boolean = false
+        }
+        val context = object : ContextWrapper(null) {
+            override fun getApplicationContext() = this
+        }
+
+        MediaSourceFactory(
+            context = context,
+            okHttpClient = OkHttpClient(),
+            cacheManager = cacheManager
+        )
+
+        assertEquals(0, cacheReads)
+    }
+
+    @Test
+    fun progressive_data_sources_start_upstream_then_use_cache_once_ready() {
+        var readyCache: Cache? = null
+        val cacheManager = object : MediaCacheManager {
+            override val cache: Cache?
+                get() = readyCache
+            override val isAvailable: Boolean
+                get() = readyCache != null
+            override suspend fun clearCache(): Boolean = false
+        }
+        val context = object : ContextWrapper(null) {
+            override fun getApplicationContext() = this
+        }
+        val factory = MediaSourceFactory(
+            context = context,
+            okHttpClient = OkHttpClient(),
+            cacheManager = cacheManager
+        )
+        val field = MediaSourceFactory::class.java
+            .getDeclaredField("cachedProgressiveDataSourceFactory")
+            .apply { isAccessible = true }
+        val dataSourceFactory = field.get(factory) as DataSource.Factory
+
+        assertTrue(dataSourceFactory.createDataSource() !is CacheDataSource)
+
+        readyCache = createFakeCache()
+
+        assertTrue(dataSourceFactory.createDataSource() is CacheDataSource)
+    }
 
     @Test
     fun playback_client_removes_total_timeout_but_reuses_shared_network_resources() {
@@ -57,6 +116,18 @@ class MediaSourceFactoryTest {
             }
         } as MediaSource
     }
+
+    private fun createFakeCache(): Cache = Proxy.newProxyInstance(
+        Cache::class.java.classLoader,
+        arrayOf(Cache::class.java)
+    ) { _, method, _ ->
+        when (method.returnType) {
+            java.lang.Boolean.TYPE -> false
+            java.lang.Integer.TYPE -> 0
+            java.lang.Long.TYPE -> 0L
+            else -> null
+        }
+    } as Cache
 
     private class FakeDataSourceFactory : DataSource.Factory {
         override fun createDataSource(): DataSource {

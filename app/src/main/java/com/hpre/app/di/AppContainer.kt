@@ -129,15 +129,16 @@ internal fun interface ApplicationContainerFactory {
 /**
  * Top-level internal orchestration helper for prewarming playback infrastructure.
  *
- * Guarantees single-execution (idempotent), strictly executes [initMediaSourceFactory] on
- * [ioDispatcher] before executing [initPlayerController] on [mainDispatcher], and catches
- * non-cancellation exceptions while preserving [CancellationException].
+ * Guarantees single-execution (idempotent), initializes cache and media sources on [ioDispatcher]
+ * before executing [initPlayerController] on [mainDispatcher], and catches non-cancellation
+ * exceptions while preserving [CancellationException].
  */
 internal fun orchestratePlaybackPrewarm(
     guard: AtomicBoolean,
     scope: CoroutineScope,
     ioDispatcher: kotlinx.coroutines.CoroutineDispatcher,
     mainDispatcher: kotlinx.coroutines.CoroutineDispatcher,
+    initMediaCache: suspend () -> Unit = {},
     initMediaSourceFactory: () -> Unit,
     initPlayerController: () -> Unit
 ) {
@@ -145,6 +146,7 @@ internal fun orchestratePlaybackPrewarm(
     scope.launch {
         try {
             withContext(ioDispatcher) {
+                initMediaCache()
                 initMediaSourceFactory()
             }
             withContext(mainDispatcher) {
@@ -203,7 +205,10 @@ class DefaultAppContainer(
     }
 
     override val mediaCacheManager: com.hpre.app.player.cache.MediaCacheManager by lazy {
-        com.hpre.app.player.cache.DefaultMediaCacheManager(appContext)
+        com.hpre.app.player.cache.DefaultMediaCacheManager(
+            context = appContext,
+            ioDispatcher = ioDispatcher
+        )
     }
 
     override val mediaSourceFactory: MediaSourceFactory by lazy {
@@ -277,6 +282,7 @@ class DefaultAppContainer(
             scope = applicationScope,
             ioDispatcher = ioDispatcher,
             mainDispatcher = mainDispatcher,
+            initMediaCache = { mediaCacheManager.initialize() },
             initMediaSourceFactory = { mediaSourceFactory },
             initPlayerController = {
                 createPlayerControllerForPrewarm()
@@ -304,6 +310,10 @@ class DefaultAppContainer(
     override val playbackState: StateFlow<PlaybackState> = mirroredPlaybackState.asStateFlow()
 
     private val sessionPlayerController = AppScopedPlayerControllerProvider { initialPurpose ->
+        // A direct Watch open can beat Home-idle prewarm; start cache I/O without delaying Media3.
+        applicationScope.launch(ioDispatcher) {
+            mediaCacheManager.initialize()
+        }
         val coordinator = StreamRecoveryCoordinator(videoService = videoService)
         SessionPlayerController(
             context = appContext,
