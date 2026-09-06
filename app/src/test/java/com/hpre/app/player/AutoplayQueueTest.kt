@@ -12,6 +12,18 @@ class AutoplayQueueTest {
     private fun key(id: String) = ContentKey(0, id)
 
     @Test
+    fun resolving_candidate_does_not_change_queue_identity() {
+        val current = key("current")
+        val next = key("next")
+        val queue = AutoplayQueue()
+        queue.resetForManualStart(current)
+        queue.updateCandidates(current, listOf(next))
+        assertEquals(next, queue.takeNext(current, 1L))
+        assertTrue(queue.updateCandidates(current, listOf(next)))
+        assertFalse(queue.updateCandidates(next, emptyList()))
+    }
+
+    @Test
     fun queue_filters_current_duplicates_and_visited_items_and_handles_each_generation_once() {
         val current = key("current")
         val first = key("first")
@@ -22,7 +34,9 @@ class AutoplayQueueTest {
         assertTrue(queue.updateCandidates(current, listOf(current, first, first, second, current)))
         assertEquals(first, queue.takeNext(current, sessionGeneration = 7L))
         assertNull(queue.takeNext(current, sessionGeneration = 7L))
+        assertTrue(queue.commit(current, first))
         assertEquals(second, queue.takeNext(first, sessionGeneration = 8L))
+        assertTrue(queue.commit(first, second))
         assertNull(queue.takeNext(second, sessionGeneration = 9L))
     }
 
@@ -34,6 +48,7 @@ class AutoplayQueueTest {
         queue.resetForManualStart(first)
         queue.updateCandidates(first, listOf(second))
         assertEquals(second, queue.takeNext(first, 1L))
+        assertTrue(queue.commit(first, second))
 
         assertFalse(queue.updateCandidates(first, listOf(key("stale"))))
         queue.resetForManualStart(first)

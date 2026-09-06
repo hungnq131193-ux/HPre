@@ -1,4 +1,5 @@
 package com.hpre.app.ui.watch
+import kotlinx.coroutines.withContext
 
 import androidx.lifecycle.AbstractSavedStateViewModelFactory
 import androidx.lifecycle.SavedStateHandle
@@ -440,7 +441,7 @@ class WatchViewModel(
                                         state.copy(
                                             isLoading = false,
                                             details = result.value,
-                                            thumbnailUrl = state.thumbnailUrl ?: result.value.thumbnailUrl
+                                            thumbnailUrl = if (state.isPlayerLoading) state.thumbnailUrl ?: result.value.thumbnailUrl else null
                                         )
                                     }
                                     metricsSession?.let {
@@ -920,7 +921,7 @@ class WatchViewModel(
         }
     }
 
-    fun addVideoToPlaylist(playlistId: Long) {
+    fun addVideoToPlaylist(playlistId: Long, onResult: (Boolean) -> Unit = {}) {
         val details = _uiState.value.details ?: return
         val playlistRepo = playlistRepository ?: return
         val summary = VideoSummary(
@@ -938,11 +939,14 @@ class WatchViewModel(
             isShort = details.isShort
         )
         viewModelScope.launch(ioDispatcher) {
-            playlistRepo.addEntry(playlistId, summary)
+            val success = try {
+                playlistRepo.addEntry(playlistId, summary) is AppResult.Success
+            } catch (cancelled: CancellationException) { throw cancelled } catch (_: Exception) { false }
+            withContext(Dispatchers.Main) { onResult(success) }
         }
     }
 
-    fun createPlaylistAndAddVideo(title: String) {
+    fun createPlaylistAndAddVideo(title: String, onResult: (Boolean) -> Unit = {}) {
         val details = _uiState.value.details ?: return
         val playlistRepo = playlistRepository ?: return
         val summary = VideoSummary(
@@ -960,10 +964,11 @@ class WatchViewModel(
             isShort = details.isShort
         )
         viewModelScope.launch(ioDispatcher) {
-            val res = playlistRepo.createPlaylist(title)
-            if (res is AppResult.Success) {
-                playlistRepo.addEntry(res.value, summary)
-            }
+            val success = try {
+                val res = playlistRepo.createPlaylist(title)
+                res is AppResult.Success && playlistRepo.addEntry(res.value, summary) is AppResult.Success
+            } catch (cancelled: CancellationException) { throw cancelled } catch (_: Exception) { false }
+            withContext(Dispatchers.Main) { onResult(success) }
         }
     }
 

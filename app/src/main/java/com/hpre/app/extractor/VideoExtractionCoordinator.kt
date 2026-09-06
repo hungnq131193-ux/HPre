@@ -177,16 +177,20 @@ internal class VideoExtractionCoordinator(
             }
         }
 
+        var cancellation: CancellationException? = null
         try {
             return resultFor(request).await()
         } catch (cancelled: CancellationException) {
+            cancellation = cancelled
+            throw cancelled
+        } finally {
             var cancelledUpstream = false
             withContext(NonCancellable) {
                 mutex.withLock {
                     request.subscribers--
-                    if (request.subscribers <= 0) {
+                    if (request.subscribers <= 0 && cancellation != null) {
                         if (inFlight[key] === request) inFlight.remove(key)
-                        request.job.cancel(cancelled)
+                        request.job.cancel(cancellation)
                         cancelledUpstream = true
                     }
                 }
@@ -194,7 +198,6 @@ internal class VideoExtractionCoordinator(
                     request.job.join()
                 }
             }
-            throw cancelled
         }
     }
 }

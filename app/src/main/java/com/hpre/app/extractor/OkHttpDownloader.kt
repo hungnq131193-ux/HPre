@@ -117,7 +117,6 @@ open class OkHttpDownloader(
                 val responseCode = response.code
                 val responseMessage = response.message
                 val responseHeaders = response.headers.toMultimap()
-                val responseBody = response.body?.string().orEmpty()
                 val latestUrl = response.request.url.toString()
 
                 if (responseCode == 429) {
@@ -152,6 +151,13 @@ open class OkHttpDownloader(
                     )
                 }
 
+                val responseBody = response.body?.let { body ->
+                    val limit = 16L * 1024 * 1024
+                    if (body.contentLength() > limit || body.source().request(limit + 1)) {
+                        throw java.io.IOException("Extraction response exceeds 16 MiB")
+                    }
+                    body.string()
+                }.orEmpty()
                 Response(
                     responseCode,
                     responseMessage,

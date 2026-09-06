@@ -143,7 +143,7 @@ class CatalogRepository(
             // Pagination with token: coalesce identical append requests via typed request coordinator key
             val tokenKey = when (pageToken) {
                 is PageToken.Id -> "id:${pageToken.id}"
-                is PageToken.Url -> "url:${pageToken.url}"
+                is PageToken.Url -> "url:${pageToken.url.length}:${pageToken.url}:${pageToken.id?.length ?: -1}:${pageToken.id.orEmpty()}"
             }
             val requestKey = RequestKey.searchAppend("search_append:$cacheKey:$tokenKey")
             return requestCoordinator.execute(requestKey) {

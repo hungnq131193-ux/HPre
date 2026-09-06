@@ -2,6 +2,7 @@ package com.hpre.app.update
 
 import java.util.concurrent.TimeUnit
 import kotlinx.coroutines.test.runTest
+import kotlinx.coroutines.launch
 import okhttp3.OkHttpClient
 import okhttp3.mockwebserver.MockResponse
 import okhttp3.mockwebserver.MockWebServer
@@ -14,6 +15,20 @@ import org.junit.Test
 class GitHubReleaseUpdateCheckerTest {
     private lateinit var server: MockWebServer
     private lateinit var client: OkHttpClient
+
+    @Test
+    fun cancellation_cancels_underlying_http_call() = kotlinx.coroutines.runBlocking {
+        val started = kotlinx.coroutines.CompletableDeferred<okhttp3.Call>()
+        client = client.newBuilder().eventListener(object : okhttp3.EventListener() {
+            override fun callStart(call: okhttp3.Call) { started.complete(call) }
+        }).build()
+        server.enqueue(MockResponse().setSocketPolicy(okhttp3.mockwebserver.SocketPolicy.NO_RESPONSE))
+        val job = launch { checker().check("1.0.0") }
+        val call = started.await()
+        job.cancel()
+        job.join()
+        assertTrue(call.isCanceled())
+    }
 
     @Before
     fun setUp() {

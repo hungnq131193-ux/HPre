@@ -19,6 +19,28 @@ import org.junit.Test
 
 @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
 class VideoExtractionCoordinatorTest {
+    @Test fun completed_stream_waiter_does_not_keep_cancelled_metadata_alive() = runTest {
+        val coordinator = VideoExtractionCoordinator(backgroundScope)
+        val key = ContentKey(0, "released-stream")
+        val publishGate = CompletableDeferred<Unit>()
+        var cancelled = false
+        val stream = async {
+            coordinator.executeStream(key) { publish ->
+                publishGate.await()
+                publish(bundle(key).streamInfo)
+                try { awaitCancellation() } finally { cancelled = true }
+            }
+        }
+        runCurrent()
+        val metadata = async { coordinator.execute(key) { error("must share") } }
+        runCurrent()
+        publishGate.complete(Unit)
+        stream.await()
+        metadata.cancel()
+        runCurrent()
+        assertTrue(cancelled)
+        assertEquals(0, coordinator.inFlightCountForTest)
+    }
     private fun bundle(key: ContentKey) = ExtractedVideoBundle(
         VideoDetails(key, "Title", "https://example.test/${key.nativeId}", null, null, null, null, null, null, null, null, null, null),
         StreamInfo(key, "Title"),

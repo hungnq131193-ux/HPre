@@ -39,10 +39,9 @@ object QualityPolicyResolver {
         currentStreamType: PlaybackStreamType?,
         option: QualityOption
     ): UserQualityPolicy = if (
-        (currentStreamType == PlaybackStreamType.HLS || currentStreamType == PlaybackStreamType.DASH) &&
-        option.height > 0
+        currentStreamType == PlaybackStreamType.HLS || currentStreamType == PlaybackStreamType.DASH
     ) {
-        UserQualityPolicy.Auto(maxHeight = option.height)
+        UserQualityPolicy.Auto(maxHeight = option.height.takeIf { it > 0 })
     } else {
         UserQualityPolicy.Fixed(option)
     }

@@ -18,6 +18,25 @@ import org.junit.Test
 import java.net.SocketTimeoutException
 
 class CatalogRepositoryTest {
+    @Test
+    fun continuation_ids_at_same_url_do_not_share_in_flight_results() = runTest {
+        val gate = kotlinx.coroutines.CompletableDeferred<Unit>()
+        val service = FakeVideoService().apply {
+            searchHandler = { _, _, token ->
+                gate.await()
+                AppResult.Success(SearchPage(emptyList(), token))
+            }
+        }
+        val repository = CatalogRepository(service, this)
+        val tokens = listOf(PageToken.Url("https://example.com/page", "a"), PageToken.Url("https://example.com/page", "b"))
+        val results = tokens.map { token -> async { repository.search("query", pageToken = token) } }
+        testScheduler.runCurrent()
+        gate.complete(Unit)
+        results.forEachIndexed { index, result ->
+            assertEquals(tokens[index], (result.await() as AppResult.Success).value.nextPageToken)
+        }
+        assertEquals(2, service.searchCallCount)
+    }
 
     private fun summary(id: String) = VideoSummary(
         key = ContentKey(0, id),

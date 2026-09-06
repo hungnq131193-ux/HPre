@@ -1246,9 +1246,13 @@ class WatchViewModelTest {
         assertTrue(viewModel.uiState.value.isLoading)
         assertNull(viewModel.uiState.value.details)
 
+        fakePlayer._state.value = PlaybackState(key = testKey, hasRenderedFirstFrame = true)
+        runCurrent()
+        assertFalse(viewModel.uiState.value.isPlayerLoading)
         details.complete(AppResult.Success(testDetails(testKey)))
         advanceUntilIdle()
         assertEquals(testDetails(testKey), viewModel.uiState.value.details)
+        assertNull(viewModel.uiState.value.thumbnailUrl)
     }
 
     @Test

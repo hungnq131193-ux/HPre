@@ -370,65 +370,9 @@ class SessionPlayerController internal constructor(
                     )
                 }
             }
-            val coordinator = recoveryCoordinator
-            val recoverySnapshot = snapshot
-            val canRecover = decision.shouldRefresh && coordinator != null && recoverySnapshot != null
+            val canRecover = decision.shouldRefresh && snapshot != null
             _state.update {
                 playbackFailureState(it, decision, canRecover).copy(retrySnapshot = snapshot)
-            }
-            coordinator ?: return
-            recoverySnapshot ?: return
-            if (!decision.shouldRefresh) return
-            val expectedRequest = localPrepareRequestGeneration.get()
-            val expectedKey = recoverySnapshot.key
-            val expectedSession = recoverySnapshot.sessionGen
-            val speed = _state.value.playbackSpeed
-            val attempted = _state.value.streamType?.let(::setOf).orEmpty()
-            recoveryJob?.cancel()
-            recoveryJob = scope.launch(mainDispatcher) {
-                try {
-                    val recovered = recoverSessionPlayback(
-                        coordinator = coordinator,
-                        key = expectedKey,
-                        sessionGen = expectedSession,
-                        positionMs = recoverySnapshot.positionMs,
-                        playWhenReady = recoverySnapshot.userRequestedPlay,
-                        quality = recoverySnapshot.selectedQuality,
-                        playbackSpeed = speed,
-                        attemptedSourceTypes = attempted,
-                        qualityPolicy = _state.value.qualityPolicy
-                    )
-                    when (recovered) {
-                        SessionRecoveryResult.Cancelled -> return@launch
-                        is SessionRecoveryResult.Failed -> {
-                            if (!isReleased && currentKey == expectedKey &&
-                                localSessionGen == expectedSession &&
-                                localPrepareRequestGeneration.get() == expectedRequest
-                            ) {
-                                _state.update { playbackRecoveryFailedState(it, recovered.error) }
-                            }
-                            return@launch
-                        }
-                        is SessionRecoveryResult.Recovered -> Unit
-                    }
-                    val recovery = recovered.value
-                    if (isReleased || currentKey != expectedKey ||
-                        localSessionGen != expectedSession ||
-                        localPrepareRequestGeneration.get() != expectedRequest
-                    ) return@launch
-                    recoveryJob = null
-                    prepareWithSpeed(
-                        key = recovery.pending.key,
-                        streamInfo = recovery.streamInfo,
-                        startPositionMs = recovery.pending.positionMs,
-                        playWhenReady = recovery.pending.playWhenReady,
-                        initialQuality = recovery.pending.initialQuality,
-                        playbackSpeed = recovery.pending.playbackSpeed,
-                        qualityPolicy = recovery.pending.qualityPolicy
-                    )
-                } catch (cancelled: CancellationException) {
-                    throw cancelled
-                }
             }
         }
 
@@ -576,6 +520,20 @@ class SessionPlayerController internal constructor(
                     command: SessionCommand,
                     args: Bundle
                 ): ListenableFuture<SessionResult> {
+                    if (command.customAction == HPrePlaybackService.CUSTOM_COMMAND_RECOVERY_STARTED) {
+                        val key = currentKey
+                        if (!isReleased && !transitioning && key != null &&
+                            key.serviceId == args.getInt(HPrePlaybackService.EXTRA_SERVICE_ID, -1) &&
+                            key.nativeId == args.getString(HPrePlaybackService.EXTRA_NATIVE_ID) &&
+                            localSessionGen == args.getLong(HPrePlaybackService.EXTRA_PREVIOUS_SESSION_GENERATION, -1)
+                        ) {
+                            localSessionGen = args.getLong(HPrePlaybackService.EXTRA_PROBE_SESSION_GEN)
+                            localMediaGen = args.getLong(HPrePlaybackService.EXTRA_PROBE_MEDIA_GEN)
+                            localQualityRequestGen++
+                            _state.update { it.copy(isLoading = true, isReady = false, error = null, pendingQuality = null) }
+                        }
+                        return Futures.immediateFuture(SessionResult(SessionResult.RESULT_SUCCESS))
+                    }
                     val handled = handleTerminalSessionCommand(
                         commandAction = command.customAction,
                         args = args,
@@ -1302,6 +1260,8 @@ class SessionPlayerController internal constructor(
         if (isReleased) return
         val key = currentKey ?: return
         val matched = _state.value.availableQualities.firstOrNull { it == quality } ?: return
+        val qualityGen = ++localQualityRequestGen
+        val prepareGen = localPrepareRequestGeneration.get()
         val resolvedPolicy = QualityPolicyResolver.forSelection(_state.value.streamType, matched)
         if (resolvedPolicy is UserQualityPolicy.Auto) {
             _state.update {
@@ -1317,9 +1277,9 @@ class SessionPlayerController internal constructor(
         }
         val priorQuality = _state.value.selectedQuality
 
-        val qualityGen = ++localQualityRequestGen
         _state.update { it.copy(isLoading = true, pendingQuality = matched) }
         scope.launch(mainDispatcher) {
+            if (currentKey != key || prepareGen != localPrepareRequestGeneration.get() || qualityGen != localQualityRequestGen) return@launch
             val controller = mediaController ?: run {
                 if (qualityGen == localQualityRequestGen) {
                     _state.update { it.copy(isLoading = false, pendingQuality = null, error = AppError.NetworkError) }
@@ -1350,7 +1310,7 @@ class SessionPlayerController internal constructor(
                     null
                 }
                 scope.launch(mainDispatcher) {
-                    if (isReleased || qualityGen != localQualityRequestGen) return@launch
+                    if (isReleased || currentKey != key || prepareGen != localPrepareRequestGeneration.get() || qualityGen != localQualityRequestGen) return@launch
                     if (result == null) {
                         _state.update { it.copy(isLoading = false, pendingQuality = null, selectedQuality = priorQuality, error = AppError.NetworkError) }
                     } else if (result.resultCode != SessionResult.RESULT_SUCCESS) {

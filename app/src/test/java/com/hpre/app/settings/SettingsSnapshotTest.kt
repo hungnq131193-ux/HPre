@@ -1,6 +1,7 @@
 package com.hpre.app.settings
 
 import kotlinx.coroutines.awaitCancellation
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.runCurrent
@@ -10,6 +11,23 @@ import org.junit.Test
 
 @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
 class SettingsSnapshotTest {
+    @Test
+    fun failed_source_releases_readiness_with_defaults() = runTest {
+        val snapshot = flow<AppSettings> { throw java.io.IOException("unreadable settings") }
+            .shareAppSettings(backgroundScope, StandardTestDispatcher(testScheduler))
+        val reader = backgroundScope.launch { assertEquals(AppSettings(), snapshot.awaitValue()) }
+        runCurrent()
+        org.junit.Assert.assertTrue(reader.isCompleted)
+    }
+
+    @Test
+    fun empty_source_releases_readiness_with_defaults() = runTest {
+        val snapshot = kotlinx.coroutines.flow.emptyFlow<AppSettings>()
+            .shareAppSettings(backgroundScope, StandardTestDispatcher(testScheduler))
+        val reader = backgroundScope.launch { assertEquals(AppSettings(), snapshot.awaitValue()) }
+        runCurrent()
+        org.junit.Assert.assertTrue(reader.isCompleted)
+    }
     @Test
     fun shared_snapshot_collects_the_repository_flow_once_for_all_readers() = runTest {
         var collections = 0

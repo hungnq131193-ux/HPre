@@ -8,6 +8,7 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.launch
 
 class AppSettingsSnapshot internal constructor(
@@ -23,10 +24,15 @@ class AppSettingsSnapshot internal constructor(
 
     init {
         scope.launch(dispatcher) {
-            source.collect {
+            source.catch { error ->
+                if (error is kotlinx.coroutines.CancellationException) throw error
+                emit(AppSettings())
+            }.collect {
                 state.value = it
                 if (!loaded.isCompleted) loaded.complete(Unit)
             }
+        }.invokeOnCompletion { cause ->
+            if (cause == null) loaded.complete(Unit) else loaded.completeExceptionally(cause)
         }
     }
 

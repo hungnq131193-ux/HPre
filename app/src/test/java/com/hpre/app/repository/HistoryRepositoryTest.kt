@@ -25,6 +25,26 @@ import org.junit.Test
 
 class HistoryRepositoryTest {
 
+    @Test
+    fun destructive_operations_wait_for_in_flight_write() = runTest {
+        for (clear in listOf(false, true)) {
+            val dao = FakeHistoryDao()
+            dao.upsertStarted = CompletableDeferred()
+            dao.upsertGate = CompletableDeferred()
+            val repository = DefaultHistoryRepository(dao, FakePlaybackPreferences(), StandardTestDispatcher(testScheduler))
+            val write = launch { repository.recordHistory(summary, 1000L, 1L) }
+            dao.upsertStarted!!.await()
+            val deletion = launch {
+                if (clear) repository.clearHistory() else repository.deleteHistoryItem(summary.key)
+            }
+            testScheduler.runCurrent()
+            dao.upsertGate!!.complete(Unit)
+            write.join()
+            deletion.join()
+            assertTrue(dao.storage.isEmpty())
+        }
+    }
+
     private class FakeHistoryDao : HistoryDao {
         val storage = mutableMapOf<Pair<Int, String>, HistoryEntity>()
         val flow = MutableStateFlow<List<HistoryEntity>>(emptyList())

@@ -34,11 +34,15 @@ internal class AutoplayQueue {
         if (endedKey != currentKey || sessionGeneration <= lastHandledSessionGeneration) return null
         lastHandledSessionGeneration = sessionGeneration
         if (!allowAdvance) return null
-        val next = candidates.firstOrNull() ?: return null
-        candidates = candidates.drop(1)
+        return candidates.firstOrNull()
+    }
+
+    fun commit(endedKey: ContentKey, next: ContentKey): Boolean {
+        if (currentKey != endedKey || next !in candidates) return false
+        candidates = candidates.filter { it != next }
         visited += next
         currentKey = next
-        return next
+        return true
     }
 
     fun clear() {

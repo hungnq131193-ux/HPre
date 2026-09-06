@@ -63,10 +63,12 @@ class LibraryViewModel(
             initialValue = emptyList()
         )
 
-    private val _playlistDetail = MutableStateFlow<LocalPlaylistWithEntries?>(null)
-    val playlistDetail: StateFlow<LocalPlaylistWithEntries?> = _playlistDetail.asStateFlow()
-
-    private var activeDetailJob: Job? = null
+    private val selectedPlaylistId = MutableStateFlow<Long?>(null)
+    val playlistDetail: StateFlow<LocalPlaylistWithEntries?> = selectedPlaylistId
+        .flatMapLatest { id ->
+            if (id == null) kotlinx.coroutines.flow.flowOf(null)
+            else playlistRepository.observePlaylistWithEntries(id)
+        }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
 
     fun previousHistoryPage() {
         requestedHistoryPage.value = (historyPage.value - 1).coerceAtLeast(0)
@@ -78,12 +80,7 @@ class LibraryViewModel(
     }
 
     fun loadPlaylistDetail(playlistId: Long) {
-        activeDetailJob?.cancel()
-        activeDetailJob = viewModelScope.launch {
-            playlistRepository.observePlaylistWithEntries(playlistId).collect { detail ->
-                _playlistDetail.value = detail
-            }
-        }
+        selectedPlaylistId.value = playlistId
     }
 
     fun deleteHistoryItem(key: ContentKey) {

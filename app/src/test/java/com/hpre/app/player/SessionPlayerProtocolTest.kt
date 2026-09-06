@@ -215,6 +215,14 @@ class SessionPlayerProtocolTest {
     }
 
     @Test
+    fun adaptive_auto_selection_removes_quality_caps() {
+        val option = QualityOption(0, "Auto", false)
+        for (streamType in listOf(PlaybackStreamType.HLS, PlaybackStreamType.DASH)) {
+            assertEquals(UserQualityPolicy.Auto(), QualityPolicyResolver.forSelection(streamType, option))
+        }
+    }
+
+    @Test
     fun adaptive_quality_selection_resolves_to_auto_cap_while_progressive_stays_fixed() {
         val option = QualityOption(720, "720p", true, "mp4")
         assertEquals(
