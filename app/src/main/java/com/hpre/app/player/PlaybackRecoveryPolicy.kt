@@ -19,7 +19,8 @@ object PlaybackRecoveryPolicy {
             in 500..599 -> PlaybackRecoveryDecision(AppError.NetworkError, shouldRefresh = true)
             else -> when (error.errorCode) {
                 PlaybackException.ERROR_CODE_IO_NETWORK_CONNECTION_FAILED,
-                PlaybackException.ERROR_CODE_IO_NETWORK_CONNECTION_TIMEOUT -> {
+                PlaybackException.ERROR_CODE_IO_NETWORK_CONNECTION_TIMEOUT,
+                PlaybackException.ERROR_CODE_IO_UNSPECIFIED -> {
                     PlaybackRecoveryDecision(AppError.NetworkError, shouldRefresh = true)
                 }
                 PlaybackException.ERROR_CODE_DECODER_INIT_FAILED,

@@ -41,6 +41,15 @@ class PlaybackRecoveryPolicyTest {
         )
     }
 
+    @Test fun unspecified_io_failure_is_a_retryable_network_error() {
+        val decision = PlaybackRecoveryPolicy.decide(
+            PlaybackException("I/O", null, PlaybackException.ERROR_CODE_IO_UNSPECIFIED)
+        )
+
+        assertEquals(AppError.NetworkError, decision.error)
+        assertTrue(decision.shouldRefresh)
+    }
+
     @Test
     fun mapped_access_restrictions_do_not_refresh_without_temporary_media_failure() {
         listOf(
