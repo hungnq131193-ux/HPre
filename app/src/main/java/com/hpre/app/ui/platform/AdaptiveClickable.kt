@@ -1,16 +1,14 @@
 package com.hpre.app.ui.platform
 
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.focusable
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.collectIsFocusedAsState
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.drawBehind
-import androidx.compose.ui.focus.onFocusChanged
+import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
@@ -24,21 +22,21 @@ fun Modifier.hpreAdaptiveClickable(
     onClick: () -> Unit,
 ): Modifier {
     val isRemote = LocalHPreInputMode.current == HPreInputMode.REMOTE
-    var isFocused by remember { mutableStateOf(false) }
+    val interactionSource = remember { MutableInteractionSource() }
+    val isFocused by interactionSource.collectIsFocusedAsState()
     val focusStroke = 2.dp
     val cornerRadius = 8.dp
     val focusColor = MaterialTheme.colorScheme.primary
     val focusModifier = if (isRemote) {
         Modifier
-            .focusable(enabled = enabled)
-            .onFocusChanged { isFocused = it.isFocused }
-            .drawBehind {
-                if (isFocused) {
+            .drawWithContent {
+                drawContent()
+                if (enabled && isFocused) {
                     val strokeWidth = focusStroke.toPx()
                     drawRoundRect(
                         color = focusColor,
-                        topLeft = Offset(-strokeWidth / 2, -strokeWidth / 2),
-                        size = Size(size.width + strokeWidth, size.height + strokeWidth),
+                        topLeft = Offset(strokeWidth / 2, strokeWidth / 2),
+                        size = Size((size.width - strokeWidth).coerceAtLeast(0f), (size.height - strokeWidth).coerceAtLeast(0f)),
                         cornerRadius = CornerRadius(cornerRadius.toPx()),
                         style = Stroke(width = strokeWidth),
                     )
@@ -49,6 +47,13 @@ fun Modifier.hpreAdaptiveClickable(
     }
 
     return this
-        .clickable(enabled = enabled, onClickLabel = onClickLabel, onClick = onClick)
+        // clickable owns the single focus target and standard D-pad activation.
+        .clickable(
+            interactionSource = interactionSource,
+            indication = androidx.compose.foundation.LocalIndication.current,
+            enabled = enabled,
+            onClickLabel = onClickLabel,
+            onClick = onClick,
+        )
         .then(focusModifier)
 }

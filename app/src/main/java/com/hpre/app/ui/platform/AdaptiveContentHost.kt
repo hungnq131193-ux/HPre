@@ -29,8 +29,8 @@ fun AdaptiveContentHost(
         Box(
             modifier = if (AdaptiveContentPolicy.shouldConstrain(isWatchScreen)) {
                 Modifier
-                    .fillMaxWidth()
                     .widthIn(max = AdaptiveContentPolicy.MAX_CONTENT_WIDTH_DP.dp)
+                    .fillMaxWidth()
                     .padding(horizontal = 24.dp)
             } else {
                 Modifier.fillMaxSize()
