@@ -2,7 +2,6 @@ package com.hpre.app.ui.player
 import androidx.lifecycle.repeatOnLifecycle
 
 import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -48,6 +47,7 @@ import com.hpre.app.model.ContentKey
 import com.hpre.app.player.PlaybackState
 import com.hpre.app.player.toStructuralState
 import com.hpre.app.player.PlayerController
+import com.hpre.app.ui.platform.hpreAdaptiveClickable
 import com.hpre.app.player.PlaybackUiCoordinator
 import com.hpre.app.player.SurfaceOwner
 import com.hpre.app.ui.watch.PlayerSurface
@@ -83,7 +83,7 @@ fun MiniPlayer(
         modifier = modifier
             .fillMaxWidth()
             .testTag("mini_player_container")
-            .clickable {
+            .hpreAdaptiveClickable {
                 onExpandWatch(currentKey)
             }
     ) {

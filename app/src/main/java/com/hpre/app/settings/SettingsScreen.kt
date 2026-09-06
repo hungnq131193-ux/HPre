@@ -1,6 +1,5 @@
 package com.hpre.app.settings
 
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -40,6 +39,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.hpre.app.R
 import com.hpre.app.update.OfficialReleasePage
+import com.hpre.app.ui.platform.hpreAdaptiveClickable
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -427,7 +427,7 @@ private fun SettingsClickableItem(
     Column(
         modifier = Modifier
             .fillMaxWidth()
-            .clickable(onClick = onClick)
+            .hpreAdaptiveClickable(onClick = onClick)
             .padding(horizontal = 16.dp, vertical = 12.dp)
             .testTag(tag)
     ) {
@@ -456,7 +456,7 @@ private fun SettingsSwitchItem(
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .clickable { onCheckedChange(!checked) }
+            .hpreAdaptiveClickable { onCheckedChange(!checked) }
             .padding(horizontal = 16.dp, vertical = 12.dp)
             .testTag(tag),
         verticalAlignment = Alignment.CenterVertically
@@ -501,7 +501,7 @@ private fun <T> SingleChoiceDialog(
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .clickable { onOptionSelected(option) }
+                            .hpreAdaptiveClickable { onOptionSelected(option) }
                             .padding(vertical = 8.dp)
                             .testTag("${tagPrefix}_$option"),
                         verticalAlignment = Alignment.CenterVertically

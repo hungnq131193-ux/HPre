@@ -12,7 +12,6 @@ import androidx.activity.compose.BackHandler
 import androidx.annotation.VisibleForTesting
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -48,6 +47,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
+import com.hpre.app.ui.platform.hpreAdaptiveClickable
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.foundation.lazy.LazyColumn
@@ -754,7 +754,7 @@ fun WatchMetadataContent(
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .padding(top = 10.dp)
-                                .clickable { isDescriptionExpanded = !isDescriptionExpanded }
+                                .hpreAdaptiveClickable { isDescriptionExpanded = !isDescriptionExpanded }
                                 .testTag("watch_description_container")
                         ) {
                             Row(
@@ -909,7 +909,7 @@ fun AddToPlaylistDialog(
                             Row(
                                 modifier = Modifier
                                     .fillMaxWidth()
-                                    .clickable { onAddToPlaylist(playlist.playlistId) }
+                                    .hpreAdaptiveClickable { onAddToPlaylist(playlist.playlistId) }
                                     .padding(vertical = 10.dp)
                                     .testTag("watch_playlist_option_${playlist.playlistId}"),
                                 verticalAlignment = Alignment.CenterVertically
