@@ -55,6 +55,7 @@ import com.hpre.app.di.AppContainer
 import com.hpre.app.R
 import com.hpre.app.player.SessionPlayerController
 import com.hpre.app.ui.player.MiniPlayer
+import com.hpre.app.ui.platform.AdaptiveContentHost
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.map
 
@@ -256,11 +257,13 @@ fun RootScaffold(
         },
         modifier = modifier.fillMaxSize().testTag("root_scaffold")
     ) { innerPadding ->
-        HPreNavHost(
-            navController = navController,
-            container = container,
-            coordinator = effectiveCoordinator,
-            modifier = if (isWatchScreen) Modifier else Modifier.padding(innerPadding)
-        )
+        AdaptiveContentHost(isWatchScreen = isWatchScreen) {
+            HPreNavHost(
+                navController = navController,
+                container = container,
+                coordinator = effectiveCoordinator,
+                modifier = if (isWatchScreen) Modifier else Modifier.padding(innerPadding)
+            )
+        }
     }
 }
