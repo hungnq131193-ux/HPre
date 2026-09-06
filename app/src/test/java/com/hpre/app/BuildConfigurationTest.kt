@@ -31,4 +31,17 @@ class BuildConfigurationTest {
         assertTrue(manifest.contains("@style/Theme.HPre"))
         assertTrue(themes.contains("name=\"Theme.HPre\""))
     }
+
+    @Test fun manifest_declares_optional_touch_and_tv_automotive_support() {
+        val root = generateSequence(File(".").canonicalFile) { it.parentFile }
+            .first { File(it, "settings.gradle.kts").isFile }
+        val manifest = File(root, "app/src/main/AndroidManifest.xml").readText()
+
+        assertTrue(manifest.contains("android.hardware.touchscreen"))
+        assertTrue(manifest.contains("android:required=\"false\""))
+        assertTrue(manifest.contains("android.software.leanback"))
+        assertTrue(manifest.contains("android.hardware.type.automotive"))
+        assertTrue(manifest.contains("android.intent.category.LEANBACK_LAUNCHER"))
+        assertTrue(manifest.contains("@drawable/tv_banner"))
+    }
 }
