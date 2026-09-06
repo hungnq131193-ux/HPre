@@ -37,8 +37,11 @@ class BuildConfigurationTest {
             .first { File(it, "settings.gradle.kts").isFile }
         val manifest = File(root, "app/src/main/AndroidManifest.xml").readText()
 
-        assertTrue(manifest.contains("android.hardware.touchscreen"))
-        assertTrue(manifest.contains("android:required=\"false\""))
+        assertTrue(
+            manifest.contains(
+                "<uses-feature android:name=\"android.hardware.touchscreen\" android:required=\"false\" />",
+            ),
+        )
         assertTrue(manifest.contains("android.software.leanback"))
         assertTrue(manifest.contains("android.hardware.type.automotive"))
         assertTrue(manifest.contains("android.intent.category.LEANBACK_LAUNCHER"))
