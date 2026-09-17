@@ -26,6 +26,17 @@ class PendingSessionCommandsTest {
     }
 
     @Test
+    fun pending_prepare_retains_the_session_quality_policy() {
+        val commands = PendingSessionCommands()
+        val key = ContentKey(0, "policy_video")
+        val policy = UserQualityPolicy.Auto(maxHeight = 360)
+
+        commands.setPrepare(PendingPrepare(key, testInfo(key), 0L, true, qualityPolicy = policy))
+
+        assertEquals(policy, commands.takePrepare()?.qualityPolicy)
+    }
+
+    @Test
     fun newest_prepare_replaces_stale_prepare_before_connection() {
         val commands = PendingSessionCommands()
         val staleKey = ContentKey(0, "stale_video")

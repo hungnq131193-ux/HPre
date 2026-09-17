@@ -177,6 +177,10 @@ internal fun HomeScreen(
                             modifier = Modifier.fillMaxWidth().align(Alignment.TopCenter)
                         )
                     }
+                    state.content.refreshError?.let { error ->
+                        ErrorPane(error = error, onRetry = { viewModel.refresh() },
+                            modifier = Modifier.fillMaxWidth().align(Alignment.TopCenter))
+                    }
                 }
             }
             }

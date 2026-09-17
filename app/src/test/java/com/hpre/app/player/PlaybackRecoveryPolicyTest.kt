@@ -41,6 +41,15 @@ class PlaybackRecoveryPolicyTest {
         )
     }
 
+    @Test fun unspecified_io_failure_stays_unknown_without_a_cause() {
+        val decision = PlaybackRecoveryPolicy.decide(
+            PlaybackException("I/O", null, PlaybackException.ERROR_CODE_IO_UNSPECIFIED)
+        )
+
+        assertEquals(AppError.Unknown, decision.error)
+        assertFalse(decision.shouldRefresh)
+    }
+
     @Test
     fun mapped_access_restrictions_do_not_refresh_without_temporary_media_failure() {
         listOf(

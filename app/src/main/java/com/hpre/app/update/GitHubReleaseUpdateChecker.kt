@@ -2,12 +2,11 @@ package com.hpre.app.update
 
 import com.squareup.moshi.JsonReader
 import java.io.IOException
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.withContext
 import okhttp3.HttpUrl
 import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.OkHttpClient
 import okhttp3.Request
+import kotlin.coroutines.resume
 
 class GitHubReleaseUpdateChecker(
     private val client: OkHttpClient,
@@ -17,7 +16,7 @@ class GitHubReleaseUpdateChecker(
         val installed = SemanticVersion.parseInstalled(installedVersion)
             ?: return UpdateCheckResult.Unavailable(UpdateUnavailableReason.INVALID_RESPONSE)
 
-        return withContext(Dispatchers.IO) {
+        return kotlinx.coroutines.suspendCancellableCoroutine { continuation ->
             val request = Request.Builder()
                 .url(endpoint)
                 .get()
@@ -26,29 +25,39 @@ class GitHubReleaseUpdateChecker(
                 .header("User-Agent", "HPre-Android-UpdateChecker")
                 .build()
 
-            try {
-                client.newCall(request).execute().use { response ->
-                    when {
-                        response.code == 403 -> unavailable(UpdateUnavailableReason.RATE_LIMITED)
-                        response.code in 500..599 -> unavailable(UpdateUnavailableReason.SERVER)
-                        !response.isSuccessful -> unavailable(UpdateUnavailableReason.INVALID_RESPONSE)
-                        else -> {
-                            val body = response.body
-                                ?: return@use unavailable(UpdateUnavailableReason.INVALID_RESPONSE)
-                            val parsed = try {
-                                body.use { parseRelease(JsonReader.of(it.source())) }
-                            } catch (_: IOException) {
-                                null
-                            } ?: return@use unavailable(UpdateUnavailableReason.INVALID_RESPONSE)
-                            mapRelease(installed, parsed)
-                        }
-                    }
+            val call = client.newCall(request)
+            continuation.invokeOnCancellation { call.cancel() }
+            call.enqueue(object : okhttp3.Callback {
+                override fun onFailure(call: okhttp3.Call, error: IOException) {
+                    continuation.resume(unavailable(UpdateUnavailableReason.NETWORK))
                 }
-            } catch (_: IOException) {
-                unavailable(UpdateUnavailableReason.NETWORK)
-            } catch (_: RuntimeException) {
-                unavailable(UpdateUnavailableReason.INVALID_RESPONSE)
-            }
+                override fun onResponse(call: okhttp3.Call, response: okhttp3.Response) {
+                    val result = try {
+                        response.use {
+                            when {
+                                response.code == 403 -> unavailable(UpdateUnavailableReason.RATE_LIMITED)
+                                response.code in 500..599 -> unavailable(UpdateUnavailableReason.SERVER)
+                                !response.isSuccessful -> unavailable(UpdateUnavailableReason.INVALID_RESPONSE)
+                                else -> {
+                                    val body = response.body
+                                        ?: return@use unavailable(UpdateUnavailableReason.INVALID_RESPONSE)
+                                    val parsed = try {
+                                        body.use { parseRelease(JsonReader.of(it.source())) }
+                                    } catch (_: IOException) {
+                                        null
+                                    } ?: return@use unavailable(UpdateUnavailableReason.INVALID_RESPONSE)
+                                    mapRelease(installed, parsed)
+                                }
+                            }
+                        }
+                    } catch (_: IOException) {
+                        unavailable(UpdateUnavailableReason.NETWORK)
+                    } catch (_: RuntimeException) {
+                        unavailable(UpdateUnavailableReason.INVALID_RESPONSE)
+                    }
+                    continuation.resume(result)
+                }
+            })
         }
     }
 

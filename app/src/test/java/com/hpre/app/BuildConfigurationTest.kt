@@ -10,9 +10,9 @@ class BuildConfigurationTest {
         assertEquals("com.hpre.app", BuildConfig.APPLICATION_ID)
     }
 
-    @Test fun release_version_is_1_0_33_code_34_and_shrinks_resources() {
-        assertEquals("1.0.33", BuildConfig.VERSION_NAME)
-        assertEquals(34, BuildConfig.VERSION_CODE)
+    @Test fun release_version_is_1_0_35_code_36_and_shrinks_resources() {
+        assertEquals("1.0.35", BuildConfig.VERSION_NAME)
+        assertEquals(36, BuildConfig.VERSION_CODE)
 
         val root = generateSequence(File(".").canonicalFile) { it.parentFile }
             .first { File(it, "settings.gradle.kts").isFile }
@@ -30,5 +30,21 @@ class BuildConfigurationTest {
         assertTrue(activity.contains("enableEdgeToEdge"))
         assertTrue(manifest.contains("@style/Theme.HPre"))
         assertTrue(themes.contains("name=\"Theme.HPre\""))
+    }
+
+    @Test fun manifest_declares_optional_touch_and_tv_automotive_support() {
+        val root = generateSequence(File(".").canonicalFile) { it.parentFile }
+            .first { File(it, "settings.gradle.kts").isFile }
+        val manifest = File(root, "app/src/main/AndroidManifest.xml").readText()
+
+        assertTrue(
+            manifest.contains(
+                "<uses-feature android:name=\"android.hardware.touchscreen\" android:required=\"false\" />",
+            ),
+        )
+        assertTrue(manifest.contains("android.software.leanback"))
+        assertTrue(manifest.contains("android.hardware.type.automotive"))
+        assertTrue(manifest.contains("android.intent.category.LEANBACK_LAUNCHER"))
+        assertTrue(manifest.contains("@drawable/tv_banner"))
     }
 }

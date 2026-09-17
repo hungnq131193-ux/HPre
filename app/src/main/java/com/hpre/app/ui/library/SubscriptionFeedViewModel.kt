@@ -26,11 +26,13 @@ class SubscriptionFeedViewModel(
     private val _state = MutableStateFlow<SubscriptionFeedUiState>(SubscriptionFeedUiState.Loading)
     val state: StateFlow<SubscriptionFeedUiState> = _state.asStateFlow()
 
-    init { refresh() }
+    private var refreshJob: kotlinx.coroutines.Job? = null
+    init { viewModelScope.launch { repository.subscriptionKeys.collect { refresh() } } }
 
     fun refresh() {
+        refreshJob?.cancel()
         _state.value = SubscriptionFeedUiState.Loading
-        viewModelScope.launch {
+        refreshJob = viewModelScope.launch {
             try {
                 val feed = repository.refreshAll(forceRefresh = true)
                 _state.value = when {

@@ -1,6 +1,5 @@
 package com.hpre.app.ui.library
 
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -47,6 +46,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.hpre.app.repository.LocalPlaylist
 import com.hpre.app.R
+import com.hpre.app.ui.platform.hpreAdaptiveClickable
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -169,7 +169,7 @@ private fun PlaylistManagementRow(
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .clickable(onClick = onClick)
+            .hpreAdaptiveClickable(onClick = onClick)
             .padding(horizontal = 16.dp, vertical = 8.dp)
             .testTag("playlist_row_${playlist.playlistId}"),
         verticalAlignment = Alignment.CenterVertically

@@ -12,13 +12,19 @@ import com.hpre.app.model.VideoDetails
 import com.hpre.app.model.StreamInfo
 import com.hpre.app.model.VideoSummary
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.async
+import kotlinx.coroutines.asCoroutineDispatcher
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
+import okhttp3.OkHttpClient
+import okhttp3.mockwebserver.MockResponse
+import okhttp3.mockwebserver.MockWebServer
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
@@ -31,14 +37,262 @@ import org.schabi.newpipe.extractor.downloader.Request
 import org.schabi.newpipe.extractor.downloader.Response
 import java.io.IOException
 import java.io.InterruptedIOException
+import java.net.SocketTimeoutException
+import java.net.UnknownHostException
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.CopyOnWriteArrayList
 import java.util.concurrent.Executors
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicBoolean
+import java.util.concurrent.atomic.AtomicInteger
 
 @OptIn(ExperimentalCoroutinesApi::class)
 class NewPipeVideoServiceTest {
+
+    @Test
+    fun active_socket_timeout_returns_network_failure() = runBlocking {
+        ExtractorBootstrap.init(OkHttpDownloader())
+        val service = NewPipeVideoService(
+            ioDispatcher = ExtractorDispatcher.IO,
+            operations = object : ExtractorOperations by DefaultExtractorOperations() {
+                override fun videoBundle(key: ContentKey): ExtractedVideoBundle {
+                    throw SocketTimeoutException("Socket timed out")
+                }
+            }
+        )
+
+        assertEquals(
+            AppResult.Failure(AppError.NetworkError),
+            service.video(ContentKey(0, "socket_timeout"))
+        )
+    }
+
+    @Test
+    fun active_wrapped_socket_timeout_returns_network_failure() = runBlocking {
+        ExtractorBootstrap.init(OkHttpDownloader())
+        val service = NewPipeVideoService(
+            ioDispatcher = ExtractorDispatcher.IO,
+            operations = object : ExtractorOperations by DefaultExtractorOperations() {
+                override fun videoBundle(key: ContentKey): ExtractedVideoBundle {
+                    throw IOException("Extractor request failed", SocketTimeoutException("Socket timed out"))
+                }
+            }
+        )
+
+        assertEquals(
+            AppResult.Failure(AppError.NetworkError),
+            service.video(ContentKey(0, "wrapped_socket_timeout"))
+        )
+    }
+
+    @Test
+    fun active_timeout_wrapped_in_interrupted_io_returns_network_failure() = runBlocking {
+        ExtractorBootstrap.init(OkHttpDownloader())
+        val service = NewPipeVideoService(
+            ioDispatcher = ExtractorDispatcher.IO,
+            operations = object : ExtractorOperations by DefaultExtractorOperations() {
+                override fun videoBundle(key: ContentKey): ExtractedVideoBundle {
+                    throw InterruptedIOException("Call timeout").apply {
+                        initCause(SocketTimeoutException("Socket timed out"))
+                    }
+                }
+            }
+        )
+
+        assertEquals(
+            AppResult.Failure(AppError.NetworkError),
+            service.video(ContentKey(0, "wrapped_interrupted_timeout"))
+        )
+    }
+
+    @Test
+    fun active_interrupted_exception_returns_network_failure() = runBlocking {
+        ExtractorBootstrap.init(OkHttpDownloader())
+        val service = NewPipeVideoService(
+            ioDispatcher = ExtractorDispatcher.IO,
+            operations = object : ExtractorOperations by DefaultExtractorOperations() {
+                override fun videoBundle(key: ContentKey): ExtractedVideoBundle {
+                    throw InterruptedException("Extractor worker interrupted")
+                }
+            }
+        )
+
+        assertEquals(
+            AppResult.Failure(AppError.NetworkError),
+            service.video(ContentKey(0, "active_interrupted"))
+        )
+    }
+
+    @Test
+    fun active_downloader_dns_and_connection_failures_return_network_failure() = runBlocking {
+        val dnsDownloader = OkHttpDownloader(
+            OkHttpClient.Builder()
+                .dns(object : okhttp3.Dns {
+                    override fun lookup(hostname: String): List<java.net.InetAddress> {
+                        throw UnknownHostException("Synthetic DNS failure")
+                    }
+                })
+                .build()
+        )
+        ExtractorBootstrap.init(dnsDownloader)
+        val dnsService = NewPipeVideoService(
+            ioDispatcher = ExtractorDispatcher.IO,
+            operations = object : ExtractorOperations by DefaultExtractorOperations() {
+                override fun videoBundle(key: ContentKey): ExtractedVideoBundle {
+                    dnsDownloader.execute(
+                        Request.newBuilder().url("http://dns.test/video").httpMethod("GET").build()
+                    )
+                    error("Expected DNS failure")
+                }
+            }
+        )
+        assertEquals(AppResult.Failure(AppError.NetworkError), dnsService.video(ContentKey(0, "dns_failure")))
+
+        val server = MockWebServer()
+        server.start()
+        val disconnectedUrl = server.url("/connection-loss").toString()
+        server.shutdown()
+        val connectionDownloader = OkHttpDownloader(OkHttpClient())
+        ExtractorBootstrap.init(connectionDownloader)
+        val connectionService = NewPipeVideoService(
+            ioDispatcher = ExtractorDispatcher.IO,
+            operations = object : ExtractorOperations by DefaultExtractorOperations() {
+                override fun videoBundle(key: ContentKey): ExtractedVideoBundle {
+                    connectionDownloader.execute(
+                        Request.newBuilder().url(disconnectedUrl).httpMethod("GET").build()
+                    )
+                    error("Expected connection failure")
+                }
+            }
+        )
+        assertEquals(
+            AppResult.Failure(AppError.NetworkError),
+            connectionService.video(ContentKey(0, "connection_failure"))
+        )
+    }
+
+    @Test
+    fun active_okhttp_call_timeout_returns_network_failure() = runBlocking {
+        val server = MockWebServer()
+        server.start()
+        try {
+            server.enqueue(MockResponse().setHeadersDelay(1, TimeUnit.SECONDS))
+            val downloader = OkHttpDownloader(
+                OkHttpClient.Builder().callTimeout(100, TimeUnit.MILLISECONDS).build()
+            )
+            ExtractorBootstrap.init(downloader)
+            val service = NewPipeVideoService(
+                ioDispatcher = ExtractorDispatcher.IO,
+                operations = object : ExtractorOperations by DefaultExtractorOperations() {
+                    override fun videoBundle(key: ContentKey): ExtractedVideoBundle {
+                        downloader.execute(
+                            Request.newBuilder()
+                                .url(server.url("/call-timeout").toString())
+                                .httpMethod("GET")
+                                .build()
+                        )
+                        error("Expected OkHttp call timeout")
+                    }
+                }
+            )
+
+            assertEquals(
+                AppResult.Failure(AppError.NetworkError),
+                service.video(ContentKey(0, "okhttp_call_timeout"))
+            )
+        } finally {
+            server.shutdown()
+        }
+    }
+
+    @Test
+    fun worker_after_active_interrupted_timeout_can_complete_next_request() = runBlocking {
+        val executor = Executors.newSingleThreadExecutor()
+        val dispatcher = executor.asCoroutineDispatcher()
+        try {
+            ExtractorBootstrap.init(OkHttpDownloader())
+            val firstKey = ContentKey(0, "interrupted_timeout")
+            val secondKey = ContentKey(0, "next_request")
+            val expected = ExtractedVideoBundle(
+                VideoDetails(secondKey, "Next", "https://example.test/next", null, null, null, null, null, null, null, null, null, null),
+                StreamInfo(secondKey, "Next", hlsManifestUrl = "https://example.test/next.m3u8"),
+                emptyList()
+            )
+            val service = NewPipeVideoService(
+                ioDispatcher = dispatcher,
+                serviceScope = CoroutineScope(SupervisorJob() + dispatcher),
+                operations = object : ExtractorOperations by DefaultExtractorOperations() {
+                    override fun videoBundle(key: ContentKey): ExtractedVideoBundle {
+                        if (key == firstKey) {
+                            Thread.currentThread().interrupt()
+                            throw InterruptedIOException("Call timeout")
+                        }
+                        return expected
+                    }
+                }
+            )
+
+            assertEquals(AppResult.Failure(AppError.NetworkError), service.video(firstKey))
+            assertEquals(AppResult.Success(expected.details), service.video(secondKey))
+        } finally {
+            dispatcher.close()
+            executor.shutdownNow()
+        }
+    }
+
+    @Test
+    fun worker_after_cancelled_interrupt_can_run_interrupt_sensitive_request() = runBlocking {
+        val executor = Executors.newSingleThreadExecutor()
+        val dispatcher = executor.asCoroutineDispatcher()
+        try {
+            ExtractorBootstrap.init(OkHttpDownloader())
+            val firstKey = ContentKey(0, "cancelled_interrupt")
+            val secondKey = ContentKey(0, "interrupt_sensitive_next")
+            val started = CountDownLatch(1)
+            val interruptionObserved = CountDownLatch(1)
+            val interrupted = AtomicBoolean(false)
+            val expected = ExtractedVideoBundle(
+                VideoDetails(secondKey, "Next", "https://example.test/next", null, null, null, null, null, null, null, null, null, null),
+                StreamInfo(secondKey, "Next", hlsManifestUrl = "https://example.test/next.m3u8"),
+                emptyList()
+            )
+            val service = NewPipeVideoService(
+                ioDispatcher = dispatcher,
+                serviceScope = CoroutineScope(SupervisorJob() + dispatcher),
+                operations = object : ExtractorOperations by DefaultExtractorOperations() {
+                    override fun videoBundle(key: ContentKey): ExtractedVideoBundle {
+                        if (key == firstKey) {
+                            started.countDown()
+                            try {
+                                CountDownLatch(1).await()
+                            } catch (e: InterruptedException) {
+                                interrupted.set(true)
+                                interruptionObserved.countDown()
+                                throw e
+                            }
+                        }
+                        Thread.sleep(10)
+                        return expected
+                    }
+                }
+            )
+
+            val first = async(Dispatchers.Default) { service.video(firstKey) }
+            assertTrue(started.await(5, TimeUnit.SECONDS))
+            first.cancel()
+            try {
+                first.await()
+                fail("Expected cancellation")
+            } catch (_: CancellationException) {
+            }
+            assertTrue(interruptionObserved.await(5, TimeUnit.SECONDS))
+            assertTrue(interrupted.get())
+            assertEquals(AppResult.Success(expected.details), service.video(secondKey))
+        } finally {
+            dispatcher.close()
+            executor.shutdownNow()
+        }
+    }
 
     @Test
     fun prefetch_and_stream_info_share_one_bundle_extraction() = runTest {
@@ -133,6 +387,130 @@ class NewPipeVideoServiceTest {
         assertEquals(AppResult.Success(streams), service.streamInfo(key))
         assertEquals(1, extractions)
         assertEquals(3, records.size)
+    }
+
+    @Test
+    fun stream_info_completes_before_metadata_while_video_joins_the_same_extraction() = runTest {
+        ExtractorBootstrap.init(OkHttpDownloader())
+        val key = ContentKey(0, "staged_open")
+        val streams = StreamInfo(
+            key,
+            "Stream title",
+            hlsManifestUrl = "https://example.test/master.m3u8?expire=4102444800"
+        )
+        val details = VideoDetails(
+            key, "Metadata title", "https://example.test/staged_open", null, null, null,
+            null, null, null, null, null, null, null
+        )
+        val bundle = ExtractedVideoBundle(details, streams, emptyList())
+        val streamPublished = CountDownLatch(1)
+        val metadataGate = CountDownLatch(1)
+        val extractions = AtomicInteger()
+        val operations = object : ExtractorOperations by DefaultExtractorOperations(),
+            StagedVideoExtractorOperations {
+            override fun videoBundle(
+                key: ContentKey,
+                onStreamReady: (StreamInfo) -> Unit
+            ): ExtractedVideoBundle {
+                extractions.incrementAndGet()
+                onStreamReady(streams)
+                streamPublished.countDown()
+                assertTrue(metadataGate.await(5, TimeUnit.SECONDS))
+                return bundle
+            }
+        }
+        val service = NewPipeVideoService(
+            ioDispatcher = Dispatchers.IO,
+            operations = operations,
+            serviceScope = backgroundScope
+        )
+
+        val streamResult = async { service.streamInfo(key) }
+        runCurrent()
+        assertTrue(streamPublished.await(5, TimeUnit.SECONDS))
+        runCurrent()
+        assertTrue("stream result must not wait for metadata", streamResult.isCompleted)
+        assertEquals(AppResult.Success(streams), streamResult.await())
+
+        val videoResult = async { service.video(key) }
+        runCurrent()
+        assertFalse("metadata caller must still wait for the shared loader", videoResult.isCompleted)
+        metadataGate.countDown()
+
+        assertEquals(AppResult.Success(details), videoResult.await())
+        assertEquals(1, extractions.get())
+    }
+
+    @Test
+    fun metadata_failure_after_stream_publication_does_not_revoke_valid_media() = runTest {
+        ExtractorBootstrap.init(OkHttpDownloader())
+        val key = ContentKey(0, "staged_metadata_failure")
+        val streams = StreamInfo(
+            key,
+            "Playable",
+            hlsManifestUrl = "https://example.test/playable.m3u8?expire=4102444800"
+        )
+        val streamPublished = CountDownLatch(1)
+        val metadataGate = CountDownLatch(1)
+        val operations = object : ExtractorOperations by DefaultExtractorOperations(),
+            StagedVideoExtractorOperations {
+            override fun videoBundle(
+                key: ContentKey,
+                onStreamReady: (StreamInfo) -> Unit
+            ): ExtractedVideoBundle {
+                onStreamReady(streams)
+                streamPublished.countDown()
+                assertTrue(metadataGate.await(5, TimeUnit.SECONDS))
+                throw IOException("metadata failed after playable streams")
+            }
+        }
+        val service = NewPipeVideoService(
+            ioDispatcher = Dispatchers.IO,
+            operations = operations,
+            serviceScope = backgroundScope
+        )
+
+        val streamResult = async { service.streamInfo(key) }
+        val videoResult = async { service.video(key) }
+        runCurrent()
+        assertTrue(streamPublished.await(5, TimeUnit.SECONDS))
+        runCurrent()
+
+        assertEquals(AppResult.Success(streams), streamResult.await())
+        metadataGate.countDown()
+        assertEquals(AppResult.Failure(AppError.NetworkError), videoResult.await())
+    }
+
+    @Test
+    fun stream_info_uses_legacy_video_bundle_override_when_operations_are_not_staged() = runTest {
+        ExtractorBootstrap.init(OkHttpDownloader())
+        val key = ContentKey(0, "legacy_override")
+        val streams = StreamInfo(
+            key,
+            "Legacy stream",
+            hlsManifestUrl = "https://example.test/legacy.m3u8?expire=4102444800"
+        )
+        val bundle = ExtractedVideoBundle(
+            VideoDetails(
+                key, "Legacy metadata", "https://example.test/legacy_override", null, null, null,
+                null, null, null, null, null, null, null
+            ),
+            streams,
+            emptyList()
+        )
+        val delegate = DefaultExtractorOperations(
+            videoBundleLoader = { _, _, _ -> error("staged overload bypassed legacy override") }
+        )
+        val operations = object : ExtractorOperations by delegate {
+            override fun videoBundle(key: ContentKey): ExtractedVideoBundle = bundle
+        }
+        val service = NewPipeVideoService(
+            ioDispatcher = Dispatchers.IO,
+            operations = operations,
+            serviceScope = backgroundScope
+        )
+
+        assertEquals(AppResult.Success(streams), service.streamInfo(key))
     }
 
     @Test

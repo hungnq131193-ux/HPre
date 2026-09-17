@@ -39,6 +39,49 @@ class SearchViewModelTest {
 
     private val testDispatcher = StandardTestDispatcher()
 
+    @Test
+    fun typing_does_not_pair_new_query_with_visible_results_token() = runTest(testDispatcher) {
+        val calls = mutableListOf<Pair<String, PageToken?>>()
+        val service = FakeVideoService().apply {
+            searchHandler = { query, _, token ->
+                calls += query to token
+                AppResult.Success(page(query, nextToken = PageToken.Id("old-token")))
+            }
+        }
+        val model = SearchViewModel(CatalogRepository(service, repositoryScope = this), service)
+        model.onQuerySubmitted("old")
+        advanceUntilIdle()
+        model.onQueryChanged("new")
+        model.loadNextPage()
+        runCurrent()
+        assertFalse(calls.contains("new" to PageToken.Id("old-token")))
+        advanceUntilIdle()
+    }
+
+    @Test
+    fun navigating_during_replacement_keeps_committed_query_and_token_together() = runTest(testDispatcher) {
+        val gate = CompletableDeferred<Unit>()
+        val calls = mutableListOf<Pair<String, PageToken?>>()
+        val service = FakeVideoService().apply {
+            searchHandler = { query, _, token ->
+                calls += query to token
+                if (query == "new" && token == null) gate.await()
+                AppResult.Success(page(query, nextToken = PageToken.Id("old-token")))
+            }
+        }
+        val model = SearchViewModel(CatalogRepository(service, repositoryScope = this), service)
+        model.onQuerySubmitted("old")
+        advanceUntilIdle()
+        model.onQuerySubmitted("new")
+        runCurrent()
+        model.onVideoSelected()
+        model.loadNextPage()
+        runCurrent()
+        assertFalse(calls.contains("new" to PageToken.Id("old-token")))
+        gate.complete(Unit)
+        advanceUntilIdle()
+    }
+
     private class FakeSearchHistoryRepository(
         initial: List<LocalSearchHistoryItem> = emptyList()
     ) : SearchHistoryRepository {

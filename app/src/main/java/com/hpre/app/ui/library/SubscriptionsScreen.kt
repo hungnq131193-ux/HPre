@@ -1,6 +1,5 @@
 package com.hpre.app.ui.library
 
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -44,6 +43,7 @@ import com.hpre.app.repository.LocalSubscription
 import com.hpre.app.ui.common.ErrorPane
 import com.hpre.app.ui.common.LoadingPane
 import com.hpre.app.ui.common.VideoCard
+import com.hpre.app.ui.platform.hpreAdaptiveClickable
 
 @Composable
 fun SubscriptionsScreen(
@@ -77,6 +77,11 @@ fun SubscriptionsScreen(
                     .testTag("subscriptions_list"),
                 verticalArrangement = Arrangement.spacedBy(8.dp)
             ) {
+                item {
+                    androidx.compose.material3.TextButton(onClick = { feedViewModel?.refresh() }) {
+                        Text(stringResource(R.string.action_retry))
+                    }
+                }
                 items(subscriptionsList, key = { it.channelKey.toString() }) { sub ->
                     SubscriptionListItem(
                         sub = sub,
@@ -122,7 +127,7 @@ private fun SubscriptionListItem(
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .clickable(onClick = onClick)
+            .hpreAdaptiveClickable(onClick = onClick)
             .padding(horizontal = 16.dp, vertical = 8.dp)
             .testTag("subscription_row_${sub.channelKey.nativeId}"),
         verticalAlignment = Alignment.CenterVertically

@@ -20,6 +20,7 @@ import kotlinx.coroutines.async
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
+import java.io.IOException
 
 /**
  * CatalogRepository manages short TTL caching for feeds and search results,
@@ -113,7 +114,7 @@ class CatalogRepository(
             } catch (ce: CancellationException) {
                 throw ce
             } catch (t: Throwable) {
-                AppResult.Failure(AppError.Unknown)
+                AppResult.Failure(t.toAppError())
             }
 
             mutex.withLock {
@@ -142,7 +143,7 @@ class CatalogRepository(
             // Pagination with token: coalesce identical append requests via typed request coordinator key
             val tokenKey = when (pageToken) {
                 is PageToken.Id -> "id:${pageToken.id}"
-                is PageToken.Url -> "url:${pageToken.url}"
+                is PageToken.Url -> "url:${pageToken.url.length}:${pageToken.url}:${pageToken.id?.length ?: -1}:${pageToken.id.orEmpty()}"
             }
             val requestKey = RequestKey.searchAppend("search_append:$cacheKey:$tokenKey")
             return requestCoordinator.execute(requestKey) {
@@ -205,6 +206,9 @@ class CatalogRepository(
             globalClearGeneration++
         }
     }
+
+    private fun Throwable.toAppError(): AppError =
+        if (this is IOException) AppError.NetworkError else AppError.Unknown
 }
 
 
