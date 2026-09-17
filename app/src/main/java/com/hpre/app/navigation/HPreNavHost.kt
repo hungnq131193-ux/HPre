@@ -67,7 +67,8 @@ fun HPreNavHost(
                 factory = HomeViewModel.provideFactory(
                     repository = container.recommendationRepository,
                     topicFeedSource = container.topicFeedSource,
-                    feedStore = container.homeFeedStore
+                    feedStore = container.homeFeedStore,
+                    videoService = container.videoService
                 )
             )
             HomeScreen(

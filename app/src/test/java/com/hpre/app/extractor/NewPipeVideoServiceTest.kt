@@ -329,6 +329,54 @@ class NewPipeVideoServiceTest {
     }
 
     @Test
+    fun prefetch_is_bounded_to_three_unique_keys_and_two_concurrent_extractions() = runBlocking {
+        ExtractorBootstrap.init(OkHttpDownloader())
+        val calls = CopyOnWriteArrayList<ContentKey>()
+        val active = AtomicInteger(0)
+        val maxActive = AtomicInteger(0)
+        val release = CountDownLatch(1)
+        val operations = object : ExtractorOperations by DefaultExtractorOperations() {
+            override fun videoBundle(key: ContentKey): ExtractedVideoBundle {
+                calls += key
+                val running = active.incrementAndGet()
+                maxActive.accumulateAndGet(running) { a, b -> maxOf(a, b) }
+                release.await(10, TimeUnit.SECONDS)
+                active.decrementAndGet()
+                return ExtractedVideoBundle(
+                    VideoDetails(key, "T", "https://example.test/${key.nativeId}", null, null, null, null, null, null, null, null, null, null),
+                    StreamInfo(key, "T"),
+                    emptyList()
+                )
+            }
+        }
+        val service = NewPipeVideoService(ioDispatcher = Dispatchers.IO, operations = operations)
+
+        val job = async(Dispatchers.IO) {
+            service.prefetch(
+                listOf(
+                    ContentKey(0, "a"), ContentKey(0, "a"), ContentKey(9, "foreign"),
+                    ContentKey(0, "b"), ContentKey(0, "c"), ContentKey(0, "d")
+                )
+            )
+        }
+
+        val deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(5)
+        while (calls.size < 2 && System.nanoTime() < deadline) Thread.sleep(10)
+        assertEquals("semaphore should admit exactly 2 workers before release", 2, calls.size)
+        Thread.sleep(50)
+        assertEquals("third key must wait for a permit", 2, calls.size)
+
+        release.countDown()
+        job.await()
+
+        assertEquals(
+            setOf(ContentKey(0, "a"), ContentKey(0, "b"), ContentKey(0, "c")),
+            calls.toSet()
+        )
+        assertTrue("expected at most 2 concurrent extractions, saw ${maxActive.get()}", maxActive.get() <= 2)
+    }
+
+    @Test
     fun video_stream_and_related_share_one_bundle_extraction() = runTest {
         ExtractorBootstrap.init(OkHttpDownloader())
         val key = ContentKey(0, "shared_bundle")

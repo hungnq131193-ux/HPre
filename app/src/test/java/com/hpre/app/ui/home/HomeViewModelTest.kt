@@ -129,6 +129,25 @@ class HomeViewModelTest {
     }
 
     @Test
+    fun successful_load_prefetches_top_three_visible_videos() = runTest(testDispatcher) {
+        val fakeService = FakeVideoService(
+            trendingResponse = AppResult.Success(List(6) { summary("v$it") })
+        )
+        val repository = CatalogRepository(videoService = fakeService, repositoryScope = this)
+        val viewModel = HomeViewModel(
+            recommendations(repository),
+            FakeTopicFeedSource(),
+            ioDispatcher = testDispatcher,
+            videoService = fakeService
+        )
+
+        advanceUntilIdle()
+
+        val content = (viewModel.uiState.value as HomeUiState.Content).content
+        assertEquals(content.videos.take(3).map { it.key }, fakeService.prefetchedKeys)
+    }
+
+    @Test
     fun load_emits_empty_when_list_is_empty() = runTest(testDispatcher) {
         val fakeService = FakeVideoService(
             trendingResponse = AppResult.Success(emptyList())

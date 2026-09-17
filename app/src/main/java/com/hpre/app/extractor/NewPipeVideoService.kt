@@ -19,9 +19,14 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.suspendCancellableCoroutine
+import kotlinx.coroutines.sync.Semaphore
+import kotlinx.coroutines.sync.withPermit
 import kotlinx.coroutines.withContext
 import java.io.InterruptedIOException
 import kotlin.coroutines.resume
@@ -157,8 +162,20 @@ class NewPipeVideoService internal constructor(
         }
     }
 
+    private val prefetchSemaphore = Semaphore(2)
+
     override suspend fun prefetch(keys: List<ContentKey>) {
-        // Disabled to prevent network queue contention and keep workers free for active video playback.
+        // Bounded background warming of the shared extraction cache: a tap on a warmed item
+        // joins the in-flight load or reads the fresh bundle instead of starting cold.
+        coroutineScope {
+            keys.asSequence()
+                .filter { it.serviceId == serviceId }
+                .distinct()
+                .take(3)
+                .map { key -> async(ioDispatcher) { prefetchSemaphore.withPermit { bundle(key) } } }
+                .toList()
+                .awaitAll()
+        }
     }
 
     override suspend fun channel(key: ContentKey): AppResult<ChannelDetails> {

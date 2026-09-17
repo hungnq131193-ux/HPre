@@ -34,3 +34,4 @@ Thumbs.db
 # Local agent/worktree state
 .superpowers/
 .worktrees/
+app/video_cache/
