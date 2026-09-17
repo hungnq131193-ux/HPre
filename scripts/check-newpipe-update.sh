@@ -37,7 +37,10 @@ NP_PINNED=$(git show "$TAG_MAX:gradle/libs.versions.toml" | grep -oP 'newpipeExt
 if [ -n "${BASE_REF_OVERRIDE:-}" ]; then
     BASE_REF=$BASE_REF_OVERRIDE
     REASON="manual release ($BASE_REF_OVERRIDE)"
-elif git merge-base --is-ancestor "$TAG_MAX" origin/main && [ "$MAIN" != "$TAG_COMMIT" ]; then
+elif git merge-base --is-ancestor "$TAG_MAX" origin/main && [ "$MAIN" != "$TAG_COMMIT" ] \
+    && ! git diff --quiet "$TAG_MAX" origin/main -- app/ gradle/; then
+    # Only release when app/build inputs actually changed vs the tag — merge or
+    # script-only commits on main must not produce a duplicate release.
     BASE_REF=origin/main
     REASON="new commits on main"
 elif [ "$NP_PINNED" != "$NP_NEW" ]; then
