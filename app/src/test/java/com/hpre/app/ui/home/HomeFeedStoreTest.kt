@@ -80,5 +80,36 @@ class HomeFeedStoreTest {
         store.remove("__all__")
         assertTrue(observedIo.get())
     }
+
+    @Test
+    fun corrupt_snapshot_is_ignored() = runTest(testDispatcher) {
+        val store = HomeFeedStore(
+            readEncoded = { "not-base64" },
+            writeEncoded = { _, _ -> },
+            removeEncoded = {},
+            ioDispatcher = testDispatcher
+        )
+
+        assertNull(store.load("__all__"))
+    }
+
+    @Test
+    fun snapshot_older_than_max_age_is_ignored() = runTest(testDispatcher) {
+        val values = mutableMapOf<String, String>()
+        var now = 1_000L
+        val store = HomeFeedStore(
+            readEncoded = values::get,
+            writeEncoded = { key, value -> values[key] = value },
+            removeEncoded = values::remove,
+            nowMs = { now },
+            maxAgeMs = 10_000L,
+            ioDispatcher = testDispatcher
+        )
+        store.save("__all__", listOf(video()))
+
+        now = 11_001L
+
+        assertNull(store.load("__all__"))
+    }
 }
 

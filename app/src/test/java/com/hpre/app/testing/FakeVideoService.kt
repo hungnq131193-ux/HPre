@@ -34,6 +34,8 @@ class FakeVideoService(
     var streamResponses: Map<String, StreamInfo> = emptyMap()
 ) : VideoService {
 
+    val prefetchedKeys = mutableListOf<ContentKey>()
+
     var searchCallCount = 0
         private set
     var suggestionsCallCount = 0
@@ -100,5 +102,9 @@ class FakeVideoService(
         trendingCallCount++
         trendingHandler?.let { return it() }
         return trendingResponse
+    }
+
+    override suspend fun prefetch(keys: List<ContentKey>) {
+        prefetchedKeys += keys
     }
 }

@@ -9,7 +9,9 @@ internal data class PendingPrepare(
     val positionMs: Long,
     val playWhenReady: Boolean,
     val initialQuality: QualityOption? = null,
-    val playbackSpeed: Float = 1.0f
+    val playbackSpeed: Float = 1.0f,
+    val qualityPolicy: UserQualityPolicy = initialQuality?.let(UserQualityPolicy::Fixed)
+        ?: UserQualityPolicy.Auto()
 )
 
 internal class PendingSessionCommands {

@@ -39,10 +39,9 @@ object QualityPolicyResolver {
         currentStreamType: PlaybackStreamType?,
         option: QualityOption
     ): UserQualityPolicy = if (
-        (currentStreamType == PlaybackStreamType.HLS || currentStreamType == PlaybackStreamType.DASH) &&
-        option.height > 0
+        currentStreamType == PlaybackStreamType.HLS || currentStreamType == PlaybackStreamType.DASH
     ) {
-        UserQualityPolicy.Auto(maxHeight = option.height)
+        UserQualityPolicy.Auto(maxHeight = option.height.takeIf { it > 0 })
     } else {
         UserQualityPolicy.Fixed(option)
     }
@@ -97,7 +96,8 @@ data class PlaybackState(
     val isEnded: Boolean = false,
     val error: com.hpre.app.core.error.AppError? = null,
     val retrySnapshot: RetrySnapshot? = null,
-    val hasRenderedFirstFrame: Boolean = false
+    val hasRenderedFirstFrame: Boolean = false,
+    val autoplayTransitionGeneration: Long = 0L
 )
 
 data class PlaybackProgress(

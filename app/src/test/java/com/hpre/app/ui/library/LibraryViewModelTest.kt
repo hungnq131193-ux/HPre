@@ -327,6 +327,7 @@ class LibraryViewModelTest {
         testScheduler.advanceUntilIdle()
 
         viewModel.loadPlaylistDetail(pId)
+        backgroundScope.launch(UnconfinedTestDispatcher(testScheduler)) { viewModel.playlistDetail.collect {} }
         testScheduler.advanceUntilIdle()
         val detail = viewModel.playlistDetail.value
         assertEquals(2, detail?.entries?.size)

@@ -13,6 +13,7 @@ import com.hpre.app.player.QualityOption
 import com.hpre.app.player.toProgress
 import com.hpre.app.repository.CatalogRepository
 import com.hpre.app.repository.VideoService
+import com.hpre.app.settings.shareAppSettings
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -244,6 +245,9 @@ class TestHPreApplication : HPreApplication() {
                 _historyFlow.value = enabled
                 _settingsFlow.value = _settingsFlow.value.copy(historyEnabled = enabled)
             }
+        }
+        override val settingsSnapshot by lazy {
+            settingsRepository.settings.shareAppSettings(applicationScope)
         }
         var createPlayerCount = 0
         val uniquePlayerInstanceCount: Int = 1

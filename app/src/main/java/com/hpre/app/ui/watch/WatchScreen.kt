@@ -1,4 +1,5 @@
 package com.hpre.app.ui.watch
+import androidx.compose.foundation.layout.heightIn
 
 import android.app.Activity
 import android.content.Context
@@ -505,8 +506,8 @@ fun WatchScreen(
                         isSubscribed = isSubscribed,
                         playlists = playlists,
                         onToggleSubscription = { viewModel.toggleSubscription() },
-                        onAddToPlaylist = { playlistId -> viewModel.addVideoToPlaylist(playlistId) },
-                        onCreatePlaylistAndAdd = { title -> viewModel.createPlaylistAndAddVideo(title) },
+                        onAddToPlaylist = { playlistId, result -> viewModel.addVideoToPlaylist(playlistId, result) },
+                        onCreatePlaylistAndAdd = { title, result -> viewModel.createPlaylistAndAddVideo(title, result) },
                         shareLauncher = launcher,
                         relatedState = relatedState,
                         commentsState = commentsState,
@@ -579,8 +580,8 @@ fun WatchMetadataContent(
     isSubscribed: Boolean = false,
     playlists: List<com.hpre.app.repository.LocalPlaylist> = emptyList(),
     onToggleSubscription: () -> Unit = {},
-    onAddToPlaylist: (Long) -> Unit = {},
-    onCreatePlaylistAndAdd: (String) -> Unit = {},
+    onAddToPlaylist: (Long, (Boolean) -> Unit) -> Unit = { _, _ -> },
+    onCreatePlaylistAndAdd: (String, (Boolean) -> Unit) -> Unit = { _, _ -> },
     shareLauncher: ShareLauncher = DefaultShareLauncher(LocalContext.current),
     relatedState: RefreshableAsyncState<List<com.hpre.app.model.VideoSummary>> = RefreshableAsyncState.initial(),
     commentsState: com.hpre.app.ui.common.AsyncState<com.hpre.app.model.CommentPage> = com.hpre.app.ui.common.AsyncState.Empty,
@@ -602,6 +603,8 @@ fun WatchMetadataContent(
         mutableStateOf(false)
     }
     var showPlaylistSheet by remember { mutableStateOf(false) }
+    var playlistSaveFailed by remember { mutableStateOf(false) }
+    var playlistSaving by remember { mutableStateOf(false) }
 
     val currentOnLoadMoreComments = rememberUpdatedState(onLoadMoreComments)
     val nextPageToken = (commentsState as? com.hpre.app.ui.common.AsyncState.Content)?.value?.nextPageToken
@@ -828,15 +831,34 @@ fun WatchMetadataContent(
         AddToPlaylistDialog(
             playlists = playlists,
             onAddToPlaylist = { pId ->
-                onAddToPlaylist(pId)
-                showPlaylistSheet = false
+                if (!playlistSaving) {
+                    playlistSaving = true
+                    onAddToPlaylist(pId) { success ->
+                        playlistSaving = false
+                        playlistSaveFailed = !success
+                        if (success) showPlaylistSheet = false
+                    }
+                }
             },
             onCreateNewPlaylist = { title ->
-                onCreatePlaylistAndAdd(title)
-                showPlaylistSheet = false
+                if (!playlistSaving) {
+                    playlistSaving = true
+                    onCreatePlaylistAndAdd(title) { success ->
+                        playlistSaving = false
+                        playlistSaveFailed = !success
+                        if (success) showPlaylistSheet = false
+                    }
+                }
             },
             onDismiss = { showPlaylistSheet = false }
         )
+        if (playlistSaveFailed) {
+            AlertDialog(
+                onDismissRequest = { playlistSaveFailed = false },
+                text = { ErrorPane(error = com.hpre.app.core.error.AppError.Unknown, onRetry = { playlistSaveFailed = false }) },
+                confirmButton = { TextButton(onClick = { playlistSaveFailed = false }) { Text(stringResource(R.string.action_cancel)) } }
+            )
+        }
     }
 }
 
@@ -879,7 +901,11 @@ fun AddToPlaylistDialog(
                             modifier = Modifier.padding(bottom = 12.dp)
                         )
                     } else {
-                        playlists.forEach { playlist ->
+                        androidx.compose.foundation.lazy.LazyColumn(
+                            modifier = Modifier.fillMaxWidth().heightIn(max = 320.dp)
+                        ) {
+                        items(playlists.size, key = { playlists[it].playlistId }) { index ->
+                            val playlist = playlists[index]
                             Row(
                                 modifier = Modifier
                                     .fillMaxWidth()
@@ -899,6 +925,7 @@ fun AddToPlaylistDialog(
                                     style = MaterialTheme.typography.bodyLarge
                                 )
                             }
+                        }
                         }
                     }
                     TextButton(

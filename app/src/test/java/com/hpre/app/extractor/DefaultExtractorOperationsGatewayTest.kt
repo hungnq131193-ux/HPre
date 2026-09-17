@@ -8,21 +8,78 @@ import com.hpre.app.model.StreamInfo
 import com.hpre.app.model.VideoDetails
 import com.hpre.app.model.VideoSummary
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
+import org.junit.Assert.assertThrows
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.schabi.newpipe.extractor.ListExtractor
 import org.schabi.newpipe.extractor.Page
+import org.schabi.newpipe.extractor.ServiceList
 import org.schabi.newpipe.extractor.StreamingService
+import org.schabi.newpipe.extractor.Image
 import org.schabi.newpipe.extractor.comments.CommentsInfo
 import org.schabi.newpipe.extractor.comments.CommentsInfoItem
 import org.schabi.newpipe.extractor.linkhandler.SearchQueryHandler
 import org.schabi.newpipe.extractor.search.SearchInfo
 import org.schabi.newpipe.extractor.stream.StreamInfoItem
+import org.schabi.newpipe.extractor.stream.StreamExtractor
 import org.schabi.newpipe.extractor.stream.StreamType
+import org.schabi.newpipe.extractor.stream.AudioStream
+import org.schabi.newpipe.extractor.stream.VideoStream
+import org.schabi.newpipe.extractor.stream.Description
+import org.schabi.newpipe.extractor.linkhandler.LinkHandler
+import java.util.concurrent.atomic.AtomicInteger
+import org.schabi.newpipe.extractor.exceptions.ExtractionException
 
 class DefaultExtractorOperationsGatewayTest {
+
+    @Test
+    fun videoBundle_publishes_stream_after_one_fetch_before_optional_metadata() {
+        ExtractorBootstrap.init(OkHttpDownloader())
+        val key = ContentKey(0, "dQw4w9WgXcQ")
+        val events = mutableListOf<String>()
+        val fetches = AtomicInteger()
+        val extractor = RecordingStreamExtractor(events, fetches)
+        val operations = DefaultExtractorOperations(
+            streamExtractorFactory = { _, requestedKey ->
+                assertEquals(key, requestedKey)
+                extractor
+            }
+        )
+        var published: StreamInfo? = null
+
+        val bundle = operations.videoBundle(key) { stream ->
+            events += "published"
+            published = stream
+        }
+
+        assertEquals(1, fetches.get())
+        assertEquals(bundle.streamInfo, published)
+        assertTrue(events.indexOf("published") < events.indexOf("metadata"))
+    }
+
+    @Test
+    fun videoBundle_rejects_mismatched_key_before_publishing_stream() {
+        ExtractorBootstrap.init(OkHttpDownloader())
+        val requestedKey = ContentKey(0, "dQw4w9WgXcQ")
+        val extractor = RecordingStreamExtractor(
+            events = mutableListOf(),
+            fetches = AtomicInteger(),
+            nativeId = "eQw4w9WgXcQ"
+        )
+        val operations = DefaultExtractorOperations(
+            streamExtractorFactory = { _, _ -> extractor }
+        )
+        var published = false
+
+        assertThrows(ExtractionException::class.java) {
+            operations.videoBundle(requestedKey) { published = true }
+        }
+
+        assertFalse(published)
+    }
 
     @Test
     fun videoBundle_calls_loader_once_and_returns_all_projections() {
@@ -119,6 +176,38 @@ class DefaultExtractorOperationsGatewayTest {
             val nextPage = Page(null, "comments_distinct_page_3")
             return ListExtractor.InfoItemsPage(listOf(commentItem), nextPage, emptyList())
         }
+    }
+
+    private class RecordingStreamExtractor(
+        private val events: MutableList<String>,
+        private val fetches: AtomicInteger,
+        nativeId: String = "dQw4w9WgXcQ"
+    ) : StreamExtractor(
+        ServiceList.YouTube,
+        LinkHandler(
+            "https://youtube.com/watch?v=$nativeId",
+            "https://youtube.com/watch?v=$nativeId",
+            nativeId
+        )
+    ) {
+        override fun onFetchPage(downloader: org.schabi.newpipe.extractor.downloader.Downloader) {
+            fetches.incrementAndGet()
+        }
+
+        override fun getName(): String = "Staged video"
+        override fun getThumbnails(): List<Image> = emptyList()
+        override fun getUploaderUrl(): String = ""
+        override fun getUploaderName(): String = "Uploader"
+        override fun getAudioStreams(): List<AudioStream> = emptyList()
+        override fun getVideoStreams(): List<VideoStream> = emptyList()
+        override fun getVideoOnlyStreams(): List<VideoStream> = emptyList()
+        override fun getStreamType(): StreamType = StreamType.VIDEO_STREAM
+        override fun getAgeLimit(): Int = 0
+        override fun getHlsUrl(): String =
+            "https://example.test/staged.m3u8?expire=4102444800".also { events += "stream" }
+
+        override fun getDescription(): Description =
+            Description("Metadata", Description.PLAIN_TEXT).also { events += "metadata" }
     }
 
     @Test

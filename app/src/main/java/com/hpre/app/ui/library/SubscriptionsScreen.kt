@@ -77,6 +77,11 @@ fun SubscriptionsScreen(
                     .testTag("subscriptions_list"),
                 verticalArrangement = Arrangement.spacedBy(8.dp)
             ) {
+                item {
+                    androidx.compose.material3.TextButton(onClick = { feedViewModel?.refresh() }) {
+                        Text(stringResource(R.string.action_retry))
+                    }
+                }
                 items(subscriptionsList, key = { it.channelKey.toString() }) { sub ->
                     SubscriptionListItem(
                         sub = sub,

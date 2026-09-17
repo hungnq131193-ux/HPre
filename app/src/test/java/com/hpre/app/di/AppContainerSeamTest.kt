@@ -14,10 +14,42 @@ import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
+import java.io.File
 import java.lang.reflect.Modifier
 
 @OptIn(ExperimentalCoroutinesApi::class)
 class AppContainerSeamTest {
+
+    @Test
+    fun direct_controller_creation_defers_media_cache_initialization() {
+        val testDispatcher = StandardTestDispatcher()
+        Dispatchers.setMain(testDispatcher)
+        try {
+            var cacheDirectoryReads = 0
+            val fakeContext = object : android.content.ContextWrapper(null) {
+                override fun getApplicationContext(): android.content.Context = this
+                override fun getCacheDir(): File {
+                    cacheDirectoryReads++
+                    error("early Watch creation must not initialize media cache")
+                }
+            }
+            val testScope = kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.SupervisorJob() + testDispatcher)
+            val container = DefaultAppContainer(
+                context = fakeContext,
+                applicationScope = testScope,
+                ioDispatcher = testDispatcher,
+                mainDispatcher = testDispatcher
+            )
+
+            container.createPlayerController()
+
+            assertEquals(0, cacheDirectoryReads)
+            testDispatcher.scheduler.advanceUntilIdle()
+            assertEquals(1, cacheDirectoryReads)
+        } finally {
+            Dispatchers.resetMain()
+        }
+    }
 
     @Test
     fun failed_prewarm_reopens_guard_for_a_later_attempt() = kotlinx.coroutines.test.runTest {
@@ -200,6 +232,7 @@ class AppContainerSeamTest {
             }
         }
 
+        var cacheInitCount = 0
         var msfInitCount = 0
         var controllerCreateCount = 0
         val guard = java.util.concurrent.atomic.AtomicBoolean(false)
@@ -210,6 +243,10 @@ class AppContainerSeamTest {
             scope = testScope,
             ioDispatcher = customIoDispatcher,
             mainDispatcher = customMainDispatcher,
+            initMediaCache = {
+                cacheInitCount++
+                opEvents.add("initMediaCache (ioActive=$ioActive, mainActive=$mainActive)")
+            },
             initMediaSourceFactory = {
                 msfInitCount++
                 opEvents.add("initMediaSourceFactory (ioActive=$ioActive, mainActive=$mainActive)")
@@ -225,16 +262,19 @@ class AppContainerSeamTest {
             scope = testScope,
             ioDispatcher = customIoDispatcher,
             mainDispatcher = customMainDispatcher,
+            initMediaCache = { cacheInitCount++ },
             initMediaSourceFactory = { msfInitCount++ },
             initPlayerController = { controllerCreateCount++ }
         )
 
         testDispatcher.scheduler.advanceUntilIdle()
 
+        assertEquals(1, cacheInitCount)
         assertEquals(1, msfInitCount)
         assertEquals(1, controllerCreateCount)
         assertEquals(
             listOf(
+                "initMediaCache (ioActive=true, mainActive=false)",
                 "initMediaSourceFactory (ioActive=true, mainActive=false)",
                 "initPlayerController (ioActive=false, mainActive=true)"
             ),

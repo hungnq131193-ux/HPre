@@ -1,4 +1,5 @@
 package com.hpre.app.ui.player
+import androidx.lifecycle.repeatOnLifecycle
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -182,7 +183,9 @@ private fun MiniPlayerProgress(
     var progressState by remember(currentKey) {
         mutableStateOf(com.hpre.app.player.PlaybackProgress())
     }
-    LaunchedEffect(playerController, currentKey) {
+    val lifecycle = androidx.lifecycle.compose.LocalLifecycleOwner.current.lifecycle
+    LaunchedEffect(playerController, currentKey, lifecycle) {
+        lifecycle.repeatOnLifecycle(androidx.lifecycle.Lifecycle.State.STARTED) {
         while (true) {
             try {
                 progressState = playerController.readProgress()
@@ -190,6 +193,7 @@ private fun MiniPlayerProgress(
                 if (e is kotlinx.coroutines.CancellationException) throw e
             }
             kotlinx.coroutines.delay(com.hpre.app.ui.watch.PlayerControlsPolicy.PROGRESS_POLL_INTERVAL_MS)
+        }
         }
     }
     val progress = if (progressState.durationMs > 0L) {

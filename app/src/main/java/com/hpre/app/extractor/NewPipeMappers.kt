@@ -55,7 +55,7 @@ object NewPipeMappers {
         if (page == null) return null
         val url = page.url?.trim()
         if (!url.isNullOrBlank() && isValidHttpUrl(url)) {
-            return com.hpre.app.model.PageToken.Url(url)
+            return com.hpre.app.model.PageToken.Url(url, page.id)
         }
         val id = page.id?.trim()
         if (!id.isNullOrBlank()) {
@@ -67,7 +67,7 @@ object NewPipeMappers {
     fun reconstituteNewPipePage(token: com.hpre.app.model.PageToken?, baseUrl: String?): org.schabi.newpipe.extractor.Page? {
         if (token == null) return null
         return when (token) {
-            is com.hpre.app.model.PageToken.Url -> org.schabi.newpipe.extractor.Page(token.url)
+            is com.hpre.app.model.PageToken.Url -> org.schabi.newpipe.extractor.Page(token.url, token.id)
             is com.hpre.app.model.PageToken.Id -> org.schabi.newpipe.extractor.Page(baseUrl, token.id)
         }
     }

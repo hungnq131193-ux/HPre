@@ -9,6 +9,7 @@ import com.hpre.app.model.VideoSummary
 import com.hpre.app.repository.HomeRecommendationSource
 import com.hpre.app.repository.RecommendationRequest
 import com.hpre.app.repository.TtlLruCache
+import com.hpre.app.repository.VideoService
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -17,6 +18,8 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withTimeoutOrNull
 
 data class HomeContent(
@@ -54,7 +57,8 @@ class HomeViewModel(
     private val repository: HomeRecommendationSource,
     private val topicFeedSource: TopicFeedSource,
     private val feedStore: HomeFeedStore? = null,
-    private val ioDispatcher: CoroutineDispatcher = Dispatchers.IO
+    private val ioDispatcher: CoroutineDispatcher = Dispatchers.IO,
+    private val videoService: VideoService? = null
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow<HomeUiState>(HomeUiState.Loading)
@@ -64,6 +68,8 @@ class HomeViewModel(
     val chipsState: StateFlow<HomeChipsState> = _chipsState.asStateFlow()
 
     private var activeLoadJob: Job? = null
+    private var snapshotWriteJob: Job? = null
+    private val snapshotWriteMutex = Mutex()
     private var loadGeneration: Long = 0L
 
     /**
@@ -93,6 +99,7 @@ class HomeViewModel(
             _uiState.value = HomeUiState.Content(
                 HomeContent(videos = memoryCached.value, isLoadingSelection = memoryCached.isStale)
             )
+            prefetchTop(memoryCached.value)
             if (!memoryCached.isStale) return
         } else {
             val current = (_uiState.value as? HomeUiState.Content)?.content
@@ -114,6 +121,7 @@ class HomeViewModel(
                     _uiState.value = HomeUiState.Content(
                         HomeContent(videos = diskCached, isLoadingSelection = true)
                     )
+                    prefetchTop(diskCached)
                 }
             }
 
@@ -133,12 +141,13 @@ class HomeViewModel(
                     is AppResult.Success -> {
                         if (result.value.isEmpty()) {
                             chipCache.remove(cacheKey)
-                            feedStore?.remove(cacheKey)
                             _uiState.value = HomeUiState.Empty
+                            persistSnapshot(generation, cacheKey, null)
                         } else {
                             chipCache.put(cacheKey, result.value)
-                            feedStore?.save(cacheKey, result.value)
                             _uiState.value = HomeUiState.Content(HomeContent(result.value))
+                            persistSnapshot(generation, cacheKey, result.value)
+                            prefetchTop(result.value)
                         }
                     }
                     is AppResult.Failure -> {
@@ -206,16 +215,17 @@ class HomeViewModel(
                     is AppResult.Success -> {
                         if (result.value.isEmpty()) {
                             chipCache.remove(cacheKey)
-                            feedStore?.remove(cacheKey)
                             _uiState.value = HomeUiState.Empty
+                            persistSnapshot(generation, cacheKey, null)
                         } else {
                             // Overwrite the cache so leaving and returning to this chip shows what
                             // the user just pulled, not the pre-refresh list.
                             chipCache.put(cacheKey, result.value)
-                            feedStore?.save(cacheKey, result.value)
                             _uiState.value = HomeUiState.Content(
                                 HomeContent(videos = result.value, isRefreshing = false, refreshError = null)
                             )
+                            persistSnapshot(generation, cacheKey, result.value)
+                            prefetchTop(result.value)
                         }
                     }
                     is AppResult.Failure -> {
@@ -245,6 +255,33 @@ class HomeViewModel(
                     state.content.copy(isRefreshing = false, isLoadingSelection = false)
                 )
             } else state
+        }
+    }
+
+    /**
+     * Warms the shared extraction cache for the first few visible items so a tap on them skips
+     * the cold network round-trip. Bounded inside [VideoService.prefetch]; failures are ignored.
+     */
+    private fun prefetchTop(videos: List<VideoSummary>) {
+        val service = videoService ?: return
+        viewModelScope.launch(ioDispatcher) {
+            try {
+                service.prefetch(videos.take(3).map(VideoSummary::key))
+            } catch (cancelled: kotlinx.coroutines.CancellationException) {
+                throw cancelled
+            } catch (_: Exception) {
+            }
+        }
+    }
+
+    private fun persistSnapshot(generation: Long, cacheKey: String, videos: List<VideoSummary>?) {
+        val store = feedStore ?: return
+        snapshotWriteJob?.cancel()
+        snapshotWriteJob = viewModelScope.launch(ioDispatcher) {
+            snapshotWriteMutex.withLock {
+                if (generation != loadGeneration) return@withLock
+                if (videos == null) store.remove(cacheKey) else store.save(cacheKey, videos)
+            }
         }
     }
 
@@ -282,12 +319,13 @@ class HomeViewModel(
             repository: HomeRecommendationSource,
             topicFeedSource: TopicFeedSource,
             feedStore: HomeFeedStore? = null,
-            ioDispatcher: CoroutineDispatcher = Dispatchers.IO
+            ioDispatcher: CoroutineDispatcher = Dispatchers.IO,
+            videoService: VideoService? = null
         ): ViewModelProvider.Factory =
             object : ViewModelProvider.Factory {
                 @Suppress("UNCHECKED_CAST")
                 override fun <T : ViewModel> create(modelClass: Class<T>): T {
-                    return HomeViewModel(repository, topicFeedSource, feedStore, ioDispatcher) as T
+                    return HomeViewModel(repository, topicFeedSource, feedStore, ioDispatcher, videoService) as T
                 }
             }
     }

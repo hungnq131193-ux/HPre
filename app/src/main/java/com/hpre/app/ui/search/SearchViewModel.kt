@@ -120,6 +120,7 @@ class SearchViewModel(
 
     private var currentGeneration: Long = 0L
     private var activeRequestKey: String = ""
+    private var committedSearch: Pair<String, SearchFilter>? = null
 
     private var lastSearchedQuery: String? = null
     private var lastSearchedFilter: SearchFilter? = null
@@ -212,6 +213,7 @@ class SearchViewModel(
         // skips the cache. Debounced typing is happy to reuse a recent identical search.
         val cached = if (isExplicit) null else resultCache.get(requestKey)
         if (cached != null) {
+            committedSearch = query to filter
             _uiState.value = SearchUiState.Content(
                 items = cached.items,
                 nextPageToken = cached.nextPageToken,
@@ -244,6 +246,7 @@ class SearchViewModel(
             if (generation == currentGeneration && activeRequestKey == requestKey) {
                 when (result) {
                     is AppResult.Success -> {
+                        committedSearch = query to filter
                         val page = result.value
                         if (page.items.isEmpty()) {
                             resultCache.remove(requestKey)
@@ -287,13 +290,12 @@ class SearchViewModel(
         if (currentState !is SearchUiState.Content) return
         val nextToken = currentState.nextPageToken ?: return
         if (currentState.isLoadingNextPage || currentState.isSearching) return
+        val (currentQuery, currentFilter) = committedSearch ?: return
 
         if (!paginationMutex.tryLock()) return
 
         val generation = currentGeneration
         val requestKey = activeRequestKey
-        val currentQuery = repository.normalizeQuery(_query.value)
-        val currentFilter = _filter.value
 
         _uiState.value = currentState.copy(isLoadingNextPage = true)
 

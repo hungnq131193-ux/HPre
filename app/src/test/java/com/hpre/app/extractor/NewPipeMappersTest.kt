@@ -225,7 +225,7 @@ class NewPipeMappersTest {
     @Test
     fun mapPageToPageToken_and_reconstituteNewPipePage_handle_both_direct_url_and_opaque_id() {
         // 1. NewPipe Page with valid direct HTTP URL
-        val urlPage = org.schabi.newpipe.extractor.Page("https://youtube.com/continuation?token=123", "ignored_id")
+        val urlPage = org.schabi.newpipe.extractor.Page("https://youtube.com/continuation?token=123", "continuation_id")
         val urlToken = NewPipeMappers.mapPageToPageToken(urlPage)
         assertTrue(urlToken is com.hpre.app.model.PageToken.Url)
         assertEquals("https://youtube.com/continuation?token=123", (urlToken as com.hpre.app.model.PageToken.Url).url)
@@ -234,7 +234,7 @@ class NewPipeMappersTest {
         val reconstitutedUrlPage = NewPipeMappers.reconstituteNewPipePage(urlToken, baseUrl = "https://youtube.com/base")
         assertNotNull(reconstitutedUrlPage)
         assertEquals("https://youtube.com/continuation?token=123", reconstitutedUrlPage!!.url)
-        assertNull(reconstitutedUrlPage.id)
+        assertEquals("continuation_id", reconstitutedUrlPage.id)
 
         // 2. NewPipe Page with only opaque ID (or invalid/blank URL)
         val idPage = org.schabi.newpipe.extractor.Page(null, "opaque_token_456")
