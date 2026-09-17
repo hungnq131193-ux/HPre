@@ -6,9 +6,6 @@ import com.hpre.app.model.ContentKey
 import com.hpre.app.model.StreamInfo
 import com.hpre.app.model.VideoDetails
 import kotlinx.coroutines.CompletableDeferred
-import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitCancellation
 import kotlinx.coroutines.test.runCurrent
@@ -19,28 +16,6 @@ import org.junit.Test
 
 @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
 class VideoExtractionCoordinatorTest {
-    @Test fun completed_stream_waiter_does_not_keep_cancelled_metadata_alive() = runTest {
-        val coordinator = VideoExtractionCoordinator(backgroundScope)
-        val key = ContentKey(0, "released-stream")
-        val publishGate = CompletableDeferred<Unit>()
-        var cancelled = false
-        val stream = async {
-            coordinator.executeStream(key) { publish ->
-                publishGate.await()
-                publish(bundle(key).streamInfo)
-                try { awaitCancellation() } finally { cancelled = true }
-            }
-        }
-        runCurrent()
-        val metadata = async { coordinator.execute(key) { error("must share") } }
-        runCurrent()
-        publishGate.complete(Unit)
-        stream.await()
-        metadata.cancel()
-        runCurrent()
-        assertTrue(cancelled)
-        assertEquals(0, coordinator.inFlightCountForTest)
-    }
     private fun bundle(key: ContentKey) = ExtractedVideoBundle(
         VideoDetails(key, "Title", "https://example.test/${key.nativeId}", null, null, null, null, null, null, null, null, null, null),
         StreamInfo(key, "Title"),
@@ -66,59 +41,6 @@ class VideoExtractionCoordinatorTest {
         assertEquals(a.await(), b.await())
         assertEquals(a.await(), c.await())
         assertEquals(0, coordinator.inFlightCountForTest)
-    }
-
-    @Test fun stream_result_precedes_bundle_and_bundle_waiter_joins_the_same_loader() = runTest {
-        val coordinator = VideoExtractionCoordinator(this)
-        val key = ContentKey(0, "staged")
-        val streams = StreamInfo(
-            key,
-            "Playable",
-            hlsManifestUrl = "https://example.test/staged.m3u8?expire=4102444800"
-        )
-        val expected = bundle(key).copy(streamInfo = streams)
-        val metadataGate = CompletableDeferred<Unit>()
-        var calls = 0
-
-        val streamResult = async {
-            coordinator.executeStream(key) { publishStream ->
-                calls++
-                publishStream(streams)
-                metadataGate.await()
-                AppResult.Success(expected)
-            }
-        }
-        runCurrent()
-
-        assertTrue(streamResult.isCompleted)
-        assertEquals(AppResult.Success(streams), streamResult.await())
-        assertEquals(1, coordinator.inFlightCountForTest)
-
-        val bundleResult = async {
-            coordinator.execute(key) { error("bundle waiter must join staged extraction") }
-        }
-        runCurrent()
-        assertTrue(!bundleResult.isCompleted)
-
-        metadataGate.complete(Unit)
-        assertEquals(AppResult.Success(expected), bundleResult.await())
-        assertEquals(1, calls)
-        assertEquals(0, coordinator.inFlightCountForTest)
-    }
-
-    @Test fun synchronous_loader_cannot_finish_before_in_flight_registration() = runTest {
-        val coordinator = VideoExtractionCoordinator(
-            CoroutineScope(SupervisorJob() + Dispatchers.Unconfined)
-        )
-        val key = ContentKey(0, "synchronous")
-
-        val result = kotlinx.coroutines.withContext(Dispatchers.Unconfined) {
-            coordinator.execute(key) { AppResult.Success(bundle(key)) }
-        }
-        assertTrue(result is AppResult.Success)
-
-        assertEquals(0, coordinator.inFlightCountForTest)
-        assertTrue(coordinator.execute(key) { error("completed result must be cached") } is AppResult.Success)
     }
 
     @Test fun different_keys_do_not_share() = runTest {

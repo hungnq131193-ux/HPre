@@ -11,18 +11,10 @@ import com.hpre.app.database.entity.PlaylistEntryEntity
 import com.hpre.app.database.relation.PlaylistWithEntries
 import kotlinx.coroutines.flow.Flow
 
-data class PlaylistWithCount(
-    @androidx.room.Embedded val playlist: PlaylistEntity,
-    val entryCount: Int
-)
-
 @Dao
 interface PlaylistDao {
     @Query("SELECT * FROM local_playlists ORDER BY updatedTimestamp DESC")
     fun observeAllPlaylists(): Flow<List<PlaylistEntity>>
-
-    @Query("SELECT p.*, COUNT(e.videoId) AS entryCount FROM local_playlists p LEFT JOIN local_playlist_entries e ON p.playlistId = e.playlistId GROUP BY p.playlistId ORDER BY p.updatedTimestamp DESC")
-    fun observePlaylistsWithCounts(): Flow<List<PlaylistWithCount>>
 
     @Query("SELECT * FROM local_playlists WHERE playlistId = :playlistId LIMIT 1")
     suspend fun getPlaylistById(playlistId: Long): PlaylistEntity?
@@ -66,7 +58,6 @@ interface PlaylistDao {
 
     @Transaction
     suspend fun addEntryToEnd(entry: PlaylistEntryEntity, updatedTimestamp: Long) {
-        if (getEntry(entry.playlistId, entry.serviceId, entry.videoId) != null) return
         val maxSort = getMaxSortOrder(entry.playlistId)
         val nextSort = maxSort + 1
         insertEntry(entry.copy(sortOrder = nextSort))

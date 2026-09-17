@@ -1,5 +1,6 @@
 package com.hpre.app.ui.library
 
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -42,7 +43,6 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import coil.compose.AsyncImage
-import com.hpre.app.ui.platform.hpreAdaptiveClickable
 import com.hpre.app.model.ContentKey
 import com.hpre.app.R
 import com.hpre.app.core.designsystem.MinimumTouchTarget
@@ -136,7 +136,7 @@ private fun PlaylistEntryItemRow(
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .hpreAdaptiveClickable(onClick = onClick)
+            .clickable(onClick = onClick)
             .padding(horizontal = 16.dp, vertical = 6.dp)
             .testTag("playlist_entry_row_${entry.videoKey.nativeId}"),
         verticalAlignment = Alignment.CenterVertically

@@ -40,9 +40,6 @@ class PlaylistRepositoryTest {
         }
 
         override fun observeAllPlaylists(): Flow<List<PlaylistEntity>> = playlistsFlow
-        override fun observePlaylistsWithCounts() = playlistsFlow.map { list ->
-            list.map { com.hpre.app.database.dao.PlaylistWithCount(it, entries[it.playlistId].orEmpty().size) }
-        }
 
         override suspend fun getPlaylistById(playlistId: Long): PlaylistEntity? {
             if (shouldThrowIoException) throw java.io.IOException("Disk error")

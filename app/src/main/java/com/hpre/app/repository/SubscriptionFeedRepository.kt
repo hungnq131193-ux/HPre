@@ -15,9 +15,6 @@ import kotlinx.coroutines.TimeoutCancellationException
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.sync.Semaphore
 import kotlinx.coroutines.sync.withPermit
-import kotlinx.coroutines.sync.withLock
-import kotlinx.coroutines.flow.map
-import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.withTimeout
 
 data class SubscriptionFeed(
@@ -34,13 +31,9 @@ class SubscriptionFeedRepository(
     private val clock: () -> Long = System::currentTimeMillis
 ) {
     private data class CachedChannel(val details: ChannelDetails, val storedAtMs: Long)
-    private val cache = java.util.concurrent.ConcurrentHashMap<ContentKey, CachedChannel>()
-    private val refreshMutex = kotlinx.coroutines.sync.Mutex()
-    val subscriptionKeys = subscriptionRepository.observeSubscriptions()
-        .map { subscriptions -> subscriptions.map { it.channelKey }.toSet() }
-        .distinctUntilChanged()
+    private val cache = mutableMapOf<ContentKey, CachedChannel>()
 
-    suspend fun refreshAll(forceRefresh: Boolean = false): SubscriptionFeed = refreshMutex.withLock { coroutineScope {
+    suspend fun refreshAll(forceRefresh: Boolean = false): SubscriptionFeed = coroutineScope {
         val subscriptions = subscriptionRepository.observeSubscriptions().first()
         val semaphore = Semaphore(3)
         val results = subscriptions.map { subscription ->
@@ -58,7 +51,7 @@ class SubscriptionFeedRepository(
             .sortedWith(compareByDescending<VideoSummary> { it.publishedTimestamp != null }
                 .thenByDescending { it.publishedTimestamp })
         SubscriptionFeed(videos, failed)
-    } }
+    }
 
     private suspend fun loadChannel(key: ContentKey, forceRefresh: Boolean): AppResult<ChannelDetails> {
         val now = clock()

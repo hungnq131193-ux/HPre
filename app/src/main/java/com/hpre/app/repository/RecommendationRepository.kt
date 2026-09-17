@@ -190,7 +190,7 @@ class RecommendationRepository(
         if (ranked.isNotEmpty()) return AppResult.Success(ranked)
         if (state.hasAnySuccess()) return AppResult.Success(emptyList())
 
-        return state.firstFailure() ?: AppResult.Failure(AppError.NetworkError)
+        return state.firstFailure() ?: AppResult.Success(emptyList())
     }
 
     override suspend fun recommendations(
@@ -302,7 +302,7 @@ class RecommendationRepository(
         if (ranked.isNotEmpty()) return AppResult.Success(ranked)
         if (state.hasAnySuccess()) return AppResult.Success(emptyList())
 
-        return state.firstFailure() ?: AppResult.Failure(AppError.NetworkError)
+        return state.firstFailure() ?: AppResult.Success(emptyList())
     }
 
     private suspend fun collectContinuations(

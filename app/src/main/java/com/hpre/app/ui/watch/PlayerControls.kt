@@ -1,6 +1,4 @@
 package com.hpre.app.ui.watch
-import androidx.lifecycle.repeatOnLifecycle
-import androidx.compose.ui.semantics.onClick
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
@@ -168,12 +166,9 @@ fun PlayerControlsOverlay(
     var feedbackNonce by remember { mutableIntStateOf(0) }
 
     val currentReadProgress = rememberUpdatedState(readProgress)
-    val lifecycle = androidx.lifecycle.compose.LocalLifecycleOwner.current.lifecycle
-    val accessibilityManager = androidx.compose.ui.platform.LocalAccessibilityManager.current
 
-    LaunchedEffect(controlsVisible, playbackState.key, lifecycle) {
+    LaunchedEffect(controlsVisible, playbackState.key) {
         if (controlsVisible) {
-            lifecycle.repeatOnLifecycle(androidx.lifecycle.Lifecycle.State.STARTED) {
             while (true) {
                 try {
                     localProgress = currentReadProgress.value()
@@ -181,7 +176,6 @@ fun PlayerControlsOverlay(
                     if (e is kotlinx.coroutines.CancellationException) throw e
                 }
                 delay(PlayerControlsPolicy.PROGRESS_POLL_INTERVAL_MS)
-            }
             }
         }
     }
@@ -237,9 +231,7 @@ fun PlayerControlsOverlay(
                 isScrubbing = isDragging
             )
         ) {
-            delay(accessibilityManager?.calculateRecommendedTimeoutMillis(
-                PlayerControlsPolicy.AUTO_HIDE_DELAY_MS, containsIcons = true, containsText = true, containsControls = true
-            ) ?: PlayerControlsPolicy.AUTO_HIDE_DELAY_MS)
+            delay(PlayerControlsPolicy.AUTO_HIDE_DELAY_MS)
             controlsVisible = false
         }
     }
@@ -438,12 +430,6 @@ fun PlayerControlsOverlay(
                 }
             }
             .testTag("player_controls_overlay")
-            .semantics {
-                onClick {
-                    keepControlsAlive()
-                    true
-                }
-            }
     ) {
         // Buffering / Loading Indicator
         if (showLoadingSpinner) {

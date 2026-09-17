@@ -24,14 +24,12 @@ import org.schabi.newpipe.extractor.localization.Localization
 import org.schabi.newpipe.extractor.playlist.PlaylistInfo
 import org.schabi.newpipe.extractor.search.SearchInfo
 import org.schabi.newpipe.extractor.stream.StreamInfo as ExtractorStreamInfo
-import org.schabi.newpipe.extractor.stream.StreamExtractor
 
 internal class DefaultExtractorOperations(
     private val streamingService: StreamingService = ServiceList.YouTube,
     private val gateway: SearchCommentsGateway = ProductionSearchCommentsGateway,
-    private val videoBundleLoader: ((StreamingService, ContentKey, Int) -> ExtractedVideoBundle)? = null,
-    private val streamExtractorFactory: ((StreamingService, ContentKey) -> StreamExtractor)? = null
-) : ExtractorOperations, StagedVideoExtractorOperations {
+    private val videoBundleLoader: ((StreamingService, ContentKey, Int) -> ExtractedVideoBundle)? = null
+) : ExtractorOperations {
 
     override val serviceId: Int
         get() = streamingService.serviceId
@@ -78,19 +76,8 @@ internal class DefaultExtractorOperations(
     }
 
     override fun videoBundle(key: ContentKey): ExtractedVideoBundle {
-        return videoBundle(key) { }
-    }
-
-    override fun videoBundle(
-        key: ContentKey,
-        onStreamReady: (StreamInfo) -> Unit
-    ): ExtractedVideoBundle {
-        val loaded = videoBundleLoader?.invoke(streamingService, key, serviceId)
-        if (loaded != null) {
-            onStreamReady(loaded.streamInfo)
-            return loaded
-        }
-        return loadVideoBundle(streamingService, key, serviceId, onStreamReady)
+        return videoBundleLoader?.invoke(streamingService, key, serviceId)
+            ?: loadVideoBundle(streamingService, key, serviceId)
     }
 
     override fun refreshStreamInfo(key: ContentKey): StreamInfo {
@@ -108,28 +95,17 @@ internal class DefaultExtractorOperations(
     private fun loadVideoBundle(
         service: StreamingService,
         key: ContentKey,
-        serviceId: Int,
-        onStreamReady: (StreamInfo) -> Unit
+        serviceId: Int
     ): ExtractedVideoBundle {
         val linkHandler = service.streamLHFactory.fromId(key.nativeId)
-        val streamExtractor = streamExtractorFactory?.invoke(service, key)
-            ?: service.getStreamExtractor(linkHandler)
+        val streamExtractor = service.getStreamExtractor(linkHandler)
         streamExtractor.fetchPage()
-        val extractedKey = ContentKey(streamExtractor.serviceId, streamExtractor.id)
-        if (extractedKey != key) {
-            throw ExtractionException("Returned video key does not match requested key $key")
-        }
-        val streams = NewPipeMappers.mapStreamExtractor(streamExtractor, key, serviceId)
-            ?: throw ContentNotSupportedException("No usable playback streams or manifests found")
-        if (streams.key != key) {
-            throw ExtractionException("Returned video key does not match requested key $key")
-        }
-        onStreamReady(streams)
-
         val info = ExtractorStreamInfo.getInfo(streamExtractor)
         val details = NewPipeMappers.mapVideoDetails(info, serviceId)
             ?: throw ExtractionException("Failed to map valid video details")
-        if (details.key != key) {
+        val streams = NewPipeMappers.mapStreamInfo(info, serviceId)
+            ?: throw ContentNotSupportedException("No usable playback streams or manifests found")
+        if (details.key != key || streams.key != key) {
             throw ExtractionException("Returned video key does not match requested key $key")
         }
         val relatedItems = info.relatedItems.orEmpty()

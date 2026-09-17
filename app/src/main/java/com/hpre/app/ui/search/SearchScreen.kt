@@ -1,6 +1,7 @@
 package com.hpre.app.ui.search
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -47,7 +48,6 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
-import com.hpre.app.ui.platform.hpreAdaptiveClickable
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
@@ -328,7 +328,7 @@ private fun SuggestionsList(
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .hpreAdaptiveClickable { onSuggestionClick(suggestion) }
+                    .clickable { onSuggestionClick(suggestion) }
                     .padding(horizontal = 16.dp, vertical = 12.dp)
                     .testTag("suggestion_item_$suggestion"),
                 verticalAlignment = Alignment.CenterVertically
@@ -385,7 +385,7 @@ private fun RecentQueriesList(
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .hpreAdaptiveClickable { onQueryClick(q) }
+                    .clickable { onQueryClick(q) }
                     .padding(horizontal = 16.dp, vertical = 10.dp)
                     .testTag("recent_item_$q"),
                 verticalAlignment = Alignment.CenterVertically
@@ -556,7 +556,7 @@ private fun ChannelResultCard(
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .hpreAdaptiveClickable(onClick = onClick)
+            .clickable(onClick = onClick)
             .padding(16.dp)
             .testTag("channel_card_${channel.key.nativeId}"),
         verticalAlignment = Alignment.CenterVertically
@@ -614,7 +614,7 @@ private fun PlaylistResultCard(
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .hpreAdaptiveClickable(onClick = onClick)
+            .clickable(onClick = onClick)
             .padding(16.dp)
             .testTag("playlist_card_${playlist.key.nativeId}"),
         verticalAlignment = Alignment.CenterVertically

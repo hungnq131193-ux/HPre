@@ -22,7 +22,6 @@ import com.hpre.app.player.PlayerController
 import com.hpre.app.player.toProgress
 import com.hpre.app.repository.CatalogRepository
 import com.hpre.app.repository.VideoService
-import com.hpre.app.settings.shareAppSettings
 import com.hpre.app.testing.FakeVideoService
 import org.junit.Rule
 import org.junit.Test
@@ -145,9 +144,6 @@ class HomeToWatchNavigationTest {
                 _historyFlow.value = enabled
                 _settingsFlow.value = _settingsFlow.value.copy(historyEnabled = enabled)
             }
-        }
-        override val settingsSnapshot by lazy {
-            settingsRepository.settings.shareAppSettings(applicationScope)
         }
         class CountingPlayerController : PlayerController {
             private val _state = kotlinx.coroutines.flow.MutableStateFlow(com.hpre.app.player.PlaybackState())

@@ -1,6 +1,7 @@
 package com.hpre.app.ui.common
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -38,7 +39,6 @@ import com.hpre.app.model.VideoSummary
 import com.hpre.app.R
 import com.hpre.app.core.designsystem.HPreShapes
 import com.hpre.app.core.designsystem.HPreSpacing
-import com.hpre.app.ui.platform.hpreAdaptiveClickable
 
 @Composable
 fun VideoCard(
@@ -49,7 +49,7 @@ fun VideoCard(
     Column(
         modifier = modifier
             .fillMaxWidth()
-            .hpreAdaptiveClickable { onClick(video.key) }
+            .clickable { onClick(video.key) }
             .testTag("video_card_${video.key.nativeId}")
             .padding(bottom = HPreSpacing.Large)
     ) {

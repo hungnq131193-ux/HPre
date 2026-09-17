@@ -11,7 +11,6 @@ import com.hpre.app.model.ContentKey
 import com.hpre.app.model.StreamInfo
 import com.hpre.app.model.VideoStream
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withContext
@@ -26,24 +25,6 @@ import org.junit.runner.RunWith
 class PlaybackServiceTest {
 
     private val testKey = ContentKey(0, "service_test_video_123")
-
-    @Test
-    fun unsupported_prepare_finishes_with_error_instead_of_loading_forever() = runBlocking {
-        val context = ApplicationProvider.getApplicationContext<Context>()
-        val controller = SessionPlayerController(context)
-        try {
-            controller.prepare(testKey, StreamInfo(testKey, "Unavailable quality",
-                hlsManifestUrl = "https://example.com/video.m3u8"),
-                initialQuality = QualityOption(9999, "Unavailable", true))
-            kotlinx.coroutines.withTimeout(10_000) {
-                controller.state.first { it.key == testKey && it.error != null && !it.isLoading }
-            }
-            assertEquals(com.hpre.app.core.error.AppError.UnsupportedFormat, controller.state.value.error)
-        } finally {
-            controller.clearMedia()
-            controller.release()
-        }
-    }
 
     @Test
     fun controller_reconnect_keeps_one_session_media_item_and_position() = runBlocking {
@@ -237,7 +218,7 @@ class PlaybackServiceTest {
 
         // Should clear media and state
         assertNull(controller.state.value.key)
-        kotlinx.coroutines.withTimeout(5000) { controller.snapshotStore.snapshotFlow.first { it == null } }
+        assertNull(controller.snapshotStore.load())
 
         controller.release()
     }
@@ -278,9 +259,7 @@ class PlaybackServiceTest {
         assertEquals(1.5f, controller.state.value.playbackSpeed, 0.01f)
         assertEquals(720, controller.state.value.selectedQuality?.height)
 
-        val snap = kotlinx.coroutines.withTimeout(5000) {
-            controller.snapshotStore.snapshotFlow.first { it?.key == testKey && it.playbackSpeed == 1.5f }
-        }
+        val snap = controller.snapshotStore.load()
         assertNotNull(snap)
         assertEquals(1.5f, snap?.playbackSpeed ?: 0f, 0.01f)
 

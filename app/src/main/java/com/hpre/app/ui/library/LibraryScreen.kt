@@ -1,6 +1,7 @@
 package com.hpre.app.ui.library
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -46,7 +47,6 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
-import com.hpre.app.ui.platform.hpreAdaptiveClickable
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -147,7 +147,7 @@ fun LibraryScreen(
         ) {
             Row(
                 verticalAlignment = Alignment.CenterVertically,
-                modifier = Modifier.hpreAdaptiveClickable { onNavigateToPlaylists() }
+                modifier = Modifier.clickable { onNavigateToPlaylists() }
             ) {
                 Text(
                     text = stringResource(R.string.screen_playlists),
@@ -261,7 +261,7 @@ private fun LibrarySectionHeader(
     ) {
         Row(
             verticalAlignment = Alignment.CenterVertically,
-            modifier = Modifier.hpreAdaptiveClickable { onSeeAllClick() }
+            modifier = Modifier.clickable { onSeeAllClick() }
         ) {
             Text(
                 text = title,
@@ -295,7 +295,7 @@ private fun RecentHistoryCard(
     Card(
         modifier = Modifier
             .width(160.dp)
-            .hpreAdaptiveClickable(onClick = onClick)
+            .clickable(onClick = onClick)
             .testTag("recent_history_card_${item.key.nativeId}"),
         shape = RoundedCornerShape(8.dp),
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f))
@@ -358,7 +358,7 @@ private fun PlaylistItemRow(
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .hpreAdaptiveClickable(onClick = onClick)
+            .clickable(onClick = onClick)
             .padding(horizontal = 16.dp, vertical = 12.dp)
             .testTag("playlist_item_${playlist.playlistId}"),
         verticalAlignment = Alignment.CenterVertically

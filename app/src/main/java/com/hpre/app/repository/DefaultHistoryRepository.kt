@@ -103,7 +103,7 @@ class DefaultHistoryRepository(
 
     override suspend fun deleteHistoryItem(key: ContentKey): AppResult<Unit> = withContext(ioDispatcher) {
         try {
-            writeMutex.withLock { historyDao.deleteByKey(key.serviceId, key.nativeId) }
+            historyDao.deleteByKey(key.serviceId, key.nativeId)
             AppResult.Success(Unit)
         } catch (c: CancellationException) {
             throw c
@@ -114,7 +114,7 @@ class DefaultHistoryRepository(
 
     override suspend fun clearHistory(): AppResult<Unit> = withContext(ioDispatcher) {
         try {
-            writeMutex.withLock { historyDao.clearAll() }
+            historyDao.clearAll()
             AppResult.Success(Unit)
         } catch (c: CancellationException) {
             throw c

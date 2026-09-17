@@ -20,8 +20,8 @@ class DefaultPlaylistRepository(
 ) : PlaylistRepository {
 
     override fun observePlaylists(): Flow<List<LocalPlaylist>> {
-        return playlistDao.observePlaylistsWithCounts().map { playlists ->
-            playlists.map { it.playlist.toDomain(it.entryCount) }
+        return playlistDao.observeAllPlaylists().map { playlists ->
+            playlists.map { it.toDomain() }
         }
     }
 
@@ -30,7 +30,7 @@ class DefaultPlaylistRepository(
             rel?.let {
                 LocalPlaylistWithEntries(
                     playlist = it.playlist.toDomain(entryCount = it.entries.size),
-                    entries = it.entries.sortedBy { entry -> entry.sortOrder }.map { entry -> entry.toDomain() }
+                    entries = it.entries.map { entry -> entry.toDomain() }
                 )
             }
         }

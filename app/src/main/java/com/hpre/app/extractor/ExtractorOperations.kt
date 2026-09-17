@@ -34,10 +34,3 @@ internal interface ExtractorOperations {
     fun comments(key: ContentKey, pageToken: PageToken?): CommentPage
     fun trending(): List<VideoSummary>
 }
-
-internal interface StagedVideoExtractorOperations {
-    fun videoBundle(
-        key: ContentKey,
-        onStreamReady: (StreamInfo) -> Unit
-    ): ExtractedVideoBundle
-}

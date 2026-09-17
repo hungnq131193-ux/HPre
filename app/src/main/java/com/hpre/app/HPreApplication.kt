@@ -59,15 +59,19 @@ open class HPreApplication : Application(), ImageLoaderFactory {
         ExtractorBootstrap.init(appDownloader)
         _container = createContainer()
 
-        // One application-wide DataStore collector feeds every settings consumer.
+        // Collect DataStore playback preferences and sync with coordinator & controller
         container.applicationScope.launch {
-            container.settingsSnapshot.settings.collect { settings ->
-                playbackUiCoordinator.setBackgroundPlaybackEnabled(settings.backgroundPlaybackEnabled)
-                playbackUiCoordinator.setPipEnabled(settings.pipEnabled)
+            container.playbackPreferences.isBackgroundPlaybackEnabled.collect { bgEnabled ->
+                playbackUiCoordinator.setBackgroundPlaybackEnabled(bgEnabled)
                 container.updatePlayerLifecyclePolicy(
-                    backgroundEnabled = settings.backgroundPlaybackEnabled,
+                    backgroundEnabled = bgEnabled,
                     pipActiveOrEntering = playbackUiCoordinator.state.value.isInPip
                 )
+            }
+        }
+        container.applicationScope.launch {
+            container.playbackPreferences.isPipEnabled.collect { pipPrefEnabled ->
+                playbackUiCoordinator.setPipEnabled(pipPrefEnabled)
             }
         }
     }

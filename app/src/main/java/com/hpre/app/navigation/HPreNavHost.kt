@@ -252,8 +252,7 @@ fun HPreNavHost(
                     settingsRepository = container.settingsRepository,
                     appUpdateChecker = container.appUpdateChecker,
                     installedVersion = com.hpre.app.BuildConfig.VERSION_NAME,
-                    mediaCacheManager = container.mediaCacheManager,
-                    settingsSnapshot = container.settingsSnapshot
+                    mediaCacheManager = container.mediaCacheManager
                 )
             )
             com.hpre.app.settings.SettingsScreen(
@@ -365,30 +364,7 @@ fun HPreNavHost(
                         watchStateCache = container.watchStateCache
                     )
                 )
-                androidx.compose.runtime.LaunchedEffect(watchViewModel, backStackEntry.id) {
-                    backStackEntry.savedStateHandle.get<Boolean>(com.hpre.app.ui.watch.WatchViewModel.KEY_IS_FULLSCREEN)?.let {
-                        watchViewModel.setFullscreen(it)
-                    }
-                    backStackEntry.savedStateHandle.get<String>(com.hpre.app.ui.watch.WatchViewModel.KEY_FULLSCREEN_RESIZE_MODE)?.let { value ->
-                        com.hpre.app.ui.watch.FullScreenResizeMode.entries.firstOrNull { it.name == value }?.let {
-                            watchViewModel.setFullScreenResizeMode(it)
-                        }
-                    }
-                }
                 val playbackUiState by effectiveCoordinator.state.collectAsStateWithLifecycle()
-                androidx.compose.runtime.LaunchedEffect(watchViewModel, backStackEntry.id) {
-                    watchViewModel.autoplayNavigation.collect { nextKey ->
-                        if (navController.currentBackStackEntry?.id == backStackEntry.id) {
-                            navController.replaceWatch(Screen.Watch.createRoute(nextKey))
-                            navController.currentBackStackEntry?.savedStateHandle?.apply {
-                                set(com.hpre.app.ui.watch.WatchViewModel.KEY_IS_FULLSCREEN,
-                                    watchViewModel.savedStateHandle.get<Boolean>(com.hpre.app.ui.watch.WatchViewModel.KEY_IS_FULLSCREEN) ?: false)
-                                set(com.hpre.app.ui.watch.WatchViewModel.KEY_FULLSCREEN_RESIZE_MODE,
-                                    watchViewModel.savedStateHandle.get<String>(com.hpre.app.ui.watch.WatchViewModel.KEY_FULLSCREEN_RESIZE_MODE))
-                            }
-                        }
-                    }
-                }
 
                 com.hpre.app.ui.watch.WatchScreen(
                     contentKey = key,

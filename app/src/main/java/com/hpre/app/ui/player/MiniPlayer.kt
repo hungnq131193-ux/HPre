@@ -1,7 +1,7 @@
 package com.hpre.app.ui.player
-import androidx.lifecycle.repeatOnLifecycle
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -47,7 +47,6 @@ import com.hpre.app.model.ContentKey
 import com.hpre.app.player.PlaybackState
 import com.hpre.app.player.toStructuralState
 import com.hpre.app.player.PlayerController
-import com.hpre.app.ui.platform.hpreAdaptiveClickable
 import com.hpre.app.player.PlaybackUiCoordinator
 import com.hpre.app.player.SurfaceOwner
 import com.hpre.app.ui.watch.PlayerSurface
@@ -83,7 +82,7 @@ fun MiniPlayer(
         modifier = modifier
             .fillMaxWidth()
             .testTag("mini_player_container")
-            .hpreAdaptiveClickable {
+            .clickable {
                 onExpandWatch(currentKey)
             }
     ) {
@@ -183,9 +182,7 @@ private fun MiniPlayerProgress(
     var progressState by remember(currentKey) {
         mutableStateOf(com.hpre.app.player.PlaybackProgress())
     }
-    val lifecycle = androidx.lifecycle.compose.LocalLifecycleOwner.current.lifecycle
-    LaunchedEffect(playerController, currentKey, lifecycle) {
-        lifecycle.repeatOnLifecycle(androidx.lifecycle.Lifecycle.State.STARTED) {
+    LaunchedEffect(playerController, currentKey) {
         while (true) {
             try {
                 progressState = playerController.readProgress()
@@ -193,7 +190,6 @@ private fun MiniPlayerProgress(
                 if (e is kotlinx.coroutines.CancellationException) throw e
             }
             kotlinx.coroutines.delay(com.hpre.app.ui.watch.PlayerControlsPolicy.PROGRESS_POLL_INTERVAL_MS)
-        }
         }
     }
     val progress = if (progressState.durationMs > 0L) {

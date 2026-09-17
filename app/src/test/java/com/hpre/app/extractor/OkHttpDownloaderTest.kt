@@ -1,7 +1,6 @@
 package com.hpre.app.extractor
 
 import okhttp3.Call
-import okio.buffer
 import okhttp3.MediaType.Companion.toMediaTypeOrNull
 import okhttp3.OkHttpClient
 import okhttp3.Protocol
@@ -18,34 +17,6 @@ import org.schabi.newpipe.extractor.exceptions.ReCaptchaException
 import java.io.IOException
 
 class OkHttpDownloaderTest {
-    @Test
-    fun error_status_is_reported_without_reading_body() {
-        val client = OkHttpClient.Builder().addInterceptor { chain ->
-            OkResponse.Builder().request(chain.request()).protocol(Protocol.HTTP_1_1)
-                .code(503).message("Unavailable")
-                .body(object : okhttp3.ResponseBody() {
-                    override fun contentType(): okhttp3.MediaType? = null
-                    override fun contentLength(): Long = -1
-                    override fun source(): okio.BufferedSource = object : okio.Source {
-                        override fun read(sink: okio.Buffer, byteCount: Long): Long = throw IOException("body must not be read")
-                        override fun timeout() = okio.Timeout.NONE
-                        override fun close() = Unit
-                    }.buffer()
-                }).build()
-        }.build()
-        val error = org.junit.Assert.assertThrows(ExtractorHttpException::class.java) {
-            OkHttpDownloader(client).execute(Request.newBuilder().url("https://example.com/test").httpMethod("GET").build())
-        }
-        assertEquals(503, error.statusCode)
-    }
-
-    @Test
-    fun successful_body_over_limit_is_rejected() {
-        val downloader = OkHttpDownloader(createMockClient(responseBody = "x".repeat(16 * 1024 * 1024 + 1)))
-        org.junit.Assert.assertThrows(IOException::class.java) {
-            downloader.execute(Request.newBuilder().url("https://example.com/test").httpMethod("GET").build())
-        }
-    }
 
     private fun createMockClient(
         statusCode: Int = 200,

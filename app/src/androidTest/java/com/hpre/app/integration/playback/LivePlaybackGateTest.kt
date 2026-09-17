@@ -561,9 +561,11 @@ class LivePlaybackGateTest {
                     qualityStreamType = alternateQuality.streamType.name
                     val preQualityGen = snapBeforeQuality.mediaOperationGeneration
                     val preQualityPos = snapBeforeQuality.actualPositionMs
+                    var preSwitchGenerationRenderCount = 0
 
                     withContext(Dispatchers.Main) {
                         controller.selectQuality(alternateQuality)
+                        preSwitchGenerationRenderCount = probe.getTestingSnapshot().renderedFirstFrameCount
                     }
 
                     val qualityConfirmed = withTimeoutOrNull(15_000L) {
@@ -580,11 +582,11 @@ class LivePlaybackGateTest {
                                 snap.isPlaying &&
                                 snap.selectedQuality == alternateQuality &&
                                 posDiff <= 1500L &&
-                                snap.renderedFirstFrameCount > 0
+                                snap.renderedFirstFrameCount > preSwitchGenerationRenderCount
                             ) {
                                 actualPostSwitchPosDelta = posDiff
                                 confirmedQualityGeneration = snap.mediaOperationGeneration
-                                postSwitchRenderDeltaActual = snap.renderedFirstFrameCount
+                                postSwitchRenderDeltaActual = snap.renderedFirstFrameCount - preSwitchGenerationRenderCount
                                 return@withTimeoutOrNull true
                             }
                             delay(150)

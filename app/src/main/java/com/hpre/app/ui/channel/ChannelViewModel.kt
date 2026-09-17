@@ -33,8 +33,7 @@ class ChannelViewModel(
     private var key: ContentKey? = null
     private var loadJob: Job? = null
 
-    fun load(key: ContentKey, forceRefresh: Boolean = false) {
-        if (!forceRefresh && this.key == key && (loadJob?.isActive == true || _state.value is ChannelUiState.Content)) return
+    fun load(key: ContentKey) {
         this.key = key
         loadJob?.cancel()
         _state.value = ChannelUiState.Loading
@@ -54,7 +53,7 @@ class ChannelViewModel(
         }
     }
 
-    fun retry() = key?.let { load(it, forceRefresh = true) }
+    fun retry() = key?.let(::load)
 
     companion object {
         fun provideFactory(videoService: VideoService): ViewModelProvider.Factory =

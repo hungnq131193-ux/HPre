@@ -23,8 +23,6 @@ import com.hpre.app.navigation.RootScaffold
 import com.hpre.app.player.PlaybackStreamType
 import com.hpre.app.player.PlayerController
 import com.hpre.app.settings.AppLocaleProvider
-import com.hpre.app.ui.platform.HPreDeviceModePolicy
-import com.hpre.app.ui.platform.ProvideHPreInputMode
 import com.hpre.app.ui.watch.PlayerSurface
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.map
@@ -70,8 +68,7 @@ open class MainActivity : ComponentActivity() {
             pipActiveOrEntering = initialUiState.isInPip
         )
         setContent {
-            val inputMode = remember { HPreDeviceModePolicy.fromPackageManager(packageManager) }
-            val settings by app.container.settingsSnapshot.settings.collectAsStateWithLifecycle()
+            val settings by app.container.settingsRepository.settings.collectAsStateWithLifecycle(initialValue = com.hpre.app.settings.AppSettings())
             val darkTheme = when (settings.theme) {
                 com.hpre.app.settings.AppTheme.SYSTEM -> androidx.compose.foundation.isSystemInDarkTheme()
                 com.hpre.app.settings.AppTheme.LIGHT -> false
@@ -111,8 +108,7 @@ open class MainActivity : ComponentActivity() {
 
             AppLocaleProvider(language = settings.language) {
                 HPreTheme(darkTheme = darkTheme) {
-                    ProvideHPreInputMode(mode = inputMode) {
-                        val playbackUiState by app.playbackUiCoordinator.state.collectAsStateWithLifecycle()
+                    val playbackUiState by app.playbackUiCoordinator.state.collectAsStateWithLifecycle()
                     // Auto-PiP only depends on four playback facts. Project the frequently-updating
                     // PlaybackState to those facts so position/buffering/quality ticks do not
                     // recompose the activity root and all of its navigation content.
@@ -157,16 +153,15 @@ open class MainActivity : ComponentActivity() {
                     // null check is a guard rather than an expected path; falling back to the
                     // scaffold is better than constructing a player to render an empty surface.
                     val pipController = if (playbackUiState.isInPip) activePlayerController else null
-                        if (pipController != null) {
-                            PlayerSurface(
-                                playerController = pipController,
-                                coordinator = app.playbackUiCoordinator,
-                                owner = com.hpre.app.player.SurfaceOwner.SYSTEM_PIP,
-                                modifier = Modifier.fillMaxSize()
-                            )
-                        } else {
-                            RootScaffold(container = app.container)
-                        }
+                    if (pipController != null) {
+                        PlayerSurface(
+                            playerController = pipController,
+                            coordinator = app.playbackUiCoordinator,
+                            owner = com.hpre.app.player.SurfaceOwner.SYSTEM_PIP,
+                            modifier = Modifier.fillMaxSize()
+                        )
+                    } else {
+                        RootScaffold(container = app.container)
                     }
                 }
             }
