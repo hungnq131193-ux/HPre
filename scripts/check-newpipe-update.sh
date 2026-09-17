@@ -47,7 +47,7 @@ elif [ "$NP_PINNED" != "$NP_NEW" ]; then
     BASE_REF=$TAG_MAX
     REASON="NewPipeExtractor v$NP_NEW"
 else
-    echo "nothing to release (main at/behind $TAG_MAX, newpipe $NP_PINNED = latest)"
+    echo "nothing to release (no app changes on main vs $TAG_MAX, newpipe $NP_PINNED = latest)"
     exit 0
 fi
 
