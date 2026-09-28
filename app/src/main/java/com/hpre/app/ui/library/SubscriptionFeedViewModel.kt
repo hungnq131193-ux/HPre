@@ -16,7 +16,12 @@ import kotlinx.coroutines.launch
 sealed interface SubscriptionFeedUiState {
     data object Loading : SubscriptionFeedUiState
     data object Empty : SubscriptionFeedUiState
-    data class Content(val videos: List<VideoSummary>, val failedChannels: List<ContentKey>) : SubscriptionFeedUiState
+    data class Content(
+        val videos: List<VideoSummary>,
+        val failedChannels: List<ContentKey>,
+        val isRefreshing: Boolean = false,
+        val refreshError: AppError? = null
+    ) : SubscriptionFeedUiState
     data class Error(val error: AppError) : SubscriptionFeedUiState
 }
 
@@ -27,23 +32,45 @@ class SubscriptionFeedViewModel(
     val state: StateFlow<SubscriptionFeedUiState> = _state.asStateFlow()
 
     private var refreshJob: kotlinx.coroutines.Job? = null
+    private var refreshGeneration = 0L
+
     init { viewModelScope.launch { repository.subscriptionKeys.collect { refresh() } } }
 
     fun refresh() {
         refreshJob?.cancel()
-        _state.value = SubscriptionFeedUiState.Loading
+        val generation = ++refreshGeneration
+        // Keep loaded videos on screen during a refresh; only a first load with
+        // nothing to show gets the Loading state.
+        val current = _state.value
+        _state.value = if (current is SubscriptionFeedUiState.Content) {
+            current.copy(isRefreshing = true, refreshError = null)
+        } else {
+            SubscriptionFeedUiState.Loading
+        }
         refreshJob = viewModelScope.launch {
             try {
                 val feed = repository.refreshAll(forceRefresh = true)
+                if (generation != refreshGeneration) return@launch
+                val existing = _state.value as? SubscriptionFeedUiState.Content
                 _state.value = when {
-                    feed.videos.isNotEmpty() -> SubscriptionFeedUiState.Content(feed.videos, feed.failedChannels)
-                    feed.failedChannels.isNotEmpty() -> SubscriptionFeedUiState.Error(AppError.NetworkError)
+                    feed.videos.isNotEmpty() -> SubscriptionFeedUiState.Content(
+                        feed.videos, feed.failedChannels
+                    )
+                    feed.failedChannels.isNotEmpty() -> existing?.copy(
+                        isRefreshing = false,
+                        refreshError = AppError.NetworkError
+                    ) ?: SubscriptionFeedUiState.Error(AppError.NetworkError)
                     else -> SubscriptionFeedUiState.Empty
                 }
             } catch (cancelled: CancellationException) {
                 throw cancelled
             } catch (_: Exception) {
-                _state.value = SubscriptionFeedUiState.Error(AppError.Unknown)
+                if (generation != refreshGeneration) return@launch
+                val existing = _state.value as? SubscriptionFeedUiState.Content
+                _state.value = existing?.copy(
+                    isRefreshing = false,
+                    refreshError = AppError.Unknown
+                ) ?: SubscriptionFeedUiState.Error(AppError.Unknown)
             }
         }
     }

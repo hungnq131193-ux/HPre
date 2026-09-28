@@ -7,6 +7,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
@@ -105,7 +106,8 @@ fun MiniPlayer(
             ) {
                 Box(
                     modifier = Modifier
-                        .size(48.dp, 36.dp)
+                        .height(54.dp)
+                        .aspectRatio(16f / 9f)
                         .clip(RoundedCornerShape(4.dp))
                         .background(MaterialTheme.colorScheme.secondaryContainer)
                         .testTag("mini_player_thumbnail"),
@@ -136,10 +138,15 @@ fun MiniPlayer(
                     )
                     Text(
                         text = stringResource(
-                            if (state.isPlaying) R.string.status_playing else R.string.status_paused
+                            when {
+                                state.isLoading || state.isBuffering -> R.string.status_loading
+                                state.isPlaying -> R.string.status_playing
+                                else -> R.string.status_paused
+                            }
                         ),
                         style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.testTag("mini_player_status")
                     )
                 }
 

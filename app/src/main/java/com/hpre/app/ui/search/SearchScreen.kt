@@ -72,6 +72,7 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.runtime.saveable.rememberSaveable
 import coil.compose.AsyncImage
+import com.hpre.app.core.error.AppError
 import com.hpre.app.model.Channel
 import com.hpre.app.R
 import com.hpre.app.model.ContentKey
@@ -81,6 +82,7 @@ import com.hpre.app.model.SearchResultItem
 import com.hpre.app.model.VideoSummary
 import com.hpre.app.ui.common.EmptyPane
 import com.hpre.app.ui.common.ErrorPane
+import com.hpre.app.ui.common.InlineErrorPane
 import com.hpre.app.ui.common.DelayedLinearLoadingIndicator
 import com.hpre.app.ui.common.DelayedLoadingPane
 import com.hpre.app.ui.common.VideoCard
@@ -102,11 +104,17 @@ fun SearchScreen(
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
     val suggestions by viewModel.suggestions.collectAsStateWithLifecycle()
     val historyState by viewModel.historyState.collectAsStateWithLifecycle()
+    val committedQuery by viewModel.committedQuery.collectAsStateWithLifecycle()
 
     val focusRequester = remember { FocusRequester() }
     val focusManager = LocalFocusManager.current
     val snackbarHostState = remember { SnackbarHostState() }
     var showClearHistoryDialog by rememberSaveable { mutableStateOf(false) }
+    // Survives back-navigation: returning from Watch must not pop the keyboard again.
+    var hasFocusedOnce by rememberSaveable { mutableStateOf(false) }
+    // Suggestions overlay is dismissed on submit/select and re-arms when the user edits the text.
+    var suggestionsDismissed by rememberSaveable { mutableStateOf(true) }
+    val listState = rememberLazyListState()
 
     val historyFailureMessage = stringResource(R.string.search_history_update_failed)
     LaunchedEffect(historyState.error) {
@@ -117,10 +125,20 @@ fun SearchScreen(
     }
 
     LaunchedEffect(Unit) {
-        // Automatically request focus when opening search
-        try {
-            focusRequester.requestFocus()
-        } catch (_: Exception) {}
+        // Automatically request focus when opening search — once per entry, not on every
+        // return from a detail screen.
+        if (!hasFocusedOnce) {
+            hasFocusedOnce = true
+            try {
+                focusRequester.requestFocus()
+            } catch (_: Exception) {}
+        }
+    }
+
+    // A newly committed query starts from the top; page appends and in-progress typing do not
+    // touch the scroll position.
+    LaunchedEffect(committedQuery, filter) {
+        if (committedQuery != null) listState.scrollToItem(0)
     }
 
     Box(
@@ -135,12 +153,16 @@ fun SearchScreen(
             title = {
                 OutlinedTextField(
                     value = query,
-                    onValueChange = { viewModel.onQueryChanged(it) },
+                    onValueChange = {
+                        suggestionsDismissed = it.isBlank()
+                        viewModel.onQueryChanged(it)
+                    },
                     placeholder = { Text(text = stringResource(R.string.search_hint)) },
                     singleLine = true,
                     keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
                     keyboardActions = KeyboardActions(
                         onSearch = {
+                            suggestionsDismissed = true
                             focusManager.clearFocus()
                             viewModel.onQuerySubmitted(query)
                         }
@@ -256,21 +278,37 @@ fun SearchScreen(
                     )
                 }
                 is SearchUiState.Content -> {
-                    // The cursor changes even when appending keeps the bounded list at 300 items.
-                    val requestKey = "${filter.name}:$query:${state.nextPageToken?.hashCode()}"
-                    SearchResultsList(
-                        items = state.items,
-                        requestKey = requestKey,
-                        hasNextPage = state.nextPageToken != null && !state.isSearching,
-                        isLoadingNextPage = state.isLoadingNextPage,
-                        onLoadMore = { viewModel.loadNextPage() },
-                        onVideoClick = onVideoClick,
-                        onChannelClick = onChannelClick,
-                        onPlaylistClick = onPlaylistClick,
-                        earlierResultsDropped = state.earlierResultsDropped,
-                        onRestart = viewModel::retry,
-                        onVideoSelected = onVideoSelected
-                    )
+                    // Editing the query shows suggestions over the still-visible results; submitting
+                    // or picking one dismisses them until the next edit.
+                    if (!suggestionsDismissed && suggestions.isNotEmpty()) {
+                        SuggestionsList(
+                            suggestions = suggestions,
+                            onSuggestionClick = { selected ->
+                                suggestionsDismissed = true
+                                focusManager.clearFocus()
+                                viewModel.onQuerySubmitted(selected)
+                            }
+                        )
+                    } else {
+                        // The cursor changes even when appending keeps the bounded list at 300 items.
+                        val requestKey = "${filter.name}:$query:${state.nextPageToken?.hashCode()}"
+                        SearchResultsList(
+                            items = state.items,
+                            requestKey = requestKey,
+                            hasNextPage = state.nextPageToken != null &&
+                                !state.isSearching && state.paginationError == null,
+                            isLoadingNextPage = state.isLoadingNextPage,
+                            paginationError = state.paginationError,
+                            onLoadMore = { viewModel.loadNextPage() },
+                            onVideoClick = onVideoClick,
+                            onChannelClick = onChannelClick,
+                            onPlaylistClick = onPlaylistClick,
+                            listState = listState,
+                            earlierResultsDropped = state.earlierResultsDropped,
+                            onRestart = viewModel::retry,
+                            onVideoSelected = onVideoSelected
+                        )
+                    }
 
                     // Previous results stay readable while a newer query runs; this bar is the only
                     // hint that they are about to be replaced.
@@ -431,6 +469,7 @@ internal fun SearchResultsList(
     onChannelClick: (ContentKey) -> Unit,
     onPlaylistClick: (ContentKey) -> Unit,
     listState: LazyListState = rememberLazyListState(),
+    paginationError: AppError? = null,
     earlierResultsDropped: Boolean = false,
     onRestart: () -> Unit = {},
     onVideoSelected: ((VideoSummary) -> Unit)? = null
@@ -509,13 +548,22 @@ internal fun SearchResultsList(
                     is SearchResultItem.ChannelItem -> "c_${item.channel.key.serviceId}_${item.channel.key.nativeId}"
                     is SearchResultItem.PlaylistItem -> "p_${item.playlist.key.serviceId}_${item.playlist.key.nativeId}"
                 }
+            },
+            contentType = { item ->
+                when (item) {
+                    is SearchResultItem.VideoItem -> "video"
+                    is SearchResultItem.ChannelItem -> "channel"
+                    is SearchResultItem.PlaylistItem -> "playlist"
+                }
             }
         ) { item ->
             when (item) {
                 is SearchResultItem.VideoItem -> {
                     VideoCard(
                         video = item.summary,
-                        onClick = { if (onVideoSelected != null) onVideoSelected(item.summary) else onVideoClick(it) }
+                        onClick = { if (onVideoSelected != null) onVideoSelected(item.summary) else onVideoClick(it) },
+                        onChannelClick = { onChannelClick(it) },
+                        compact = true
                     )
                 }
                 is SearchResultItem.ChannelItem -> {
@@ -533,7 +581,15 @@ internal fun SearchResultsList(
             }
         }
 
-        if (isLoadingNextPage) {
+        if (paginationError != null) {
+            item(key = "search_pagination_error") {
+                InlineErrorPane(
+                    error = paginationError,
+                    onRetry = onLoadMore,
+                    testTag = "search_pagination_error"
+                )
+            }
+        } else if (isLoadingNextPage) {
             item {
                 Box(
                     modifier = Modifier

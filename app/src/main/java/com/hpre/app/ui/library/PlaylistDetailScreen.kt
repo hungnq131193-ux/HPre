@@ -62,6 +62,7 @@ fun PlaylistDetailScreen(
     }
 
     val detail by viewModel.playlistDetail.collectAsStateWithLifecycle()
+    val mutationState by viewModel.mutationState.collectAsStateWithLifecycle()
 
     Scaffold(
         topBar = {
@@ -107,11 +108,12 @@ fun PlaylistDetailScreen(
                     .testTag("playlist_entries_list"),
                 verticalArrangement = Arrangement.spacedBy(8.dp)
             ) {
-                itemsIndexed(entries, key = { _, item -> item.videoKey.toString() }) { index, entry ->
+                itemsIndexed(entries, key = { _, item -> item.videoKey.toString() }, contentType = { _, _ -> "entry" }) { index, entry ->
                     PlaylistEntryItemRow(
                         entry = entry,
-                        canMoveUp = index > 0,
-                        canMoveDown = index < entries.size - 1,
+                        canMoveUp = index > 0 && !mutationState.inFlight,
+                        canMoveDown = index < entries.size - 1 && !mutationState.inFlight,
+                        actionsEnabled = !mutationState.inFlight,
                         onClick = { onVideoClick(entry.videoKey) },
                         onMoveUp = { viewModel.reorderPlaylistEntries(playlistId, index, index - 1) },
                         onMoveDown = { viewModel.reorderPlaylistEntries(playlistId, index, index + 1) },
@@ -121,6 +123,14 @@ fun PlaylistDetailScreen(
             }
         }
     }
+
+    val mutationError = mutationState.error
+    if (mutationError != null && !mutationState.inFlight) {
+        MutationErrorDialog(
+            error = mutationError,
+            onDismiss = { viewModel.consumeMutationResult() }
+        )
+    }
 }
 
 @Composable
@@ -128,6 +138,7 @@ private fun PlaylistEntryItemRow(
     entry: LocalPlaylistEntry,
     canMoveUp: Boolean,
     canMoveDown: Boolean,
+    actionsEnabled: Boolean = true,
     onClick: () -> Unit,
     onMoveUp: () -> Unit,
     onMoveDown: () -> Unit,
@@ -206,6 +217,7 @@ private fun PlaylistEntryItemRow(
             }
             IconButton(
                 onClick = onRemove,
+                enabled = actionsEnabled,
                 modifier = Modifier.size(MinimumTouchTarget).testTag("playlist_entry_remove_${entry.videoKey.nativeId}")
             ) {
                 Icon(

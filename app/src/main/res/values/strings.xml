@@ -8,16 +8,21 @@
     <string name="action_settings">Cài đặt</string>
     <string name="action_back">Quay lại</string>
     <string name="action_retry">Thử lại</string>
+    <string name="action_refresh">Làm mới</string>
     <string name="action_play">Phát</string>
     <string name="action_pause">Tạm dừng</string>
     <string name="action_cancel">Hủy</string>
     <string name="action_create">Tạo</string>
+    <string name="action_ok">OK</string>
+    <string name="error_dialog_title">Không thực hiện được</string>
     <string name="action_see_all">Xem tất cả</string>
     <string name="action_delete">Xóa</string>
     <string name="home_empty">Không có video phù hợp</string>
+    <string name="home_loading_chip">Đang tải %1$s…</string>
     <string name="empty_default">Chưa có nội dung</string>
     <string name="status_playing">Đang phát</string>
     <string name="status_paused">Đã tạm dừng</string>
+    <string name="status_loading">Đang tải</string>
     <string name="video_fallback_title">Video HPre</string>
     <string name="video_live">TRỰC TIẾP</string>
     <string name="mini_player_close">Đóng trình phát thu nhỏ</string>
@@ -48,6 +53,9 @@
     <string name="video_unavailable">Video không khả dụng</string>
     <string name="subscriptions_empty">Chưa theo dõi kênh nào</string>
     <string name="subscriptions_partial_error">Không thể làm mới một số kênh đã theo dõi.</string>
+    <string name="subscriptions_manage">Quản lý</string>
+    <string name="subscriptions_sheet_title">Kênh đã theo dõi</string>
+    <string name="subscription_unsubscribe_confirm">Bỏ theo dõi %1$s?</string>
     <string name="subscription_followed_local">Đã theo dõi trên thiết bị</string>
     <string name="subscription_following_local">Đang theo dõi</string>
     <string name="screen_history">Lịch sử xem</string>
@@ -59,6 +67,7 @@
     <string name="history_clear_title">Xóa lịch sử xem?</string>
     <string name="history_clear_message">Thao tác này sẽ xóa toàn bộ lịch sử xem trên thiết bị.</string>
     <string name="history_remove">Xóa khỏi lịch sử</string>
+    <string name="history_remove_confirm">Xóa video này khỏi lịch sử xem?</string>
     <string name="history_resume_at">Xem tiếp từ %1$d:%2$02d</string>
     <string name="screen_playlists">Danh sách phát</string>
     <string name="playlists_empty">Chưa có danh sách phát</string>
@@ -83,6 +92,7 @@
     <string name="screen_related_videos">Video liên quan</string>
     <string name="related_videos_empty">Không có video liên quan</string>
     <string name="comments_load_more">Tải thêm</string>
+    <string name="comments_title">Bình luận</string>
     <string name="comments_expand">Mở bình luận</string>
     <string name="comments_collapse">Thu gọn bình luận</string>
     <string name="comment_read_more">Xem thêm</string>
@@ -122,6 +132,7 @@
     <string name="watch_unknown_channel">Kênh không xác định</string>
     <string name="watch_description">Mô tả</string>
     <string name="watch_add_to_playlist">Thêm vào danh sách phát</string>
+    <string name="watch_save_failed">Không lưu được. Thử lại.</string>
     <string name="watch_create_and_add_playlist">Tạo và thêm vào danh sách phát</string>
     <string name="watch_no_playlists">Chưa có danh sách phát. Hãy tạo danh sách mới bên dưới.</string>
     <plurals name="watch_view_count">

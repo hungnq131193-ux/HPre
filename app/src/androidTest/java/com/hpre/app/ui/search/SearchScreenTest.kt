@@ -586,5 +586,128 @@ class SearchScreenTest {
         composeTestRule.waitForIdle()
         assertEquals(2, loadMoreCallCount)
     }
+
+    @Test
+    fun pagination_failure_shows_inline_footer_and_retry_recovers() {
+        var failNextPage = true
+        val page1Items = (1..15).map { SearchResultItem.VideoItem(summary("p1_$it")) }
+        val fakeService = FakeVideoService()
+        fakeService.searchHandler = { _, _, token ->
+            when {
+                token == null -> AppResult.Success(
+                    SearchPage(items = page1Items, nextPageToken = PageToken.Id("tok_2"))
+                )
+                failNextPage -> {
+                    failNextPage = false
+                    AppResult.Failure(com.hpre.app.core.error.AppError.NetworkError)
+                }
+                else -> AppResult.Success(
+                    SearchPage(
+                        items = listOf(SearchResultItem.VideoItem(summary("p2_item"))),
+                        nextPageToken = null
+                    )
+                )
+            }
+        }
+        val repository = CatalogRepository(
+            videoService = fakeService,
+            repositoryScope = kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.SupervisorJob())
+        )
+        val viewModel = SearchViewModel(repository = repository, videoService = fakeService)
+
+        composeTestRule.setContent {
+            HPreTheme {
+                SearchScreen(
+                    viewModel = viewModel,
+                    onNavigateBack = {},
+                    onVideoClick = {}
+                )
+            }
+        }
+
+        viewModel.onQuerySubmitted("q")
+        composeTestRule.waitForIdle()
+        viewModel.loadNextPage()
+
+        composeTestRule.waitUntil(5000) {
+            composeTestRule.onAllNodes(androidx.compose.ui.test.hasTestTag("search_pagination_error"))
+                .fetchSemanticsNodes().isNotEmpty()
+        }
+
+        // Page-1 items must still be visible while the footer error shows.
+        composeTestRule.onNodeWithTag("video_card_p1_1").assertExists()
+
+        // Retry via the inline footer button issues exactly one more request.
+        val callsBefore = fakeService.searchCallCount
+        composeTestRule.onNodeWithTag("search_pagination_error_retry").performClick()
+        composeTestRule.waitUntil(5000) { fakeService.searchCallCount == callsBefore + 1 }
+        composeTestRule.waitUntil(5000) {
+            composeTestRule.onAllNodes(androidx.compose.ui.test.hasTestTag("search_pagination_error"))
+                .fetchSemanticsNodes().isEmpty()
+        }
+        composeTestRule.onNodeWithTag("search_results_list")
+            .performScrollToNode(androidx.compose.ui.test.hasTestTag("video_card_p2_item"))
+        composeTestRule.onNodeWithTag("video_card_p2_item").assertIsDisplayed()
+    }
+
+    @Test
+    fun suggestions_overlay_shows_while_editing_over_content_and_submit_dismisses() {
+        val fakeService = FakeVideoService(
+            supportsSearchSuggestions = true,
+            suggestionsResponses = mapOf(
+                "alphax" to listOf("alphax suggestion")
+            ),
+            searchResponses = mapOf(
+                "alpha" to SearchPage(
+                    items = (1..10).map { SearchResultItem.VideoItem(summary("alpha_$it")) }
+                ),
+                // The debounced search for the in-progress edit still resolves to content, so the
+                // suggestion overlay — not an empty screen — is what the user sees.
+                "alphax" to SearchPage(
+                    items = listOf(SearchResultItem.VideoItem(summary("alphax_res")))
+                ),
+                "alphax suggestion" to SearchPage(
+                    items = listOf(SearchResultItem.VideoItem(summary("picked")))
+                )
+            )
+        )
+        val repository = CatalogRepository(
+            videoService = fakeService,
+            repositoryScope = kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.SupervisorJob())
+        )
+        val viewModel = SearchViewModel(repository = repository, videoService = fakeService)
+
+        composeTestRule.setContent {
+            HPreTheme {
+                SearchScreen(
+                    viewModel = viewModel,
+                    onNavigateBack = {},
+                    onVideoClick = {}
+                )
+            }
+        }
+
+        // Commit a search so results are on screen.
+        viewModel.onQuerySubmitted("alpha")
+        composeTestRule.waitUntil(5000) {
+            composeTestRule.onAllNodes(androidx.compose.ui.test.hasTestTag("video_card_alpha_1"))
+                .fetchSemanticsNodes().isNotEmpty()
+        }
+
+        // Editing the query over existing results must surface suggestions.
+        composeTestRule.onNodeWithTag("search_text_input").performTextInput("x")
+        composeTestRule.waitUntil(5000) {
+            composeTestRule.onAllNodes(androidx.compose.ui.test.hasTestTag("suggestions_list"))
+                .fetchSemanticsNodes().isNotEmpty()
+        }
+
+        // Picking a suggestion submits it and dismisses the overlay.
+        composeTestRule.onNodeWithTag("suggestion_item_alphax suggestion").performClick()
+        composeTestRule.waitUntil(5000) {
+            composeTestRule.onAllNodes(androidx.compose.ui.test.hasTestTag("video_card_picked"))
+                .fetchSemanticsNodes().isNotEmpty()
+        }
+        composeTestRule.onNodeWithTag("suggestions_list").assertDoesNotExist()
+    }
 }
 

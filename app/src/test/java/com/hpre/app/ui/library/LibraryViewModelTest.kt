@@ -89,6 +89,77 @@ class LibraryViewModelTest {
         assertEquals(0, subRepo.subFlow.subscriptionCount.value)
     }
 
+    @Test
+    fun create_playlist_failure_is_reflected_in_mutation_state_and_not_reported_as_success() = runTest {
+        val playlistRepo = FakePlaylistRepo()
+        playlistRepo.createResult = AppResult.Failure(com.hpre.app.core.error.AppError.Unknown)
+        val model = LibraryViewModel(FakeHistoryRepo(), FakeSubscriptionRepo(), playlistRepo)
+
+        var createdId: Long? = null
+        model.createPlaylist("Broken") { createdId = it }
+        testScheduler.advanceUntilIdle()
+
+        assertEquals(null, createdId)
+        assertEquals(com.hpre.app.core.error.AppError.Unknown, model.mutationState.value.error)
+        assertEquals("createPlaylist", model.mutationState.value.operation)
+        assertFalse(model.mutationState.value.inFlight)
+        assertFalse(model.mutationState.value.completed)
+    }
+
+    @Test
+    fun double_tap_create_while_in_flight_issues_only_one_repository_call() = runTest {
+        val playlistRepo = FakePlaylistRepo()
+        playlistRepo.createGate = kotlinx.coroutines.CompletableDeferred()
+        val model = LibraryViewModel(FakeHistoryRepo(), FakeSubscriptionRepo(), playlistRepo)
+
+        model.createPlaylist("First")
+        runCurrent()
+        assertTrue(model.mutationState.value.inFlight)
+
+        // Second identical tap while the first call is still in flight must be ignored.
+        model.createPlaylist("First")
+        runCurrent()
+        assertEquals(1, playlistRepo.createCalls)
+
+        playlistRepo.createGate!!.complete(Unit)
+        testScheduler.advanceUntilIdle()
+        assertFalse(model.mutationState.value.inFlight)
+        assertTrue(model.mutationState.value.completed)
+    }
+
+    @Test
+    fun consumeMutationResult_resets_state_after_render() = runTest {
+        val playlistRepo = FakePlaylistRepo()
+        playlistRepo.createResult = AppResult.Failure(com.hpre.app.core.error.AppError.Unknown)
+        val model = LibraryViewModel(FakeHistoryRepo(), FakeSubscriptionRepo(), playlistRepo)
+
+        model.createPlaylist("Broken")
+        testScheduler.advanceUntilIdle()
+        assertTrue(model.mutationState.value.error != null)
+
+        model.consumeMutationResult()
+        assertEquals(LibraryMutationState(), model.mutationState.value)
+    }
+
+    @Test
+    fun unsubscribe_failure_is_reflected_and_does_not_remove_subscription() = runTest {
+        val subRepo = FakeSubscriptionRepo()
+        subRepo.unsubscribeResult = AppResult.Failure(com.hpre.app.core.error.AppError.NetworkError)
+        subRepo.subFlow.value = listOf(
+            LocalSubscription(ContentKey(1, "c1"), "https://example.com/c1", "Channel 1", null, 1000L)
+        )
+        val model = LibraryViewModel(FakeHistoryRepo(), subRepo, FakePlaylistRepo())
+        backgroundScope.launch(UnconfinedTestDispatcher(testScheduler)) { model.subscriptions.collect {} }
+        runCurrent()
+
+        model.unsubscribe(ContentKey(1, "c1"))
+        testScheduler.advanceUntilIdle()
+
+        assertEquals(1, model.subscriptions.value.size)
+        assertEquals(com.hpre.app.core.error.AppError.NetworkError, model.mutationState.value.error)
+        assertEquals("unsubscribe", model.mutationState.value.operation)
+    }
+
     private class FakeHistoryRepo : HistoryRepository {
         val listFlow = MutableStateFlow<List<WatchHistoryItem>>(emptyList())
         override fun observeHistory(): Flow<List<WatchHistoryItem>> = listFlow
@@ -123,7 +194,9 @@ class LibraryViewModelTest {
             )
             return AppResult.Success(Unit)
         }
+        var unsubscribeResult: AppResult<Unit>? = null
         override suspend fun unsubscribe(key: ContentKey): AppResult<Unit> {
+            unsubscribeResult?.let { return it }
             subFlow.value = subFlow.value.filterNot { it.channelKey == key }
             return AppResult.Success(Unit)
         }
@@ -136,6 +209,9 @@ class LibraryViewModelTest {
     private class FakePlaylistRepo : PlaylistRepository {
         val playlistsFlow = MutableStateFlow<List<LocalPlaylist>>(emptyList())
         val detailFlows = mutableMapOf<Long, MutableStateFlow<LocalPlaylistWithEntries?>>()
+        var createGate: kotlinx.coroutines.CompletableDeferred<Unit>? = null
+        var createResult: AppResult<Long>? = null
+        var createCalls = 0
         private var nextId = 1L
 
         override fun observePlaylists(): Flow<List<LocalPlaylist>> = playlistsFlow
@@ -149,6 +225,9 @@ class LibraryViewModelTest {
             AppResult.Success(playlistsFlow.value.firstOrNull { it.playlistId == playlistId })
 
         override suspend fun createPlaylist(title: String, timestamp: Long): AppResult<Long> {
+            createCalls++
+            createGate?.await()
+            createResult?.let { return it }
             val id = nextId++
             val newP = LocalPlaylist(id, title, timestamp, timestamp, 0)
             playlistsFlow.value = playlistsFlow.value + newP

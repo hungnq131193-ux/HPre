@@ -761,6 +761,124 @@ class SearchViewModelTest {
     }
 
     @Test
+    fun pagination_failure_keeps_page_one_items_and_exposes_retryable_error() = runTest(testDispatcher) {
+        val fakeService = FakeVideoService()
+        fakeService.searchHandler = { _, _, token ->
+            if (token == null) {
+                AppResult.Success(page("p1", nextToken = PageToken.Id("tok_2")))
+            } else {
+                AppResult.Failure(AppError.NetworkError)
+            }
+        }
+        val repository = CatalogRepository(videoService = fakeService, repositoryScope = this)
+        val viewModel = SearchViewModel(repository = repository, videoService = fakeService)
+
+        viewModel.onQuerySubmitted("q")
+        advanceUntilIdle()
+        viewModel.loadNextPage()
+        advanceUntilIdle()
+
+        val state = viewModel.uiState.value
+        assertTrue(state is SearchUiState.Content)
+        val content = state as SearchUiState.Content
+        assertEquals(1, content.items.size)
+        assertEquals("p1", (content.items.single() as SearchResultItem.VideoItem).summary.key.nativeId)
+        assertEquals(PageToken.Id("tok_2"), content.nextPageToken)
+        assertFalse(content.isLoadingNextPage)
+        assertEquals(AppError.NetworkError, content.paginationError)
+    }
+
+    @Test
+    fun pagination_retry_after_failure_reuses_same_token_once_and_clears_error() = runTest(testDispatcher) {
+        val calls = mutableListOf<PageToken?>()
+        var failNextPage = true
+        val fakeService = FakeVideoService()
+        fakeService.searchHandler = { _, _, token ->
+            calls += token
+            when {
+                token == null -> AppResult.Success(page("p1", nextToken = PageToken.Id("tok_2")))
+                failNextPage -> {
+                    failNextPage = false
+                    AppResult.Failure(AppError.NetworkError)
+                }
+                else -> AppResult.Success(page("p2", nextToken = null))
+            }
+        }
+        val repository = CatalogRepository(videoService = fakeService, repositoryScope = this)
+        val viewModel = SearchViewModel(repository = repository, videoService = fakeService)
+
+        viewModel.onQuerySubmitted("q")
+        advanceUntilIdle()
+        viewModel.loadNextPage()
+        advanceUntilIdle()
+        assertEquals(AppError.NetworkError, (viewModel.uiState.value as SearchUiState.Content).paginationError)
+
+        val callsBeforeRetry = calls.size
+        viewModel.loadNextPage()
+        advanceUntilIdle()
+
+        val retries = calls.drop(callsBeforeRetry)
+        assertEquals("retry must issue exactly one request", 1, retries.size)
+        assertEquals("retry must reuse the failed page token", PageToken.Id("tok_2"), retries.single())
+
+        val content = viewModel.uiState.value as SearchUiState.Content
+        assertEquals(2, content.items.size)
+        assertEquals(null, content.paginationError)
+        assertEquals(null, content.nextPageToken)
+    }
+
+    @Test
+    fun new_query_after_pagination_failure_does_not_leak_stale_page_items() = runTest(testDispatcher) {
+        val fakeService = FakeVideoService()
+        fakeService.searchHandler = { q, _, token ->
+            when {
+                q == "old" && token == null ->
+                    AppResult.Success(page("old_p1", nextToken = PageToken.Id("old_tok")))
+                q == "old" -> AppResult.Failure(AppError.NetworkError)
+                q == "new" -> AppResult.Success(page("new_p1", nextToken = null))
+                else -> AppResult.Success(page())
+            }
+        }
+        val repository = CatalogRepository(videoService = fakeService, repositoryScope = this)
+        val viewModel = SearchViewModel(repository = repository, videoService = fakeService)
+
+        viewModel.onQuerySubmitted("old")
+        advanceUntilIdle()
+        viewModel.loadNextPage()
+        advanceUntilIdle()
+        assertEquals(AppError.NetworkError, (viewModel.uiState.value as SearchUiState.Content).paginationError)
+
+        viewModel.onQuerySubmitted("new")
+        advanceUntilIdle()
+
+        val content = viewModel.uiState.value as SearchUiState.Content
+        assertEquals(1, content.items.size)
+        assertEquals("new_p1", (content.items.single() as SearchResultItem.VideoItem).summary.key.nativeId)
+        assertEquals(null, content.paginationError)
+    }
+
+    @Test
+    fun committed_query_flow_reports_last_successful_search() = runTest(testDispatcher) {
+        val fakeService = FakeVideoService(
+            searchResponses = mapOf("alpha" to page("alpha_result"))
+        )
+        val repository = CatalogRepository(videoService = fakeService, repositoryScope = this)
+        val viewModel = SearchViewModel(repository = repository, videoService = fakeService)
+
+        assertEquals(null, viewModel.committedQuery.value)
+
+        viewModel.onQueryChanged("alpha")
+        advanceUntilIdle()
+        assertEquals("alpha", viewModel.committedQuery.value)
+
+        // Typing a different, uncommitted query must not move the committed pointer.
+        viewModel.onQueryChanged("alp")
+        runCurrent()
+        assertEquals("alpha", viewModel.committedQuery.value)
+        advanceUntilIdle()
+    }
+
+    @Test
     fun onVideoSelected_cancels_active_search_and_pagination_without_clearing_content() = runTest(testDispatcher) {
         val searchGate = CompletableDeferred<Unit>()
         var searchCancelled = false

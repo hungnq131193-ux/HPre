@@ -24,9 +24,9 @@ import androidx.compose.ui.unit.dp
 import com.hpre.app.R
 import com.hpre.app.model.ContentKey
 import com.hpre.app.model.VideoSummary
-import com.hpre.app.ui.common.EmptyPane
-import com.hpre.app.ui.common.ErrorPane
-import com.hpre.app.ui.common.LoadingPane
+import com.hpre.app.ui.common.DelayedLinearLoadingIndicator
+import com.hpre.app.ui.common.InlineEmptyPane
+import com.hpre.app.ui.common.InlineErrorPane
 import com.hpre.app.ui.common.VideoCard
 import com.hpre.app.ui.common.videoListItemKey
 
@@ -40,7 +40,8 @@ fun LazyListScope.relatedVideoItems(
     onVideoClick: (ContentKey) -> Unit,
     onRetry: () -> Unit,
     onRefresh: () -> Unit = {},
-    onVideoSelected: ((VideoSummary) -> Unit)? = null
+    onVideoSelected: ((VideoSummary) -> Unit)? = null,
+    onChannelClick: ((ContentKey) -> Unit)? = null
 ) {
     item(key = WATCH_KEY_RELATED_HEADER) {
         Column(
@@ -64,7 +65,7 @@ fun LazyListScope.relatedVideoItems(
                 ) {
                     Icon(
                         imageVector = Icons.Default.Refresh,
-                        contentDescription = stringResource(R.string.action_retry)
+                        contentDescription = stringResource(R.string.action_refresh)
                     )
                 }
             }
@@ -88,17 +89,20 @@ fun LazyListScope.relatedVideoItems(
     when {
         state.isInitialLoading && state.value == null -> {
             item(key = WATCH_KEY_RELATED_STATUS) {
-                LoadingPane(testTag = "related_loading")
+                DelayedLinearLoadingIndicator(
+                    modifier = Modifier.fillMaxWidth(),
+                    testTag = "related_loading"
+                )
             }
         }
         state.error != null && state.value.isNullOrEmpty() -> {
             item(key = WATCH_KEY_RELATED_STATUS) {
-                ErrorPane(state.error, onRetry, testTag = "related_error")
+                InlineErrorPane(state.error, onRetry, testTag = "related_error")
             }
         }
         state.value != null && state.value.isEmpty() -> {
             item(key = WATCH_KEY_RELATED_STATUS) {
-                EmptyPane(
+                InlineEmptyPane(
                     stringResource(R.string.related_videos_empty),
                     testTag = "related_empty"
                 )
@@ -109,24 +113,27 @@ fun LazyListScope.relatedVideoItems(
             if (state.error != null) {
                 item(key = WATCH_KEY_RELATED_INLINE_ERROR) {
                     Column(modifier = Modifier.fillMaxWidth()) {
-                        ErrorPane(state.error, onRetry, testTag = "related_error")
+                        InlineErrorPane(state.error, onRetry, testTag = "related_error")
                         Spacer(modifier = Modifier.height(8.dp))
                     }
                 }
             }
             items(
                 items = videos,
-                key = { video -> videoListItemKey(video.key) }
+                key = { video -> videoListItemKey(video.key) },
+                contentType = { "video" }
             ) { video ->
                 VideoCard(
                     video = video,
-                    onClick = { if (onVideoSelected != null) onVideoSelected(video) else onVideoClick(it) }
+                    onClick = { if (onVideoSelected != null) onVideoSelected(video) else onVideoClick(it) },
+                    onChannelClick = onChannelClick,
+                    horizontalPadding = 0.dp
                 )
             }
         }
         else -> {
             item(key = WATCH_KEY_RELATED_STATUS) {
-                EmptyPane(
+                InlineEmptyPane(
                     stringResource(R.string.related_videos_empty),
                     testTag = "related_empty"
                 )

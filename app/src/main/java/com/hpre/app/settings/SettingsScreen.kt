@@ -1,6 +1,8 @@
 package com.hpre.app.settings
 
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.selection.selectable
+import androidx.compose.foundation.selection.toggleable
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -36,6 +38,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.hpre.app.R
@@ -362,16 +365,33 @@ fun SettingsScreen(
     }
 
     if (showClearVideoCacheDialog) {
+        val clearing = videoCacheClearState == VideoCacheClearUiState.Clearing
         AlertDialog(
-            onDismissRequest = { showClearVideoCacheDialog = false },
+            onDismissRequest = {
+                if (!clearing) {
+                    viewModel.consumeVideoCacheResult()
+                    showClearVideoCacheDialog = false
+                }
+            },
             title = { Text(stringResource(R.string.settings_clear_video_cache_title)) },
-            text = { Text(stringResource(R.string.settings_clear_video_cache_message)) },
+            text = {
+                Column {
+                    Text(stringResource(R.string.settings_clear_video_cache_message))
+                    if (videoCacheClearState == VideoCacheClearUiState.Error) {
+                        Spacer(modifier = Modifier.height(8.dp))
+                        Text(
+                            text = stringResource(R.string.settings_clear_video_cache_error),
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.error,
+                            modifier = Modifier.testTag("settings_clear_video_cache_dialog_error")
+                        )
+                    }
+                }
+            },
             confirmButton = {
                 TextButton(
-                    onClick = {
-                        viewModel.clearVideoCache()
-                        showClearVideoCacheDialog = false
-                    },
+                    onClick = { viewModel.clearVideoCache() },
+                    enabled = !clearing,
                     modifier = Modifier.testTag("settings_clear_video_cache_confirm")
                 ) {
                     Text(
@@ -382,7 +402,11 @@ fun SettingsScreen(
             },
             dismissButton = {
                 TextButton(
-                    onClick = { showClearVideoCacheDialog = false },
+                    onClick = {
+                        viewModel.consumeVideoCacheResult()
+                        showClearVideoCacheDialog = false
+                    },
+                    enabled = !clearing,
                     modifier = Modifier.testTag("settings_clear_video_cache_cancel")
                 ) {
                     Text(stringResource(R.string.action_cancel))
@@ -390,6 +414,12 @@ fun SettingsScreen(
             },
             modifier = Modifier.testTag("settings_clear_video_cache_dialog")
         )
+        androidx.compose.runtime.LaunchedEffect(videoCacheClearState) {
+            if (videoCacheClearState == VideoCacheClearUiState.Success) {
+                viewModel.consumeVideoCacheResult()
+                showClearVideoCacheDialog = false
+            }
+        }
     }
 }
 
@@ -453,10 +483,12 @@ private fun SettingsSwitchItem(
     tag: String,
     onCheckedChange: (Boolean) -> Unit
 ) {
+    // Single semantics node: the row is the toggle (role=Switch); the inner Switch is
+    // visual only — prevents TalkBack double-announce and nested-click double toggles.
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .clickable { onCheckedChange(!checked) }
+            .toggleable(value = checked, role = Role.Switch, onValueChange = onCheckedChange)
             .padding(horizontal = 16.dp, vertical = 12.dp)
             .testTag(tag),
         verticalAlignment = Alignment.CenterVertically
@@ -477,7 +509,7 @@ private fun SettingsSwitchItem(
         Spacer(modifier = Modifier.width(16.dp))
         Switch(
             checked = checked,
-            onCheckedChange = onCheckedChange,
+            onCheckedChange = null,
             modifier = Modifier.testTag("${tag}_control")
         )
     }
@@ -501,14 +533,18 @@ private fun <T> SingleChoiceDialog(
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .clickable { onOptionSelected(option) }
+                            .selectable(
+                                selected = option == selectedOption,
+                                role = Role.RadioButton,
+                                onClick = { onOptionSelected(option) }
+                            )
                             .padding(vertical = 8.dp)
                             .testTag("${tagPrefix}_$option"),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         RadioButton(
                             selected = option == selectedOption,
-                            onClick = { onOptionSelected(option) }
+                            onClick = null
                         )
                         Spacer(modifier = Modifier.width(8.dp))
                         Text(

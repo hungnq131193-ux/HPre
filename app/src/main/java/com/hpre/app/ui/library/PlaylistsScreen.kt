@@ -57,6 +57,7 @@ fun PlaylistsScreen(
     modifier: Modifier = Modifier
 ) {
     val playlistsList by viewModel.playlists.collectAsStateWithLifecycle()
+    val mutationState by viewModel.mutationState.collectAsStateWithLifecycle()
 
     var showCreateDialog by remember { mutableStateOf(false) }
     var playlistToRename by remember { mutableStateOf<LocalPlaylist?>(null) }
@@ -114,9 +115,10 @@ fun PlaylistsScreen(
                     .testTag("playlists_list"),
                 verticalArrangement = Arrangement.spacedBy(8.dp)
             ) {
-                items(playlistsList, key = { it.playlistId }) { playlist ->
+                items(playlistsList, key = { it.playlistId }, contentType = { "playlist" }) { playlist ->
                     PlaylistManagementRow(
                         playlist = playlist,
+                        actionsEnabled = !mutationState.inFlight,
                         onClick = { onPlaylistClick(playlist.playlistId) },
                         onRename = { playlistToRename = playlist },
                         onDelete = { playlistToDelete = playlist }
@@ -128,40 +130,65 @@ fun PlaylistsScreen(
 
     if (showCreateDialog) {
         CreatePlaylistDialog(
-            onCreate = { title ->
-                viewModel.createPlaylist(title)
+            isSaving = mutationState.inFlight,
+            error = mutationState.error.takeIf { mutationState.operation == "createPlaylist" },
+            onCreate = { title -> viewModel.createPlaylist(title) },
+            onDismiss = {
+                viewModel.consumeMutationResult()
                 showCreateDialog = false
-            },
-            onDismiss = { showCreateDialog = false }
+            }
         )
+        androidx.compose.runtime.LaunchedEffect(mutationState.completed) {
+            if (mutationState.completed && mutationState.operation == "createPlaylist") {
+                viewModel.consumeMutationResult()
+                showCreateDialog = false
+            }
+        }
     }
 
     playlistToRename?.let { playlist ->
         RenamePlaylistDialog(
             currentTitle = playlist.title,
-            onRename = { newTitle ->
-                viewModel.renamePlaylist(playlist.playlistId, newTitle)
+            isSaving = mutationState.inFlight,
+            error = mutationState.error.takeIf { mutationState.operation == "renamePlaylist" },
+            onRename = { newTitle -> viewModel.renamePlaylist(playlist.playlistId, newTitle) },
+            onDismiss = {
+                viewModel.consumeMutationResult()
                 playlistToRename = null
-            },
-            onDismiss = { playlistToRename = null }
+            }
         )
+        androidx.compose.runtime.LaunchedEffect(mutationState.completed) {
+            if (mutationState.completed && mutationState.operation == "renamePlaylist") {
+                viewModel.consumeMutationResult()
+                playlistToRename = null
+            }
+        }
     }
 
     playlistToDelete?.let { playlist ->
         DeletePlaylistDialog(
             playlistTitle = playlist.title,
-            onDelete = {
-                viewModel.deletePlaylist(playlist.playlistId)
+            isSaving = mutationState.inFlight,
+            error = mutationState.error.takeIf { mutationState.operation == "deletePlaylist" },
+            onDelete = { viewModel.deletePlaylist(playlist.playlistId) },
+            onDismiss = {
+                viewModel.consumeMutationResult()
                 playlistToDelete = null
-            },
-            onDismiss = { playlistToDelete = null }
+            }
         )
+        androidx.compose.runtime.LaunchedEffect(mutationState.completed) {
+            if (mutationState.completed && mutationState.operation == "deletePlaylist") {
+                viewModel.consumeMutationResult()
+                playlistToDelete = null
+            }
+        }
     }
 }
 
 @Composable
 private fun PlaylistManagementRow(
     playlist: LocalPlaylist,
+    actionsEnabled: Boolean = true,
     onClick: () -> Unit,
     onRename: () -> Unit,
     onDelete: () -> Unit
@@ -207,6 +234,7 @@ private fun PlaylistManagementRow(
         }
         IconButton(
             onClick = onRename,
+            enabled = actionsEnabled,
             modifier = Modifier.testTag("playlist_rename_button_${playlist.playlistId}")
         ) {
             Icon(
@@ -217,6 +245,7 @@ private fun PlaylistManagementRow(
         }
         IconButton(
             onClick = onDelete,
+            enabled = actionsEnabled,
             modifier = Modifier.testTag("playlist_delete_button_${playlist.playlistId}")
         ) {
             Icon(
@@ -232,7 +261,9 @@ private fun PlaylistManagementRow(
 fun RenamePlaylistDialog(
     currentTitle: String,
     onRename: (String) -> Unit,
-    onDismiss: () -> Unit
+    onDismiss: () -> Unit,
+    isSaving: Boolean = false,
+    error: com.hpre.app.core.error.AppError? = null
 ) {
     var title by remember { mutableStateOf(currentTitle) }
 
@@ -240,15 +271,27 @@ fun RenamePlaylistDialog(
         onDismissRequest = onDismiss,
         title = { Text(stringResource(R.string.playlist_rename_title)) },
         text = {
-            OutlinedTextField(
-                value = title,
-                onValueChange = { title = it },
-                label = { Text(stringResource(R.string.playlist_title)) },
-                singleLine = true,
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .testTag("playlist_rename_input")
-            )
+            Column {
+                OutlinedTextField(
+                    value = title,
+                    onValueChange = { title = it },
+                    label = { Text(stringResource(R.string.playlist_title)) },
+                    singleLine = true,
+                    enabled = !isSaving,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .testTag("playlist_rename_input")
+                )
+                if (error != null) {
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Text(
+                        text = com.hpre.app.ui.common.appErrorMessage(error),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.error,
+                        modifier = Modifier.testTag("playlist_rename_error")
+                    )
+                }
+            }
         },
         confirmButton = {
             TextButton(
@@ -257,14 +300,14 @@ fun RenamePlaylistDialog(
                         onRename(title.trim())
                     }
                 },
-                enabled = title.isNotBlank(),
+                enabled = title.isNotBlank() && !isSaving,
                 modifier = Modifier.testTag("playlist_rename_dialog_confirm")
             ) {
                 Text(stringResource(R.string.playlist_rename))
             }
         },
         dismissButton = {
-            TextButton(onClick = onDismiss) {
+            TextButton(onClick = onDismiss, enabled = !isSaving) {
                 Text(stringResource(R.string.action_cancel))
             }
         }
@@ -275,22 +318,38 @@ fun RenamePlaylistDialog(
 fun DeletePlaylistDialog(
     playlistTitle: String,
     onDelete: () -> Unit,
-    onDismiss: () -> Unit
+    onDismiss: () -> Unit,
+    isSaving: Boolean = false,
+    error: com.hpre.app.core.error.AppError? = null
 ) {
     AlertDialog(
         onDismissRequest = onDismiss,
         title = { Text(stringResource(R.string.playlist_delete_title, playlistTitle)) },
-        text = { Text(stringResource(R.string.playlist_delete_message)) },
+        text = {
+            Column {
+                Text(stringResource(R.string.playlist_delete_message))
+                if (error != null) {
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Text(
+                        text = com.hpre.app.ui.common.appErrorMessage(error),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.error,
+                        modifier = Modifier.testTag("playlist_delete_error")
+                    )
+                }
+            }
+        },
         confirmButton = {
             TextButton(
                 onClick = onDelete,
+                enabled = !isSaving,
                 modifier = Modifier.testTag("playlist_delete_dialog_confirm")
             ) {
                 Text(stringResource(R.string.action_delete), color = MaterialTheme.colorScheme.error)
             }
         },
         dismissButton = {
-            TextButton(onClick = onDismiss) {
+            TextButton(onClick = onDismiss, enabled = !isSaving) {
                 Text(stringResource(R.string.action_cancel))
             }
         }

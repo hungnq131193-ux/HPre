@@ -30,6 +30,7 @@ sealed interface UpdateUiState {
 
 sealed interface VideoCacheClearUiState {
     data object Idle : VideoCacheClearUiState
+    data object Clearing : VideoCacheClearUiState
     data object Success : VideoCacheClearUiState
     data object Error : VideoCacheClearUiState
 }
@@ -109,12 +110,21 @@ class SettingsViewModel(
     }
 
     fun clearVideoCache() {
+        if (_videoCacheClearState.value == VideoCacheClearUiState.Clearing) return
+        _videoCacheClearState.value = VideoCacheClearUiState.Clearing
         viewModelScope.launch {
             _videoCacheClearState.value = if (mediaCacheManager?.clearCache() == true) {
                 VideoCacheClearUiState.Success
             } else {
                 VideoCacheClearUiState.Error
             }
+        }
+    }
+
+    /** Clear a rendered clear-cache outcome; a running clear is left untouched. */
+    fun consumeVideoCacheResult() {
+        if (_videoCacheClearState.value != VideoCacheClearUiState.Clearing) {
+            _videoCacheClearState.value = VideoCacheClearUiState.Idle
         }
     }
 

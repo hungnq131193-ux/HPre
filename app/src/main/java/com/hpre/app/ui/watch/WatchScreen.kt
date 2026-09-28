@@ -310,7 +310,8 @@ fun WatchScreen(
     isInPip: Boolean = false,
     playbackUiCoordinator: com.hpre.app.player.PlaybackUiCoordinator? = null,
     initialThumbnailUrl: String? = null,
-    onRelatedVideoSelected: ((VideoSummary) -> Unit)? = null
+    onRelatedVideoSelected: ((VideoSummary) -> Unit)? = null,
+    onChannelClick: ((ContentKey) -> Unit)? = null
 ) {
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
     val playbackState by viewModel.structuralPlaybackState.collectAsStateWithLifecycle()
@@ -521,6 +522,8 @@ fun WatchScreen(
                         onRefreshRelated = viewModel::refreshRelated,
                         onRetryComments = viewModel::retryComments,
                         onLoadMoreComments = viewModel::loadMoreComments,
+                        onChannelClick = onChannelClick,
+                        allowSheets = !isInPip,
                         modifier = Modifier
                             .fillMaxWidth()
                             .weight(1f)
@@ -596,40 +599,27 @@ fun WatchMetadataContent(
     onRestartComments: () -> Unit = {},
     modifier: Modifier = Modifier,
     lazyListState: LazyListState? = null,
-    onRelatedVideoSelected: ((VideoSummary) -> Unit)? = null
+    onRelatedVideoSelected: ((VideoSummary) -> Unit)? = null,
+    onChannelClick: ((ContentKey) -> Unit)? = null,
+    allowSheets: Boolean = true
 ) {
     val effectiveLazyListState = lazyListState ?: rememberLazyListState()
     var isDescriptionExpanded by rememberSaveable(details.key.serviceId, details.key.nativeId) {
+        mutableStateOf(false)
+    }
+    var isTitleExpanded by rememberSaveable(details.key.serviceId, details.key.nativeId) {
         mutableStateOf(false)
     }
     var showPlaylistSheet by remember { mutableStateOf(false) }
     var playlistSaveFailed by remember { mutableStateOf(false) }
     var playlistSaving by remember { mutableStateOf(false) }
 
-    val currentOnLoadMoreComments = rememberUpdatedState(onLoadMoreComments)
     val nextPageToken = (commentsState as? com.hpre.app.ui.common.AsyncState.Content)?.value?.nextPageToken
 
+    // Per-video dedupe for the comment sheet's footer sentinel. Lives here, not in the sheet, so
+    // closing and reopening the sheet does not re-request a page already asked for.
     var lastTriggeredToken by remember(details.key.serviceId, details.key.nativeId) {
         mutableStateOf<com.hpre.app.model.PageToken?>(null)
-    }
-
-    LaunchedEffect(effectiveLazyListState, nextPageToken, details.key, commentsExpanded, commentsPagination) {
-        if (!commentsExpanded) {
-            lastTriggeredToken = null
-            return@LaunchedEffect
-        }
-        if (nextPageToken == null || commentsPagination.isLoading || commentsPagination.error != null) return@LaunchedEffect
-        snapshotFlow {
-            val visibleKeys = effectiveLazyListState.layoutInfo.visibleItemsInfo.map { it.key }
-            visibleKeys.contains(WATCH_KEY_COMMENTS_LOAD_MORE)
-        }
-            .distinctUntilChanged()
-            .collect { sentinelVisible ->
-                if (sentinelVisible && nextPageToken != lastTriggeredToken) {
-                    lastTriggeredToken = nextPageToken
-                    currentOnLoadMoreComments.value()
-                }
-            }
     }
 
     LazyColumn(
@@ -639,7 +629,7 @@ fun WatchMetadataContent(
             .testTag("watch_lazy_column")
             .testTag("watch_metadata_content")
     ) {
-        // Video Title
+        // Video Title — clamped to 2 lines, tap to expand
         item(key = WATCH_KEY_TITLE) {
             Spacer(modifier = Modifier.height(16.dp))
             Text(
@@ -647,7 +637,11 @@ fun WatchMetadataContent(
                 style = MaterialTheme.typography.titleMedium,
                 fontWeight = FontWeight.Bold,
                 color = MaterialTheme.colorScheme.onSurface,
-                modifier = Modifier.testTag("watch_video_title")
+                maxLines = if (isTitleExpanded) Int.MAX_VALUE else 2,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier
+                    .clickable { isTitleExpanded = !isTitleExpanded }
+                    .testTag("watch_video_title")
             )
         }
 
@@ -665,7 +659,80 @@ fun WatchMetadataContent(
             Spacer(modifier = Modifier.height(12.dp))
         }
 
-        // Actions row
+        // Channel card: avatar + name + subscribers, with the Follow action on the same row.
+        item(key = WATCH_KEY_CHANNEL_CARD) {
+            Surface(
+                color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
+                shape = RoundedCornerShape(12.dp),
+                modifier = Modifier.fillMaxWidth().testTag("watch_channel_card")
+            ) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier.padding(12.dp)
+                ) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier
+                            .weight(1f)
+                            .then(
+                                if (onChannelClick != null && details.channelKey != null) {
+                                    Modifier.clickable { onChannelClick.invoke(details.channelKey!!) }
+                                } else {
+                                    Modifier
+                                }
+                            )
+                            .testTag("watch_channel_area")
+                    ) {
+                        if (!details.channelAvatarUrl.isNullOrBlank()) {
+                            AsyncImage(
+                                model = details.channelAvatarUrl,
+                                contentDescription = stringResource(R.string.watch_channel_avatar),
+                                contentScale = ContentScale.Crop,
+                                modifier = Modifier
+                                    .size(36.dp)
+                                    .clip(CircleShape)
+                            )
+                            Spacer(modifier = Modifier.width(10.dp))
+                        }
+
+                        Column {
+                            Text(
+                                text = details.channelName ?: stringResource(R.string.watch_unknown_channel),
+                                style = MaterialTheme.typography.bodyMedium,
+                                fontWeight = FontWeight.SemiBold,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                                modifier = Modifier.testTag("watch_channel_name")
+                            )
+                            if (!details.subscriberCountText.isNullOrBlank()) {
+                                Text(
+                                    text = details.subscriberCountText ?: "",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
+                        }
+                    }
+                    if (details.channelKey != null) {
+                        Spacer(modifier = Modifier.width(8.dp))
+                        AssistChip(
+                            onClick = onToggleSubscription,
+                            label = {
+                                Text(
+                                    stringResource(
+                                        if (isSubscribed) R.string.watch_following else R.string.watch_follow
+                                    )
+                                )
+                            },
+                            modifier = Modifier.testTag("watch_follow_button")
+                        )
+                    }
+                }
+            }
+            Spacer(modifier = Modifier.height(12.dp))
+        }
+
+        // Actions row: Save / Share
         item(key = WATCH_KEY_ACTIONS) {
             Row(
                 modifier = Modifier
@@ -674,19 +741,6 @@ fun WatchMetadataContent(
                     .testTag("watch_action_row"),
                 horizontalArrangement = Arrangement.spacedBy(8.dp)
             ) {
-                if (details.channelKey != null) {
-                    AssistChip(
-                        onClick = onToggleSubscription,
-                        label = {
-                            Text(
-                                stringResource(
-                                    if (isSubscribed) R.string.watch_following else R.string.watch_follow
-                                )
-                            )
-                        },
-                        modifier = Modifier.testTag("watch_follow_button")
-                    )
-                }
                 AssistChip(
                     onClick = { showPlaylistSheet = true },
                     label = { Text(stringResource(R.string.watch_save)) },
@@ -705,91 +759,45 @@ fun WatchMetadataContent(
             Spacer(modifier = Modifier.height(12.dp))
         }
 
-        // Channel card and description
-        item(key = WATCH_KEY_CHANNEL_CARD) {
-            Surface(
-                color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
-                shape = RoundedCornerShape(12.dp),
-                modifier = Modifier.fillMaxWidth().testTag("watch_channel_card")
-            ) {
-                Column(modifier = Modifier.padding(12.dp)) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            modifier = Modifier.weight(1f)
-                        ) {
-                            if (!details.channelAvatarUrl.isNullOrBlank()) {
-                                AsyncImage(
-                                    model = details.channelAvatarUrl,
-                                    contentDescription = stringResource(R.string.watch_channel_avatar),
-                                    contentScale = ContentScale.Crop,
-                                    modifier = Modifier
-                                        .size(36.dp)
-                                        .clip(CircleShape)
-                                )
-                                Spacer(modifier = Modifier.width(10.dp))
-                            }
-
-                            Column {
-                                Text(
-                                    text = details.channelName ?: stringResource(R.string.watch_unknown_channel),
-                                    style = MaterialTheme.typography.bodyMedium,
-                                    fontWeight = FontWeight.SemiBold,
-                                    maxLines = 1,
-                                    overflow = TextOverflow.Ellipsis,
-                                    modifier = Modifier.testTag("watch_channel_name")
-                                )
-                                if (!details.subscriberCountText.isNullOrBlank()) {
-                                    Text(
-                                        text = details.subscriberCountText ?: "",
-                                        style = MaterialTheme.typography.bodySmall,
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                                    )
-                                }
-                            }
-                        }
-                    }
-                    if (!details.description.isNullOrBlank()) {
-                        Column(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(top = 10.dp)
-                                .clickable { isDescriptionExpanded = !isDescriptionExpanded }
-                                .testTag("watch_description_container")
-                        ) {
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.SpaceBetween,
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                Text(
-                                    text = stringResource(R.string.watch_description),
-                                    style = MaterialTheme.typography.labelLarge,
-                                    fontWeight = FontWeight.SemiBold
-                                )
-                                Icon(
-                                    imageVector = if (isDescriptionExpanded) Icons.Default.KeyboardArrowUp else Icons.Default.KeyboardArrowDown,
-                                    contentDescription = stringResource(
-                                        if (isDescriptionExpanded) R.string.watch_collapse else R.string.watch_expand
-                                    )
-                                )
-                            }
-
-                            Text(
-                                text = details.description ?: "",
-                                style = MaterialTheme.typography.bodyMedium,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                maxLines = if (isDescriptionExpanded) Int.MAX_VALUE else 2,
-                                overflow = TextOverflow.Ellipsis,
-                                modifier = Modifier
-                                    .padding(top = 8.dp)
-                                    .testTag("watch_description_text")
+        if (!details.description.isNullOrBlank()) {
+            item(key = "section:watch_description") {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clickable { isDescriptionExpanded = !isDescriptionExpanded }
+                        .testTag("watch_description_container")
+                ) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            text = stringResource(R.string.watch_description),
+                            style = MaterialTheme.typography.labelLarge,
+                            fontWeight = FontWeight.SemiBold
+                        )
+                        Icon(
+                            imageVector = if (isDescriptionExpanded) Icons.Default.KeyboardArrowUp else Icons.Default.KeyboardArrowDown,
+                            contentDescription = stringResource(
+                                if (isDescriptionExpanded) R.string.watch_collapse else R.string.watch_expand
                             )
-                        }
+                        )
                     }
+
+                    Text(
+                        text = details.description ?: "",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        maxLines = if (isDescriptionExpanded) Int.MAX_VALUE else 2,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier
+                            .padding(top = 8.dp)
+                            .testTag("watch_description_text")
+                    )
                 }
+                Spacer(modifier = Modifier.height(16.dp))
             }
-            Spacer(modifier = Modifier.height(16.dp))
         }
 
         item(key = WATCH_KEY_DIVIDER) {
@@ -797,18 +805,31 @@ fun WatchMetadataContent(
             Spacer(modifier = Modifier.height(16.dp))
         }
 
-        commentsItems(
-            state = commentsState,
-            onRetry = onRetryComments,
-            expanded = commentsExpanded,
-            onExpandedChange = onCommentsExpandedChange,
-            pagination = commentsPagination,
-            onLoadMore = onLoadMoreComments,
-            onRestart = {
-                lastTriggeredToken = null
-                onRestartComments()
+        // Comments entry — the actual list lives in a bottom sheet so it cannot push related
+        // videos hundreds of rows down.
+        item(key = WATCH_KEY_COMMENTS_HEADER) {
+            Surface(
+                onClick = { onCommentsExpandedChange(true) },
+                color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
+                shape = RoundedCornerShape(12.dp),
+                modifier = Modifier.fillMaxWidth().testTag("comments_section")
+            ) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp)
+                ) {
+                    Text(
+                        text = stringResource(R.string.comments_title),
+                        style = MaterialTheme.typography.titleSmall,
+                        modifier = Modifier.weight(1f).testTag("comments_toggle")
+                    )
+                    Icon(
+                        imageVector = Icons.Default.KeyboardArrowUp,
+                        contentDescription = stringResource(R.string.comments_expand)
+                    )
+                }
             }
-        )
+        }
 
         item(key = "section:comments_related_spacer") {
             Spacer(modifier = Modifier.height(16.dp))
@@ -819,7 +840,8 @@ fun WatchMetadataContent(
             onVideoClick = onRelatedVideoClick,
             onRetry = onRetryRelated,
             onRefresh = onRefreshRelated,
-            onVideoSelected = onRelatedVideoSelected
+            onVideoSelected = onRelatedVideoSelected,
+            onChannelClick = onChannelClick
         )
 
         item(key = "section:watch_bottom_spacer") {
@@ -827,12 +849,36 @@ fun WatchMetadataContent(
         }
     }
 
+    if (commentsExpanded && allowSheets) {
+        CommentsSheet(
+            state = commentsState,
+            pagination = commentsPagination,
+            onRetry = onRetryComments,
+            onLoadMore = onLoadMoreComments,
+            onRestart = {
+                lastTriggeredToken = null
+                onRestartComments()
+            },
+            onSentinelReached = {
+                val token = nextPageToken
+                if (token != null && token != lastTriggeredToken) {
+                    lastTriggeredToken = token
+                    onLoadMoreComments()
+                }
+            },
+            onDismiss = { onCommentsExpandedChange(false) }
+        )
+    }
+
     if (showPlaylistSheet) {
-        AddToPlaylistDialog(
+        AddToPlaylistSheet(
             playlists = playlists,
+            saving = playlistSaving,
+            saveFailed = playlistSaveFailed,
             onAddToPlaylist = { pId ->
                 if (!playlistSaving) {
                     playlistSaving = true
+                    playlistSaveFailed = false
                     onAddToPlaylist(pId) { success ->
                         playlistSaving = false
                         playlistSaveFailed = !success
@@ -843,6 +889,7 @@ fun WatchMetadataContent(
             onCreateNewPlaylist = { title ->
                 if (!playlistSaving) {
                     playlistSaving = true
+                    playlistSaveFailed = false
                     onCreatePlaylistAndAdd(title) { success ->
                         playlistSaving = false
                         playlistSaveFailed = !success
@@ -850,21 +897,26 @@ fun WatchMetadataContent(
                     }
                 }
             },
-            onDismiss = { showPlaylistSheet = false }
+            onDismiss = {
+                if (!playlistSaving) {
+                    showPlaylistSheet = false
+                    playlistSaveFailed = false
+                }
+            }
         )
-        if (playlistSaveFailed) {
-            AlertDialog(
-                onDismissRequest = { playlistSaveFailed = false },
-                text = { ErrorPane(error = com.hpre.app.core.error.AppError.Unknown, onRetry = { playlistSaveFailed = false }) },
-                confirmButton = { TextButton(onClick = { playlistSaveFailed = false }) { Text(stringResource(R.string.action_cancel)) } }
-            )
-        }
     }
 }
 
+/**
+ * Save-to-playlist sheet. Saving state and failures render inside the sheet — never a second
+ * dialog stacked on top — and the caller only closes it after a successful write.
+ */
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun AddToPlaylistDialog(
+fun AddToPlaylistSheet(
     playlists: List<com.hpre.app.repository.LocalPlaylist>,
+    saving: Boolean,
+    saveFailed: Boolean,
     onAddToPlaylist: (Long) -> Unit,
     onCreateNewPlaylist: (String) -> Unit,
     onDismiss: () -> Unit
@@ -872,44 +924,85 @@ fun AddToPlaylistDialog(
     var isCreatingNew by remember { mutableStateOf(false) }
     var newTitle by remember { mutableStateOf("") }
 
-    AlertDialog(
+    androidx.compose.material3.ModalBottomSheet(
         onDismissRequest = onDismiss,
-        title = {
+        modifier = Modifier.testTag("add_to_playlist_sheet")
+    ) {
+        Column(modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp)) {
             Text(
-                stringResource(
+                text = stringResource(
                     if (isCreatingNew) R.string.watch_create_and_add_playlist
                     else R.string.watch_add_to_playlist
-                )
+                ),
+                style = MaterialTheme.typography.titleSmall,
+                modifier = Modifier.padding(bottom = 12.dp)
             )
-        },
-        text = {
+
+            if (saving) {
+                androidx.compose.material3.LinearProgressIndicator(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(bottom = 8.dp)
+                        .testTag("watch_playlist_saving")
+                )
+            }
+            if (saveFailed) {
+                Text(
+                    text = stringResource(R.string.watch_save_failed),
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.error,
+                    modifier = Modifier
+                        .padding(bottom = 8.dp)
+                        .testTag("watch_playlist_save_error")
+                )
+            }
+
             if (isCreatingNew) {
                 androidx.compose.material3.OutlinedTextField(
                     value = newTitle,
                     onValueChange = { newTitle = it },
                     label = { Text(stringResource(R.string.watch_playlist_title)) },
                     singleLine = true,
+                    enabled = !saving,
                     modifier = Modifier.fillMaxWidth().testTag("watch_playlist_new_title_input")
                 )
+                Row(
+                    modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
+                    horizontalArrangement = Arrangement.End
+                ) {
+                    TextButton(onClick = { if (!saving) isCreatingNew = false }) {
+                        Text(stringResource(R.string.action_cancel))
+                    }
+                    TextButton(
+                        onClick = {
+                            if (newTitle.isNotBlank()) {
+                                onCreateNewPlaylist(newTitle.trim())
+                            }
+                        },
+                        enabled = newTitle.isNotBlank() && !saving,
+                        modifier = Modifier.testTag("watch_create_playlist_confirm")
+                    ) {
+                        Text(stringResource(R.string.watch_create_and_save))
+                    }
+                }
             } else {
-                Column(modifier = Modifier.fillMaxWidth()) {
-                    if (playlists.isEmpty()) {
-                        Text(
-                            text = stringResource(R.string.watch_no_playlists),
-                            style = MaterialTheme.typography.bodyMedium,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            modifier = Modifier.padding(bottom = 12.dp)
-                        )
-                    } else {
-                        androidx.compose.foundation.lazy.LazyColumn(
-                            modifier = Modifier.fillMaxWidth().heightIn(max = 320.dp)
-                        ) {
+                if (playlists.isEmpty()) {
+                    Text(
+                        text = stringResource(R.string.watch_no_playlists),
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.padding(bottom = 12.dp)
+                    )
+                } else {
+                    androidx.compose.foundation.lazy.LazyColumn(
+                        modifier = Modifier.fillMaxWidth().heightIn(max = 320.dp)
+                    ) {
                         items(playlists.size, key = { playlists[it].playlistId }) { index ->
                             val playlist = playlists[index]
                             Row(
                                 modifier = Modifier
                                     .fillMaxWidth()
-                                    .clickable { onAddToPlaylist(playlist.playlistId) }
+                                    .clickable(enabled = !saving) { onAddToPlaylist(playlist.playlistId) }
                                     .padding(vertical = 10.dp)
                                     .testTag("watch_playlist_option_${playlist.playlistId}"),
                                 verticalAlignment = Alignment.CenterVertically
@@ -926,36 +1019,17 @@ fun AddToPlaylistDialog(
                                 )
                             }
                         }
-                        }
-                    }
-                    TextButton(
-                        onClick = { isCreatingNew = true },
-                        modifier = Modifier.fillMaxWidth().testTag("watch_create_new_playlist_button")
-                    ) {
-                        Text(stringResource(R.string.watch_new_playlist))
                     }
                 }
-            }
-        },
-        confirmButton = {
-            if (isCreatingNew) {
                 TextButton(
-                    onClick = {
-                        if (newTitle.isNotBlank()) {
-                            onCreateNewPlaylist(newTitle.trim())
-                        }
-                    },
-                    enabled = newTitle.isNotBlank(),
-                    modifier = Modifier.testTag("watch_create_playlist_confirm")
+                    onClick = { isCreatingNew = true },
+                    enabled = !saving,
+                    modifier = Modifier.fillMaxWidth().testTag("watch_create_new_playlist_button")
                 ) {
-                    Text(stringResource(R.string.watch_create_and_save))
+                    Text(stringResource(R.string.watch_new_playlist))
                 }
             }
-        },
-        dismissButton = {
-            TextButton(onClick = onDismiss) {
-                Text(stringResource(R.string.action_cancel))
-            }
+            Spacer(modifier = Modifier.height(24.dp))
         }
-    )
+    }
 }

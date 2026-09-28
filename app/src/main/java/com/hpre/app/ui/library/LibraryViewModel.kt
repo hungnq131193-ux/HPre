@@ -3,6 +3,8 @@ package com.hpre.app.ui.library
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
+import com.hpre.app.core.error.AppError
+import com.hpre.app.core.error.AppResult
 import com.hpre.app.model.ContentKey
 import com.hpre.app.model.VideoSummary
 import com.hpre.app.repository.HistoryRepository
@@ -12,6 +14,7 @@ import com.hpre.app.repository.LocalSubscription
 import com.hpre.app.repository.PlaylistRepository
 import com.hpre.app.repository.SubscriptionRepository
 import com.hpre.app.repository.WatchHistoryItem
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
@@ -22,6 +25,19 @@ import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.withLock
+
+/**
+ * Result of the most recent library write operation. Only one mutation runs at a
+ * time; the UI disables write actions while [inFlight] is true. Not persisted —
+ * a process death simply loses the in-flight marker, never replays a mutation.
+ */
+data class LibraryMutationState(
+    val operation: String? = null,
+    val inFlight: Boolean = false,
+    val error: AppError? = null,
+    val completed: Boolean = false
+)
 
 @OptIn(ExperimentalCoroutinesApi::class)
 class LibraryViewModel(
@@ -63,6 +79,9 @@ class LibraryViewModel(
             initialValue = emptyList()
         )
 
+    private val _mutationState = MutableStateFlow(LibraryMutationState())
+    val mutationState: StateFlow<LibraryMutationState> = _mutationState.asStateFlow()
+
     private val selectedPlaylistId = MutableStateFlow<Long?>(null)
     val playlistDetail: StateFlow<LocalPlaylistWithEntries?> = selectedPlaylistId
         .flatMapLatest { id ->
@@ -83,62 +102,89 @@ class LibraryViewModel(
         selectedPlaylistId.value = playlistId
     }
 
-    fun deleteHistoryItem(key: ContentKey) {
-        viewModelScope.launch {
-            historyRepository.deleteHistoryItem(key)
+    /** Clear a rendered mutation outcome so it is not shown again on recomposition. */
+    fun consumeMutationResult() {
+        if (!_mutationState.value.inFlight) {
+            _mutationState.value = LibraryMutationState()
         }
     }
 
-    fun clearHistory() {
-        requestedHistoryPage.value = 0
-        viewModelScope.launch {
-            historyRepository.clearHistory()
-        }
-    }
+    private val mutationMutex = kotlinx.coroutines.sync.Mutex()
+    private val inFlightMutationKeys = mutableSetOf<String>()
 
-    fun unsubscribe(channelKey: ContentKey) {
+    /**
+     * Runs one library mutation at a time. Identical in-flight calls (same [key],
+     * e.g. a double-tap) are dropped; distinct mutations queue behind the mutex so
+     * back-to-back writes (two adds, then a reorder) still complete in order.
+     */
+    private fun runMutation(
+        operation: String,
+        key: String = operation,
+        onSuccess: suspend (Any?) -> Unit = {},
+        block: suspend () -> AppResult<*>
+    ) {
+        if (!inFlightMutationKeys.add(key)) return
+        _mutationState.value = LibraryMutationState(operation = operation, inFlight = true)
         viewModelScope.launch {
-            subscriptionRepository.unsubscribe(channelKey)
-        }
-    }
-
-    fun createPlaylist(title: String, onCreated: ((Long) -> Unit)? = null) {
-        viewModelScope.launch {
-            val result = playlistRepository.createPlaylist(title)
-            if (result is com.hpre.app.core.error.AppResult.Success) {
-                onCreated?.invoke(result.value)
+            try {
+                mutationMutex.withLock {
+                    when (val result = block()) {
+                        is AppResult.Success -> {
+                            _mutationState.value = LibraryMutationState(operation, completed = true)
+                            onSuccess(result.value)
+                        }
+                        is AppResult.Failure ->
+                            _mutationState.value = LibraryMutationState(operation, error = result.error)
+                    }
+                }
+            } catch (e: CancellationException) {
+                _mutationState.value = LibraryMutationState()
+                throw e
+            } finally {
+                inFlightMutationKeys.remove(key)
             }
         }
     }
 
-    fun renamePlaylist(playlistId: Long, newTitle: String) {
-        viewModelScope.launch {
-            playlistRepository.renamePlaylist(playlistId, newTitle)
-        }
+    fun deleteHistoryItem(key: ContentKey) = runMutation("deleteHistoryItem", "deleteHistoryItem:$key") {
+        historyRepository.deleteHistoryItem(key)
     }
 
-    fun deletePlaylist(playlistId: Long) {
-        viewModelScope.launch {
-            playlistRepository.deletePlaylist(playlistId)
-        }
+    fun clearHistory() = runMutation("clearHistory") {
+        requestedHistoryPage.value = 0
+        historyRepository.clearHistory()
     }
 
-    fun addVideoToPlaylist(playlistId: Long, video: VideoSummary) {
-        viewModelScope.launch {
-            playlistRepository.addEntry(playlistId, video)
-        }
+    fun unsubscribe(channelKey: ContentKey) = runMutation("unsubscribe", "unsubscribe:$channelKey") {
+        subscriptionRepository.unsubscribe(channelKey)
     }
 
-    fun removeVideoFromPlaylist(playlistId: Long, videoKey: ContentKey) {
-        viewModelScope.launch {
-            playlistRepository.removeEntry(playlistId, videoKey)
-        }
+    fun createPlaylist(title: String, onCreated: ((Long) -> Unit)? = null) {
+        runMutation(
+            operation = "createPlaylist",
+            key = "createPlaylist:$title",
+            onSuccess = { id -> (id as? Long)?.let { onCreated?.invoke(it) } }
+        ) { playlistRepository.createPlaylist(title) }
     }
 
-    fun reorderPlaylistEntries(playlistId: Long, fromIndex: Int, toIndex: Int) {
-        viewModelScope.launch {
-            playlistRepository.reorderEntries(playlistId, fromIndex, toIndex)
-        }
+    fun renamePlaylist(playlistId: Long, newTitle: String) = runMutation("renamePlaylist", "renamePlaylist:$playlistId") {
+        playlistRepository.renamePlaylist(playlistId, newTitle)
+    }
+
+    fun deletePlaylist(playlistId: Long) = runMutation("deletePlaylist", "deletePlaylist:$playlistId") {
+        playlistRepository.deletePlaylist(playlistId)
+    }
+
+    fun addVideoToPlaylist(playlistId: Long, video: VideoSummary) = runMutation("addEntry", "addEntry:$playlistId:${video.key}") {
+        playlistRepository.addEntry(playlistId, video)
+    }
+
+    fun removeVideoFromPlaylist(playlistId: Long, videoKey: ContentKey) = runMutation("removeEntry", "removeEntry:$playlistId:$videoKey") {
+        playlistRepository.removeEntry(playlistId, videoKey)
+    }
+
+    fun reorderPlaylistEntries(playlistId: Long, fromIndex: Int, toIndex: Int) = runMutation("reorder", "reorder:$playlistId:$fromIndex:$toIndex") {
+        playlistRepository.reorderEntries(playlistId, fromIndex, toIndex)
     }
 
     companion object {

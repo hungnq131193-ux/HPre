@@ -2,9 +2,13 @@ package com.hpre.app.ui.channel
 
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
@@ -20,7 +24,9 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
@@ -76,18 +82,111 @@ fun ChannelScreen(
                 Modifier.fillMaxSize().padding(padding).testTag("channel_content"),
                 verticalArrangement = Arrangement.spacedBy(HPreSpacing.Medium)
             ) {
-                item {
-                    Column(Modifier.fillMaxWidth().padding(HPreSpacing.Large)) {
-                        Text(current.details.channel.name, style = MaterialTheme.typography.headlineSmall)
-                        current.details.channel.subscriberCountText?.let { Text(it) }
-                        current.details.channel.description?.let { Text(it) }
+                item { ChannelHeader(current.details.channel) }
+                items(current.details.videos, key = { it.key.toString() }, contentType = { "video" }) { video ->
+                    VideoCard(video, onVideoClick)
+                }
+                items(current.details.shorts, key = { "short:${it.key}" }, contentType = { "video" }) { video ->
+                    VideoCard(video, onVideoClick)
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun ChannelHeader(channel: com.hpre.app.model.Channel) {
+    var descriptionExpanded by androidx.compose.runtime.saveable.rememberSaveable {
+        androidx.compose.runtime.mutableStateOf(false)
+    }
+    var descriptionOverflows by androidx.compose.runtime.remember {
+        androidx.compose.runtime.mutableStateOf(false)
+    }
+
+    Column(Modifier.fillMaxWidth().testTag("channel_header")) {
+        if (!channel.bannerUrl.isNullOrBlank()) {
+            coil.compose.AsyncImage(
+                model = channel.bannerUrl,
+                contentDescription = null,
+                contentScale = androidx.compose.ui.layout.ContentScale.Crop,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(112.dp)
+                    .testTag("channel_banner")
+            )
+        }
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = HPreSpacing.Large, vertical = HPreSpacing.Medium),
+            verticalAlignment = androidx.compose.ui.Alignment.CenterVertically
+        ) {
+            if (!channel.avatarUrl.isNullOrBlank()) {
+                coil.compose.AsyncImage(
+                    model = channel.avatarUrl,
+                    contentDescription = stringResource(R.string.watch_channel_avatar),
+                    contentScale = androidx.compose.ui.layout.ContentScale.Crop,
+                    modifier = Modifier
+                        .size(64.dp)
+                        .clip(androidx.compose.foundation.shape.CircleShape)
+                        .testTag("channel_avatar")
+                )
+            } else {
+                androidx.compose.material3.Surface(
+                    modifier = Modifier.size(64.dp),
+                    shape = androidx.compose.foundation.shape.CircleShape,
+                    color = MaterialTheme.colorScheme.secondaryContainer
+                ) {
+                    androidx.compose.foundation.layout.Box(
+                        contentAlignment = androidx.compose.ui.Alignment.Center
+                    ) {
+                        Text(
+                            text = channel.name.take(1).uppercase(),
+                            style = MaterialTheme.typography.titleMedium,
+                            color = MaterialTheme.colorScheme.onSecondaryContainer
+                        )
                     }
                 }
-                items(current.details.videos, key = { it.key.toString() }) { video ->
-                    VideoCard(video, onVideoClick)
+            }
+            androidx.compose.foundation.layout.Spacer(Modifier.width(16.dp))
+            Column {
+                Text(
+                    text = channel.name,
+                    style = MaterialTheme.typography.headlineSmall,
+                    modifier = Modifier.testTag("channel_name")
+                )
+                channel.subscriberCountText?.let { subs ->
+                    Text(
+                        text = subs,
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.testTag("channel_subscribers")
+                    )
                 }
-                items(current.details.shorts, key = { "short:${it.key}" }) { video ->
-                    VideoCard(video, onVideoClick)
+            }
+        }
+        if (!channel.description.isNullOrBlank()) {
+            Column(Modifier.padding(horizontal = HPreSpacing.Large)) {
+                Text(
+                    text = channel.description,
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = if (descriptionExpanded) Int.MAX_VALUE else 3,
+                    overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
+                    onTextLayout = { result -> descriptionOverflows = result.hasVisualOverflow },
+                    modifier = Modifier.testTag("channel_description")
+                )
+                if (descriptionOverflows || descriptionExpanded) {
+                    androidx.compose.material3.TextButton(
+                        onClick = { descriptionExpanded = !descriptionExpanded },
+                        modifier = Modifier.testTag("channel_description_toggle")
+                    ) {
+                        Text(
+                            stringResource(
+                                if (descriptionExpanded) R.string.watch_collapse else R.string.watch_expand
+                            )
+                        )
+                    }
                 }
             }
         }

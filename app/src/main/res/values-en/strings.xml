@@ -8,16 +8,21 @@
     <string name="action_settings">Settings</string>
     <string name="action_back">Back</string>
     <string name="action_retry">Retry</string>
+    <string name="action_refresh">Refresh</string>
     <string name="action_play">Play</string>
     <string name="action_pause">Pause</string>
     <string name="action_cancel">Cancel</string>
     <string name="action_create">Create</string>
+    <string name="action_ok">OK</string>
+    <string name="error_dialog_title">Unable to complete</string>
     <string name="action_see_all">See all</string>
     <string name="action_delete">Delete</string>
     <string name="home_empty">No videos available</string>
+    <string name="home_loading_chip">Loading %1$s…</string>
     <string name="empty_default">No content yet</string>
     <string name="status_playing">Playing</string>
     <string name="status_paused">Paused</string>
+    <string name="status_loading">Loading</string>
     <string name="video_fallback_title">HPre Video</string>
     <string name="video_live">LIVE</string>
     <string name="mini_player_close">Close mini player</string>
@@ -48,6 +53,9 @@
     <string name="video_unavailable">Video unavailable</string>
     <string name="subscriptions_empty">No subscriptions yet</string>
     <string name="subscriptions_partial_error">Could not refresh some subscribed channels.</string>
+    <string name="subscriptions_manage">Manage</string>
+    <string name="subscriptions_sheet_title">Followed channels</string>
+    <string name="subscription_unsubscribe_confirm">Unfollow %1$s?</string>
     <string name="subscription_followed_local">Followed locally</string>
     <string name="subscription_following_local">Following</string>
     <string name="screen_history">Watch history</string>
@@ -59,6 +67,7 @@
     <string name="history_clear_title">Clear watch history?</string>
     <string name="history_clear_message">This will delete all watch history on this device.</string>
     <string name="history_remove">Remove from history</string>
+    <string name="history_remove_confirm">Remove this video from watch history?</string>
     <string name="history_resume_at">Resume from %1$d:%2$02d</string>
     <string name="screen_playlists">Playlists</string>
     <string name="playlists_empty">No playlists yet</string>
@@ -83,6 +92,7 @@
     <string name="screen_related_videos">Related videos</string>
     <string name="related_videos_empty">No related videos</string>
     <string name="comments_load_more">Load more</string>
+    <string name="comments_title">Comments</string>
     <string name="comments_expand">Show comments</string>
     <string name="comments_collapse">Hide comments</string>
     <string name="comment_read_more">Read more</string>
@@ -122,6 +132,7 @@
     <string name="watch_unknown_channel">Unknown channel</string>
     <string name="watch_description">Description</string>
     <string name="watch_add_to_playlist">Add to playlist</string>
+    <string name="watch_save_failed">Could not save. Try again.</string>
     <string name="watch_create_and_add_playlist">Create and add to playlist</string>
     <string name="watch_no_playlists">No playlists yet. Create a new one below.</string>
     <plurals name="watch_view_count">

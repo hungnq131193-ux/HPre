@@ -64,9 +64,11 @@ fun HistoryScreen(
     val historyList by viewModel.history.collectAsStateWithLifecycle()
     val historyPage by viewModel.historyPage.collectAsStateWithLifecycle()
     val historyCount by viewModel.historyCount.collectAsStateWithLifecycle()
+    val mutationState by viewModel.mutationState.collectAsStateWithLifecycle()
     val listState = rememberLazyListState()
     LaunchedEffect(historyPage) { listState.scrollToItem(0) }
     var showClearConfirmDialog by remember { mutableStateOf(false) }
+    var itemPendingDelete by remember { mutableStateOf<ContentKey?>(null) }
 
     Scaffold(
         topBar = {
@@ -87,6 +89,7 @@ fun HistoryScreen(
                     if (historyList.isNotEmpty()) {
                         IconButton(
                             onClick = { showClearConfirmDialog = true },
+                            enabled = !mutationState.inFlight,
                             modifier = Modifier.testTag("history_clear_all_button")
                         ) {
                             Icon(
@@ -121,11 +124,12 @@ fun HistoryScreen(
                     modifier = Modifier.fillMaxWidth().weight(1f).testTag("history_list"),
                     verticalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
-                    items(historyList, key = { it.key.toString() }) { item ->
+                    items(historyList, key = { it.key.toString() }, contentType = { "history_item" }) { item ->
                         HistoryItemRow(
                             item = item,
+                            actionsEnabled = !mutationState.inFlight,
                             onClick = { onVideoClick(item.key) },
-                            onDelete = { viewModel.deleteHistoryItem(item.key) }
+                            onDelete = { itemPendingDelete = item.key }
                         )
                     }
                 }
@@ -161,32 +165,114 @@ fun HistoryScreen(
 
     if (showClearConfirmDialog) {
         AlertDialog(
-            onDismissRequest = { showClearConfirmDialog = false },
+            onDismissRequest = {
+                if (!mutationState.inFlight) {
+                    viewModel.consumeMutationResult()
+                    showClearConfirmDialog = false
+                }
+            },
             title = { Text(stringResource(R.string.history_clear_title)) },
-            text = { Text(stringResource(R.string.history_clear_message)) },
+            text = {
+                Column {
+                    Text(stringResource(R.string.history_clear_message))
+                    val clearError = mutationState.error.takeIf { mutationState.operation == "clearHistory" }
+                    if (clearError != null) {
+                        Spacer(modifier = Modifier.height(8.dp))
+                        Text(
+                            text = com.hpre.app.ui.common.appErrorMessage(clearError),
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.error,
+                            modifier = Modifier.testTag("history_clear_error")
+                        )
+                    }
+                }
+            },
             confirmButton = {
                 TextButton(
-                    onClick = {
-                        viewModel.clearHistory()
-                        showClearConfirmDialog = false
-                    },
+                    onClick = { viewModel.clearHistory() },
+                    enabled = !mutationState.inFlight,
                     modifier = Modifier.testTag("history_clear_dialog_confirm")
                 ) {
                     Text(stringResource(R.string.action_delete), color = MaterialTheme.colorScheme.error)
                 }
             },
             dismissButton = {
-                TextButton(onClick = { showClearConfirmDialog = false }) {
+                TextButton(
+                    onClick = {
+                        viewModel.consumeMutationResult()
+                        showClearConfirmDialog = false
+                    },
+                    enabled = !mutationState.inFlight
+                ) {
                     Text(stringResource(R.string.action_cancel))
                 }
             }
         )
+        LaunchedEffect(mutationState.completed) {
+            if (mutationState.completed && mutationState.operation == "clearHistory") {
+                viewModel.consumeMutationResult()
+                showClearConfirmDialog = false
+            }
+        }
+    }
+
+    itemPendingDelete?.let { key ->
+        AlertDialog(
+            onDismissRequest = {
+                if (!mutationState.inFlight) {
+                    viewModel.consumeMutationResult()
+                    itemPendingDelete = null
+                }
+            },
+            text = {
+                Column {
+                    Text(stringResource(R.string.history_remove_confirm))
+                    val removeError = mutationState.error.takeIf { mutationState.operation == "deleteHistoryItem" }
+                    if (removeError != null) {
+                        Spacer(modifier = Modifier.height(8.dp))
+                        Text(
+                            text = com.hpre.app.ui.common.appErrorMessage(removeError),
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.error,
+                            modifier = Modifier.testTag("history_remove_error")
+                        )
+                    }
+                }
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = { viewModel.deleteHistoryItem(key) },
+                    enabled = !mutationState.inFlight,
+                    modifier = Modifier.testTag("history_remove_dialog_confirm")
+                ) {
+                    Text(stringResource(R.string.action_delete), color = MaterialTheme.colorScheme.error)
+                }
+            },
+            dismissButton = {
+                TextButton(
+                    onClick = {
+                        viewModel.consumeMutationResult()
+                        itemPendingDelete = null
+                    },
+                    enabled = !mutationState.inFlight
+                ) {
+                    Text(stringResource(R.string.action_cancel))
+                }
+            }
+        )
+        LaunchedEffect(mutationState.completed) {
+            if (mutationState.completed && mutationState.operation == "deleteHistoryItem") {
+                viewModel.consumeMutationResult()
+                itemPendingDelete = null
+            }
+        }
     }
 }
 
 @Composable
 private fun HistoryItemRow(
     item: WatchHistoryItem,
+    actionsEnabled: Boolean = true,
     onClick: () -> Unit,
     onDelete: () -> Unit
 ) {
@@ -261,6 +347,7 @@ private fun HistoryItemRow(
         }
         IconButton(
             onClick = onDelete,
+            enabled = actionsEnabled,
             modifier = Modifier.testTag("history_delete_${item.key.nativeId}")
         ) {
             Icon(

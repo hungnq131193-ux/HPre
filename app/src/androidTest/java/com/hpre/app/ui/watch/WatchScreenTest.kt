@@ -66,7 +66,7 @@ class WatchScreenTest {
     private val testKey = ContentKey(0, "watch_ui_test_video")
 
     @Test
-    fun comments_section_and_long_comment_can_expand_and_collapse() {
+    fun comments_section_opens_sheet_and_long_comment_can_expand_and_collapse() {
         var expanded by androidx.compose.runtime.mutableStateOf(false)
         val comment = com.hpre.app.model.Comment("fold", "A", null, null,
             (1..6).joinToString("\n") { "Comment line $it" }, null, null)
@@ -83,7 +83,12 @@ class WatchScreenTest {
         composeTestRule.onNodeWithTag("watch_lazy_column").performScrollToNode(hasTestTag("comments_section"))
         composeTestRule.onNodeWithTag("comment_fold").assertDoesNotExist()
         composeTestRule.onNodeWithTag("comments_section").performClick()
-        composeTestRule.onNodeWithTag("watch_lazy_column").performScrollToNode(hasTestTag("comment_fold"))
+        composeTestRule.waitForIdle()
+
+        // Comments render inside the bottom sheet, not the watch list.
+        composeTestRule.onNodeWithTag("comments_sheet").assertIsDisplayed()
+        composeTestRule.onNodeWithTag("comments_sheet_list")
+            .performScrollToNode(hasTestTag("comment_fold"))
         val collapsed = mutableListOf<androidx.compose.ui.text.TextLayoutResult>()
         composeTestRule.onNodeWithTag("comment_body_fold").performSemanticsAction(SemanticsActions.GetTextLayoutResult) { it(collapsed) }
         assertEquals(4, collapsed.single().lineCount)
@@ -92,8 +97,10 @@ class WatchScreenTest {
         composeTestRule.onNodeWithTag("comment_body_fold").performSemanticsAction(SemanticsActions.GetTextLayoutResult) { it(opened) }
         assertEquals(6, opened.single().lineCount)
         composeTestRule.onNodeWithTag("comment_toggle_fold").performClick()
-        composeTestRule.onNodeWithTag("watch_lazy_column").performScrollToNode(hasTestTag("comments_section"))
-        composeTestRule.onNodeWithTag("comments_section").performClick()
+
+        // Closing the sheet removes the comments entirely.
+        composeTestRule.runOnIdle { expanded = false }
+        composeTestRule.waitForIdle()
         composeTestRule.onNodeWithTag("comment_fold").assertDoesNotExist()
     }
 
@@ -1462,8 +1469,9 @@ class WatchScreenTest {
             }
         }
 
-        // 1. Initial render -> sentinel is visible or reached via scroll
-        composeTestRule.onNodeWithTag("watch_lazy_column")
+        // 1. Initial render -> sentinel is visible or reached via scroll inside the sheet
+        composeTestRule.onNodeWithTag("comments_sheet").assertIsDisplayed()
+        composeTestRule.onNodeWithTag("comments_sheet_list")
             .performScrollToNode(hasTestTag("comments_load_more_sentinel"))
         composeTestRule.waitForIdle()
 
@@ -1480,7 +1488,7 @@ class WatchScreenTest {
             com.hpre.app.model.CommentPage(page1 + page2, nextPageToken = com.hpre.app.model.PageToken.Id("tok_page_3"))
         )
         composeTestRule.waitForIdle()
-        composeTestRule.onNodeWithTag("watch_lazy_column")
+        composeTestRule.onNodeWithTag("comments_sheet_list")
             .performScrollToNode(hasTestTag("comments_load_more_sentinel"))
         composeTestRule.waitForIdle()
 
@@ -1522,7 +1530,7 @@ class WatchScreenTest {
             }
         }
 
-        composeTestRule.onNodeWithTag("watch_lazy_column")
+        composeTestRule.onNodeWithTag("comments_sheet_list")
             .performScrollToNode(hasTestTag("comment_complete"))
         composeTestRule.onNodeWithTag("comment_author_complete").assertTextEquals("Minh Anh")
         composeTestRule.onNodeWithTag("comment_age_complete").assertIsDisplayed()
@@ -1557,7 +1565,7 @@ class WatchScreenTest {
             }
         }
 
-        composeTestRule.onNodeWithTag("watch_lazy_column")
+        composeTestRule.onNodeWithTag("comments_sheet_list")
             .performScrollToNode(hasTestTag("comment_fallback"))
         composeTestRule.onNodeWithTag("comment_avatar_fallback")
             .assertTextEquals("L")
@@ -1649,7 +1657,7 @@ class WatchScreenTest {
         }
 
         // 1. Video 1 renders with sharedToken -> scroll to sentinel -> triggers loadMore for Video 1 once
-        composeTestRule.onNodeWithTag("watch_lazy_column")
+        composeTestRule.onNodeWithTag("comments_sheet_list")
             .performScrollToNode(hasTestTag("comments_load_more_sentinel"))
         composeTestRule.waitForIdle()
 
@@ -1665,7 +1673,7 @@ class WatchScreenTest {
         composeTestRule.waitForIdle()
 
         // 3. Sentinel triggers Video 2's load-more callback once (guard was reset for Video 2's key)
-        composeTestRule.onNodeWithTag("watch_lazy_column")
+        composeTestRule.onNodeWithTag("comments_sheet_list")
             .performScrollToNode(hasTestTag("comments_load_more_sentinel"))
         composeTestRule.waitForIdle()
 

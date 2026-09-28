@@ -70,6 +70,7 @@ import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.role
@@ -739,26 +740,33 @@ fun PlayerControlsOverlay(
                     }
                 }
 
-                // Speed selection menu
+                // Speed selection — the button itself shows the active value.
                 Box {
-                    IconButton(
+                    val speedLabel = "${playbackState.playbackSpeed}x"
+                    val speedDescription = stringResource(R.string.playback_speed, speedLabel)
+                    Surface(
                         onClick = {
                             keepControlsAlive()
                             isSpeedMenuOpen = true
                         },
+                        color = Color.Black.copy(alpha = 0.4f),
+                        shape = RoundedCornerShape(6.dp),
                         modifier = Modifier
                             .testTag("control_speed_button")
                             .onGloballyPositioned { coords ->
                                 registerProtectedBounds("control_speed_button", coords)
                             }
+                            .semantics {
+                                role = Role.Button
+                                contentDescription = speedDescription
+                            }
                     ) {
-                        Icon(
-                            imageVector = Icons.Default.Speed,
-                            contentDescription = stringResource(
-                                R.string.playback_speed,
-                                playbackState.playbackSpeed.toString()
-                            ),
-                            tint = Color.White
+                        Text(
+                            text = speedLabel,
+                            color = Color.White,
+                            fontSize = 13.sp,
+                            fontWeight = FontWeight.Medium,
+                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp)
                         )
                     }
                     DropdownMenu(
@@ -771,7 +779,7 @@ fun PlayerControlsOverlay(
                             DropdownMenuItem(
                                 text = {
                                     Text(
-                                        text = "${speed}x" + if (isSelected) " ✓" else "",
+                                        text = "${speed}x",
                                         fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal
                                     )
                                 },
@@ -780,7 +788,12 @@ fun PlayerControlsOverlay(
                                     isSpeedMenuOpen = false
                                     keepControlsAlive()
                                 },
-                                modifier = Modifier.testTag("speed_option_${speed}")
+                                modifier = Modifier
+                                    .testTag("speed_option_${speed}")
+                                    .semantics {
+                                        role = Role.RadioButton
+                                        selected = isSelected
+                                    }
                             )
                         }
                     }
@@ -792,25 +805,32 @@ fun PlayerControlsOverlay(
                         onDispose { unregisterProtectedBounds("control_quality_button") }
                     }
                     Box {
-                        IconButton(
+                        val qualityLabel = playbackState.selectedQuality?.label
+                            ?: stringResource(R.string.quality_auto)
+                        val qualityDescription = stringResource(R.string.playback_quality, qualityLabel)
+                        Surface(
                             onClick = {
                                 keepControlsAlive()
                                 isQualityMenuOpen = true
                             },
+                            color = Color.Black.copy(alpha = 0.4f),
+                            shape = RoundedCornerShape(6.dp),
                             modifier = Modifier
                                 .testTag("control_quality_button")
                                 .onGloballyPositioned { coords ->
                                     registerProtectedBounds("control_quality_button", coords)
                                 }
+                                .semantics {
+                                    role = Role.Button
+                                    contentDescription = qualityDescription
+                                }
                         ) {
-                            Icon(
-                                imageVector = Icons.Default.HighQuality,
-                                contentDescription = stringResource(
-                                    R.string.playback_quality,
-                                    playbackState.selectedQuality?.label
-                                        ?: stringResource(R.string.quality_auto)
-                                ),
-                                tint = Color.White
+                            Text(
+                                text = qualityLabel,
+                                color = Color.White,
+                                fontSize = 13.sp,
+                                fontWeight = FontWeight.Medium,
+                                modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp)
                             )
                         }
                         DropdownMenu(
@@ -823,7 +843,7 @@ fun PlayerControlsOverlay(
                                 DropdownMenuItem(
                                     text = {
                                         Text(
-                                            text = quality.label + if (isSelected) " ✓" else "",
+                                            text = quality.label,
                                             fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal
                                         )
                                     },
@@ -832,7 +852,12 @@ fun PlayerControlsOverlay(
                                         isQualityMenuOpen = false
                                         keepControlsAlive()
                                     },
-                                    modifier = Modifier.testTag("quality_option_${quality.height}")
+                                    modifier = Modifier
+                                        .testTag("quality_option_${quality.height}")
+                                        .semantics {
+                                            role = Role.RadioButton
+                                            selected = isSelected
+                                        }
                                 )
                             }
                         }

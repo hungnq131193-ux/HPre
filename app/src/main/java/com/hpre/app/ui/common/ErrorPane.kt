@@ -3,10 +3,13 @@ package com.hpre.app.ui.common
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.LinearProgressIndicator
@@ -113,7 +116,9 @@ fun DelayedLoadingPane(
 fun EmptyPane(
     message: String? = null,
     modifier: Modifier = Modifier,
-    testTag: String = "empty_pane"
+    testTag: String = "empty_pane",
+    actionLabel: String? = null,
+    onAction: (() -> Unit)? = null
 ) {
     Box(
         modifier = modifier
@@ -121,14 +126,68 @@ fun EmptyPane(
             .testTag(testTag),
         contentAlignment = Alignment.Center
     ) {
+        Column(
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.Center,
+            modifier = Modifier.padding(16.dp)
+        ) {
+            Text(
+                text = message ?: stringResource(R.string.empty_default),
+                style = MaterialTheme.typography.bodyLarge,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                textAlign = TextAlign.Center
+            )
+            if (actionLabel != null && onAction != null) {
+                Spacer(modifier = Modifier.height(16.dp))
+                Button(
+                    onClick = onAction,
+                    modifier = Modifier.testTag("${testTag}_action")
+                ) {
+                    Text(text = actionLabel)
+                }
+            }
+        }
+    }
+}
+
+/**
+ * Wrap-content empty row for sections inside a scrolling list (comments,
+ * related videos) where a full-viewport [EmptyPane] would swallow the screen.
+ */
+@Composable
+fun InlineEmptyPane(
+    message: String? = null,
+    modifier: Modifier = Modifier,
+    testTag: String = "inline_empty_pane"
+) {
+    Box(
+        modifier = modifier
+            .fillMaxWidth()
+            .padding(24.dp)
+            .testTag(testTag),
+        contentAlignment = Alignment.Center
+    ) {
         Text(
             text = message ?: stringResource(R.string.empty_default),
-            style = MaterialTheme.typography.bodyLarge,
+            style = MaterialTheme.typography.bodyMedium,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
-            textAlign = TextAlign.Center,
-            modifier = Modifier.padding(16.dp)
+            textAlign = TextAlign.Center
         )
     }
+}
+
+@Composable
+fun appErrorMessage(error: AppError): String = when (error) {
+    AppError.NetworkError -> stringResource(R.string.error_network)
+    AppError.RateLimited -> stringResource(R.string.error_rate_limited)
+    AppError.ContentUnavailable -> stringResource(R.string.error_content_unavailable)
+    AppError.AgeRestricted -> stringResource(R.string.error_age_restricted)
+    AppError.GeoRestricted -> stringResource(R.string.error_geo_restricted)
+    AppError.LoginRequired -> stringResource(R.string.error_login_required)
+    AppError.StreamExpired -> stringResource(R.string.error_stream_expired)
+    AppError.UnsupportedFormat -> stringResource(R.string.error_unsupported_format)
+    AppError.ExtractionFailed -> stringResource(R.string.error_extraction_failed)
+    AppError.Unknown -> stringResource(R.string.error_unknown)
 }
 
 @Composable
@@ -138,19 +197,7 @@ fun ErrorPane(
     modifier: Modifier = Modifier,
     testTag: String = "error_pane"
 ) {
-    val message = when (error) {
-        AppError.NetworkError -> stringResource(R.string.error_network)
-        AppError.RateLimited -> stringResource(R.string.error_rate_limited)
-        AppError.ContentUnavailable -> stringResource(R.string.error_content_unavailable)
-        AppError.AgeRestricted -> stringResource(R.string.error_age_restricted)
-        AppError.GeoRestricted -> stringResource(R.string.error_geo_restricted)
-        AppError.LoginRequired -> stringResource(R.string.error_login_required)
-        AppError.StreamExpired -> stringResource(R.string.error_stream_expired)
-        AppError.UnsupportedFormat -> stringResource(R.string.error_unsupported_format)
-        AppError.ExtractionFailed -> stringResource(R.string.error_extraction_failed)
-        AppError.Unknown -> stringResource(R.string.error_unknown)
-    }
-
+    val message = appErrorMessage(error)
     val isRetryable = RetryPolicy.isManualRetryable(error)
 
     Box(
@@ -178,6 +225,46 @@ fun ErrorPane(
                 ) {
                     Text(text = stringResource(R.string.action_retry))
                 }
+            }
+        }
+    }
+}
+
+/**
+ * Wrap-content error row for secondary failures (refresh, pagination, partial
+ * section errors) where content is already on screen — never fills a viewport
+ * or swallows the surrounding list.
+ */
+@Composable
+fun InlineErrorPane(
+    error: AppError,
+    onRetry: () -> Unit,
+    modifier: Modifier = Modifier,
+    testTag: String = "inline_error"
+) {
+    val message = appErrorMessage(error)
+    val isRetryable = RetryPolicy.isManualRetryable(error)
+
+    Row(
+        modifier = modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp, vertical = 8.dp)
+            .testTag(testTag),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Text(
+            text = message,
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.error,
+            modifier = Modifier.weight(1f)
+        )
+        if (isRetryable) {
+            Spacer(modifier = Modifier.size(8.dp))
+            androidx.compose.material3.TextButton(
+                onClick = onRetry,
+                modifier = Modifier.testTag("${testTag}_retry")
+            ) {
+                Text(text = stringResource(R.string.action_retry))
             }
         }
     }

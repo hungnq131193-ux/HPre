@@ -39,13 +39,14 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import coil.compose.AsyncImage
+import kotlinx.coroutines.flow.distinctUntilChanged
 import com.hpre.app.R
 import com.hpre.app.model.Comment
 import com.hpre.app.model.CommentPage
 import com.hpre.app.ui.common.AsyncState
-import com.hpre.app.ui.common.EmptyPane
-import com.hpre.app.ui.common.ErrorPane
-import com.hpre.app.ui.common.LoadingPane
+import com.hpre.app.ui.common.DelayedLinearLoadingIndicator
+import com.hpre.app.ui.common.InlineEmptyPane
+import com.hpre.app.ui.common.InlineErrorPane
 import com.hpre.app.ui.common.VideoFormat
 import java.text.NumberFormat
 
@@ -60,20 +61,23 @@ fun LazyListScope.commentsItems(
     onExpandedChange: (Boolean) -> Unit = {},
     pagination: CommentsPaginationState = CommentsPaginationState(),
     onLoadMore: () -> Unit = {},
-    onRestart: () -> Unit = {}
+    onRestart: () -> Unit = {},
+    showHeader: Boolean = true
 ) {
-    item(key = WATCH_KEY_COMMENTS_HEADER) {
-        TextButton(
-            onClick = { onExpandedChange(!expanded) },
-            modifier = Modifier
-                .fillMaxWidth()
-                .testTag("comments_section")
-        ) {
-            Text(
-                text = stringResource(if (expanded) R.string.comments_collapse else R.string.comments_expand),
-                style = MaterialTheme.typography.titleSmall,
-                modifier = Modifier.testTag("comments_toggle")
-            )
+    if (showHeader) {
+        item(key = WATCH_KEY_COMMENTS_HEADER) {
+            TextButton(
+                onClick = { onExpandedChange(!expanded) },
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .testTag("comments_section")
+            ) {
+                Text(
+                    text = stringResource(if (expanded) R.string.comments_collapse else R.string.comments_expand),
+                    style = MaterialTheme.typography.titleSmall,
+                    modifier = Modifier.testTag("comments_toggle")
+                )
+            }
         }
     }
 
@@ -93,12 +97,15 @@ fun LazyListScope.commentsItems(
     when (state) {
         AsyncState.Loading -> {
             item(key = WATCH_KEY_COMMENTS_STATUS) {
-                LoadingPane(testTag = "comments_loading")
+                DelayedLinearLoadingIndicator(
+                    modifier = Modifier.fillMaxWidth(),
+                    testTag = "comments_loading"
+                )
             }
         }
         AsyncState.Empty -> {
             item(key = WATCH_KEY_COMMENTS_STATUS) {
-                EmptyPane(
+                InlineEmptyPane(
                     message = stringResource(R.string.comments_empty),
                     testTag = "comments_empty"
                 )
@@ -106,7 +113,7 @@ fun LazyListScope.commentsItems(
         }
         is AsyncState.Error -> {
             item(key = WATCH_KEY_COMMENTS_STATUS) {
-                ErrorPane(
+                InlineErrorPane(
                     error = state.error,
                     onRetry = onRetry,
                     testTag = "comments_error"
@@ -129,12 +136,11 @@ fun LazyListScope.commentsItems(
                             pagination.isLoading -> CircularProgressIndicator(
                                 modifier = Modifier.padding(12.dp).size(24.dp).testTag("comments_page_loading")
                             )
-                            pagination.error != null -> {
-                                Text(stringResource(R.string.comments_page_error), style = MaterialTheme.typography.bodySmall)
-                                TextButton(onClick = onLoadMore, modifier = Modifier.testTag("comments_page_retry")) {
-                                    Text(stringResource(R.string.action_retry))
-                                }
-                            }
+                            pagination.error != null -> InlineErrorPane(
+                                error = pagination.error,
+                                onRetry = onLoadMore,
+                                testTag = "comments_page"
+                            )
                             else -> TextButton(onClick = onLoadMore) {
                                 Text(stringResource(R.string.comments_load_more))
                             }
@@ -142,6 +148,73 @@ fun LazyListScope.commentsItems(
                     }
                 }
             }
+        }
+    }
+}
+
+/**
+ * Comments live in a bottom sheet instead of the watch list so hundreds of comments cannot push
+ * related videos off screen. The sheet owns its [LazyListState]; reaching the footer sentinel
+ * fires [onSentinelReached], which the caller debounces per page token.
+ */
+@OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class)
+@Composable
+fun CommentsSheet(
+    state: AsyncState<CommentPage>,
+    pagination: CommentsPaginationState,
+    onRetry: () -> Unit,
+    onLoadMore: () -> Unit,
+    onRestart: () -> Unit,
+    onSentinelReached: () -> Unit,
+    onDismiss: () -> Unit
+) {
+    val sheetListState = androidx.compose.foundation.lazy.rememberLazyListState()
+    val nextPageToken = (state as? AsyncState.Content)?.value?.nextPageToken
+    val currentOnSentinelReached = androidx.compose.runtime.rememberUpdatedState(onSentinelReached)
+
+    androidx.compose.material3.ModalBottomSheet(
+        onDismissRequest = onDismiss,
+        modifier = Modifier.testTag("comments_sheet")
+    ) {
+        Text(
+            text = stringResource(R.string.comments_title),
+            style = MaterialTheme.typography.titleSmall,
+            modifier = Modifier
+                .padding(horizontal = 16.dp, vertical = 8.dp)
+                .testTag("comments_sheet_title")
+        )
+        androidx.compose.runtime.LaunchedEffect(
+            sheetListState,
+            nextPageToken,
+            pagination.isLoading,
+            pagination.error
+        ) {
+            if (nextPageToken == null || pagination.isLoading || pagination.error != null) {
+                return@LaunchedEffect
+            }
+            androidx.compose.runtime.snapshotFlow {
+                sheetListState.layoutInfo.visibleItemsInfo.any { it.key == WATCH_KEY_COMMENTS_LOAD_MORE }
+            }
+                .distinctUntilChanged()
+                .collect { sentinelVisible ->
+                    if (sentinelVisible) currentOnSentinelReached.value()
+                }
+        }
+        androidx.compose.foundation.lazy.LazyColumn(
+            state = sheetListState,
+            modifier = Modifier
+                .fillMaxWidth()
+                .testTag("comments_sheet_list")
+        ) {
+            commentsItems(
+                state = state,
+                onRetry = onRetry,
+                expanded = true,
+                pagination = pagination,
+                onLoadMore = onLoadMore,
+                onRestart = onRestart,
+                showHeader = false
+            )
         }
     }
 }

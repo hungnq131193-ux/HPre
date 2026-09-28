@@ -63,9 +63,11 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import coil.compose.AsyncImage
+import com.hpre.app.core.error.AppError
 import com.hpre.app.model.ContentKey
 import com.hpre.app.R
 import com.hpre.app.model.VideoSummary
+import com.hpre.app.ui.common.appErrorMessage
 import com.hpre.app.repository.HistoryRepository
 import com.hpre.app.repository.LocalPlaylist
 import com.hpre.app.repository.LocalPlaylistEntry
@@ -80,6 +82,7 @@ fun LibraryScreen(
     onNavigateToPlaylists: () -> Unit,
     onPlaylistClick: (Long) -> Unit,
     onVideoClick: (ContentKey) -> Unit,
+    onChannelClick: (ContentKey) -> Unit,
     onVideoSelected: ((ContentKey, String?) -> Unit)? = null,
     modifier: Modifier = Modifier
 ) {
@@ -87,6 +90,7 @@ fun LibraryScreen(
     val historyCount by viewModel.historyCount.collectAsStateWithLifecycle()
     val subscriptionsList by viewModel.subscriptions.collectAsStateWithLifecycle()
     val playlistsList by viewModel.playlists.collectAsStateWithLifecycle()
+    val mutationState by viewModel.mutationState.collectAsStateWithLifecycle()
 
     var showCreatePlaylistDialog by remember { mutableStateOf(false) }
 
@@ -119,7 +123,7 @@ fun LibraryScreen(
                     .testTag("library_recent_history_row"),
                 horizontalArrangement = Arrangement.spacedBy(12.dp)
             ) {
-                items(historyList, key = { it.key.toString() }) { item ->
+                items(historyList, key = { it.key.toString() }, contentType = { "history_card" }) { item ->
                     RecentHistoryCard(
                         item = item,
                         onClick = {
@@ -226,8 +230,11 @@ fun LibraryScreen(
                     .testTag("library_subscriptions_row"),
                 horizontalArrangement = Arrangement.spacedBy(16.dp)
             ) {
-                items(subscriptionsList, key = { it.channelKey.toString() }) { sub ->
-                    SubscriptionAvatarItem(sub = sub)
+                items(subscriptionsList, key = { it.channelKey.toString() }, contentType = { "channel_avatar" }) { sub ->
+                    SubscriptionAvatarItem(
+                        sub = sub,
+                        onClick = { onChannelClick(sub.channelKey) }
+                    )
                 }
             }
         }
@@ -236,12 +243,20 @@ fun LibraryScreen(
 
     if (showCreatePlaylistDialog) {
         CreatePlaylistDialog(
-            onCreate = { title ->
-                viewModel.createPlaylist(title)
+            isSaving = mutationState.inFlight,
+            error = mutationState.error.takeIf { mutationState.operation == "createPlaylist" },
+            onCreate = { title -> viewModel.createPlaylist(title) },
+            onDismiss = {
+                viewModel.consumeMutationResult()
                 showCreatePlaylistDialog = false
-            },
-            onDismiss = { showCreatePlaylistDialog = false }
+            }
         )
+        androidx.compose.runtime.LaunchedEffect(mutationState.completed) {
+            if (mutationState.completed && mutationState.operation == "createPlaylist") {
+                viewModel.consumeMutationResult()
+                showCreatePlaylistDialog = false
+            }
+        }
     }
 }
 
@@ -398,11 +413,15 @@ private fun PlaylistItemRow(
 }
 
 @Composable
-private fun SubscriptionAvatarItem(sub: LocalSubscription) {
+private fun SubscriptionAvatarItem(
+    sub: LocalSubscription,
+    onClick: () -> Unit = {}
+) {
     Column(
         horizontalAlignment = Alignment.CenterHorizontally,
         modifier = Modifier
             .width(72.dp)
+            .clickable(onClick = onClick)
             .testTag("subscription_avatar_${sub.channelKey.nativeId}")
     ) {
         if (!sub.avatarUrl.isNullOrBlank()) {
@@ -442,7 +461,9 @@ private fun SubscriptionAvatarItem(sub: LocalSubscription) {
 @Composable
 fun CreatePlaylistDialog(
     onCreate: (String) -> Unit,
-    onDismiss: () -> Unit
+    onDismiss: () -> Unit,
+    isSaving: Boolean = false,
+    error: AppError? = null
 ) {
     var title by remember { mutableStateOf("") }
 
@@ -450,15 +471,27 @@ fun CreatePlaylistDialog(
         onDismissRequest = onDismiss,
         title = { Text(stringResource(R.string.playlist_new)) },
         text = {
-            OutlinedTextField(
-                value = title,
-                onValueChange = { title = it },
-                label = { Text(stringResource(R.string.playlist_title)) },
-                singleLine = true,
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .testTag("playlist_title_input")
-            )
+            Column {
+                OutlinedTextField(
+                    value = title,
+                    onValueChange = { title = it },
+                    label = { Text(stringResource(R.string.playlist_title)) },
+                    singleLine = true,
+                    enabled = !isSaving,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .testTag("playlist_title_input")
+                )
+                if (error != null) {
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Text(
+                        text = appErrorMessage(error),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.error,
+                        modifier = Modifier.testTag("playlist_create_error")
+                    )
+                }
+            }
         },
         confirmButton = {
             TextButton(
@@ -467,15 +500,43 @@ fun CreatePlaylistDialog(
                         onCreate(title.trim())
                     }
                 },
-                enabled = title.isNotBlank(),
+                enabled = title.isNotBlank() && !isSaving,
                 modifier = Modifier.testTag("playlist_dialog_create_button")
             ) {
                 Text(stringResource(R.string.action_create))
             }
         },
         dismissButton = {
-            TextButton(onClick = onDismiss) {
+            TextButton(onClick = onDismiss, enabled = !isSaving) {
                 Text(stringResource(R.string.action_cancel))
+            }
+        }
+    )
+}
+
+/** Dismissible error surface for mutations that have no open form (reorder, remove, delete row). */
+@Composable
+fun MutationErrorDialog(
+    error: AppError,
+    onDismiss: () -> Unit
+) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text(stringResource(R.string.error_dialog_title)) },
+        text = {
+            Text(
+                text = appErrorMessage(error),
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.error,
+                modifier = Modifier.testTag("mutation_error_message")
+            )
+        },
+        confirmButton = {
+            TextButton(
+                onClick = onDismiss,
+                modifier = Modifier.testTag("mutation_error_dismiss")
+            ) {
+                Text(stringResource(R.string.action_ok))
             }
         }
     )

@@ -91,6 +91,7 @@ class LibraryScreenTest {
     private class FakePlaylistRepo : PlaylistRepository {
         val playlistsFlow = MutableStateFlow<List<LocalPlaylist>>(emptyList())
         val detailFlows = mutableMapOf<Long, MutableStateFlow<LocalPlaylistWithEntries?>>()
+        var createResult: AppResult<Long>? = null
         private var nextId = 1L
 
         override fun observePlaylists(): Flow<List<LocalPlaylist>> = playlistsFlow
@@ -104,6 +105,7 @@ class LibraryScreenTest {
             AppResult.Success(playlistsFlow.value.firstOrNull { it.playlistId == playlistId })
 
         override suspend fun createPlaylist(title: String, timestamp: Long): AppResult<Long> {
+            createResult?.let { return it }
             val id = nextId++
             val newP = LocalPlaylist(id, title, timestamp, timestamp, 0)
             playlistsFlow.value = playlistsFlow.value + newP
@@ -236,7 +238,8 @@ class LibraryScreenTest {
                     onNavigateToSubscriptions = {},
                     onNavigateToPlaylists = {},
                     onPlaylistClick = {},
-                    onVideoClick = {}
+                    onVideoClick = {},
+                    onChannelClick = {}
                 )
             }
         }
@@ -253,6 +256,100 @@ class LibraryScreenTest {
         composeRule.waitForIdle()
         assertEquals(1, playlistRepo.playlistsFlow.value.size)
         assertEquals("Cool Tracks", playlistRepo.playlistsFlow.value.first().title)
+    }
+
+    @Test
+    fun library_subscription_avatar_opens_channel() {
+        val subRepo = FakeSubscriptionRepo()
+        subRepo.subFlow.value = listOf(
+            LocalSubscription(ContentKey(1, "chan_a"), "https://example.com/chan_a", "Creator A", null, 1L)
+        )
+        val viewModel = LibraryViewModel(FakeHistoryRepo(), subRepo, FakePlaylistRepo())
+        var clickedChannel: ContentKey? = null
+
+        composeRule.setContent {
+            HPreTheme {
+                LibraryScreen(
+                    viewModel = viewModel,
+                    onNavigateToHistory = {},
+                    onNavigateToSubscriptions = {},
+                    onNavigateToPlaylists = {},
+                    onPlaylistClick = {},
+                    onVideoClick = {},
+                    onChannelClick = { clickedChannel = it }
+                )
+            }
+        }
+
+        composeRule.onNodeWithTag("subscription_avatar_chan_a").performClick()
+        assertEquals(ContentKey(1, "chan_a"), clickedChannel)
+    }
+
+    @Test
+    fun create_playlist_failure_keeps_dialog_open_with_error() {
+        val playlistRepo = FakePlaylistRepo()
+        playlistRepo.createResult = AppResult.Failure(com.hpre.app.core.error.AppError.Unknown)
+        val viewModel = LibraryViewModel(FakeHistoryRepo(), FakeSubscriptionRepo(), playlistRepo)
+
+        composeRule.setContent {
+            HPreTheme {
+                LibraryScreen(
+                    viewModel = viewModel,
+                    onNavigateToHistory = {},
+                    onNavigateToSubscriptions = {},
+                    onNavigateToPlaylists = {},
+                    onPlaylistClick = {},
+                    onVideoClick = {},
+                    onChannelClick = {}
+                )
+            }
+        }
+
+        composeRule.onNodeWithTag("library_create_playlist_button").performClick()
+        composeRule.onNodeWithTag("playlist_title_input").performTextInput("Cool Tracks")
+        composeRule.onNodeWithTag("playlist_dialog_create_button").performClick()
+        composeRule.waitForIdle()
+
+        // Failure: no playlist created, dialog stays open, error is visible, input kept.
+        assertTrue(playlistRepo.playlistsFlow.value.isEmpty())
+        composeRule.onNodeWithTag("playlist_title_input").assertIsDisplayed()
+        composeRule.onNodeWithTag("playlist_create_error").assertIsDisplayed()
+    }
+
+    @Test
+    fun history_item_delete_requires_confirmation() {
+        val historyRepo = FakeHistoryRepo()
+        historyRepo.listFlow.value = listOf(
+            WatchHistoryItem(
+                key = ContentKey(1, "v1"),
+                canonicalUrl = "https://example.com/v1",
+                title = "Video One",
+                channelKey = null,
+                channelName = "Channel 1",
+                thumbnailUrl = null,
+                durationSeconds = 100L,
+                playbackPositionMs = 30000L,
+                watchedTimestamp = 1000L
+            )
+        )
+        val viewModel = LibraryViewModel(historyRepo, FakeSubscriptionRepo(), FakePlaylistRepo())
+
+        composeRule.setContent {
+            HPreTheme {
+                HistoryScreen(
+                    viewModel = viewModel,
+                    onVideoClick = {},
+                    onNavigateBack = {}
+                )
+            }
+        }
+
+        composeRule.onNodeWithTag("history_delete_v1").performClick()
+        composeRule.onNodeWithTag("history_remove_dialog_confirm").assertIsDisplayed()
+        assertEquals(1, historyRepo.listFlow.value.size)
+        composeRule.onNodeWithTag("history_remove_dialog_confirm").performClick()
+        composeRule.waitForIdle()
+        assertTrue(historyRepo.listFlow.value.isEmpty())
     }
 
     @Test
@@ -298,7 +395,7 @@ class LibraryScreenTest {
     }
 
     @Test
-    fun subscriptions_screen_allows_local_unsubscribe() {
+    fun subscriptions_manage_sheet_lists_all_channels_and_unsubscribe_confirms() {
         val historyRepo = FakeHistoryRepo()
         val subRepo = FakeSubscriptionRepo()
         val playlistRepo = FakePlaylistRepo()
@@ -318,14 +415,50 @@ class LibraryScreenTest {
         }
 
         composeRule.onNodeWithTag("subscriptions_screen").assertIsDisplayed()
+        composeRule.onNodeWithTag("subscription_chip_c1").assertIsDisplayed()
+
+        // Rows live in the manage sheet, not on the main screen.
+        composeRule.onNodeWithTag("subscription_row_c1").assertDoesNotExist()
+        composeRule.onNodeWithTag("subscriptions_manage_button").performClick()
         composeRule.onNodeWithTag("subscription_row_c1").assertIsDisplayed()
-        composeRule.onNodeWithText("Test Creator").assertIsDisplayed()
+
+        // Unsubscribe requires confirmation; cancel keeps the data.
+        composeRule.onNodeWithTag("unsubscribe_button_c1").performClick()
+        composeRule.onNodeWithTag("subscription_unsubscribe_confirm").assertIsDisplayed()
+        composeRule.onNodeWithText(
+            androidx.test.core.app.ApplicationProvider.getApplicationContext<android.content.Context>()
+                .getString(com.hpre.app.R.string.action_cancel)
+        ).performClick()
+        assertEquals(1, subRepo.subFlow.value.size)
 
         composeRule.onNodeWithTag("unsubscribe_button_c1").performClick()
+        composeRule.onNodeWithTag("subscription_unsubscribe_confirm").performClick()
         composeRule.waitForIdle()
         assertTrue(subRepo.subFlow.value.isEmpty())
         val context = androidx.test.core.app.ApplicationProvider.getApplicationContext<android.content.Context>()
         composeRule.onNodeWithText(context.getString(com.hpre.app.R.string.subscriptions_empty)).assertIsDisplayed()
+    }
+
+    @Test
+    fun subscriptions_with_many_channels_keeps_feed_near_top() {
+        val subRepo = FakeSubscriptionRepo()
+        subRepo.subFlow.value = (1..30).map {
+            LocalSubscription(ContentKey(1, "c$it"), "https://example.com/c$it", "Channel $it", null, it.toLong())
+        }
+        val viewModel = LibraryViewModel(FakeHistoryRepo(), subRepo, FakePlaylistRepo())
+
+        composeRule.setContent {
+            HPreTheme {
+                SubscriptionsScreen(
+                    viewModel = viewModel,
+                    onChannelClick = {}
+                )
+            }
+        }
+
+        // The channel row is horizontally scrollable and the refresh/feed area is visible without scrolling.
+        composeRule.onNodeWithTag("subscriptions_channels_row").assertIsDisplayed()
+        composeRule.onNodeWithTag("subscriptions_refresh_button").assertIsDisplayed()
     }
 
     @Test

@@ -87,6 +87,9 @@ fun HPreNavHost(
                         navigate = { navController.navigate(Screen.Watch.createRoute(video.key, video.thumbnailUrl)) }
                     )
                 },
+                onChannelClick = { channelKey ->
+                    navController.navigate(Screen.Channel.createRoute(channelKey))
+                },
                 onContentIdle = container::prewarmPlaybackInfrastructure
             )
         }
@@ -179,6 +182,9 @@ fun HPreNavHost(
                     beginVideoNavigation(key = key, navigate = {
                         navController.navigate(Screen.Watch.createRoute(key))
                     })
+                },
+                onChannelClick = { key ->
+                    navController.navigate(Screen.Channel.createRoute(key))
                 },
                 onVideoSelected = { key, thumb ->
                     beginVideoNavigation(key = key, navigate = {
@@ -424,7 +430,10 @@ fun HPreNavHost(
                     },
                     isInPip = playbackUiState.isInPip,
                     playbackUiCoordinator = effectiveCoordinator,
-                    initialThumbnailUrl = thumbnailUrl
+                    initialThumbnailUrl = thumbnailUrl,
+                    onChannelClick = { channelKey ->
+                        navController.navigate(Screen.Channel.createRoute(channelKey))
+                    }
                 )
             }
         }

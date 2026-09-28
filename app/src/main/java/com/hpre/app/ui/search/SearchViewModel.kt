@@ -50,7 +50,13 @@ sealed interface SearchUiState {
          * flagging them as superseded lets the screen show a thin inline indicator instead.
          */
         val isSearching: Boolean = false,
-        val earlierResultsDropped: Boolean = false
+        val earlierResultsDropped: Boolean = false,
+        /**
+         * A page-append request failed while earlier results stay on screen. Distinct from the
+         * screen-level [Error] state: the loaded pages still answer the committed query, so they
+         * remain visible and this error renders as a retryable list footer instead.
+         */
+        val paginationError: AppError? = null
     ) : SearchUiState
     data object Empty : SearchUiState
     data class Error(val error: AppError) : SearchUiState
@@ -120,7 +126,16 @@ class SearchViewModel(
 
     private var currentGeneration: Long = 0L
     private var activeRequestKey: String = ""
-    private var committedSearch: Pair<String, SearchFilter>? = null
+    private val _committedSearch = MutableStateFlow<Pair<String, SearchFilter>?>(null)
+
+    /**
+     * Normalized query of the last committed (successful or cache-served) search. The UI uses it to
+     * tell "results being viewed" apart from "text being typed" and to reset scroll position only
+     * when the committed query changes — not while the user is still editing the field.
+     */
+    val committedQuery: StateFlow<String?> = _committedSearch
+        .map { it?.first }
+        .stateIn(viewModelScope, SharingStarted.Eagerly, null)
 
     private var lastSearchedQuery: String? = null
     private var lastSearchedFilter: SearchFilter? = null
@@ -213,7 +228,7 @@ class SearchViewModel(
         // skips the cache. Debounced typing is happy to reuse a recent identical search.
         val cached = if (isExplicit) null else resultCache.get(requestKey)
         if (cached != null) {
-            committedSearch = query to filter
+            _committedSearch.value = query to filter
             _uiState.value = SearchUiState.Content(
                 items = cached.items,
                 nextPageToken = cached.nextPageToken,
@@ -228,7 +243,7 @@ class SearchViewModel(
         // screen falls back to Loading.
         val visible = _uiState.value as? SearchUiState.Content
         _uiState.value = if (visible != null && visible.items.isNotEmpty()) {
-            visible.copy(isSearching = true, isLoadingNextPage = false)
+            visible.copy(isSearching = true, isLoadingNextPage = false, paginationError = null)
         } else {
             SearchUiState.Loading
         }
@@ -246,7 +261,7 @@ class SearchViewModel(
             if (generation == currentGeneration && activeRequestKey == requestKey) {
                 when (result) {
                     is AppResult.Success -> {
-                        committedSearch = query to filter
+                        _committedSearch.value = query to filter
                         val page = result.value
                         if (page.items.isEmpty()) {
                             resultCache.remove(requestKey)
@@ -290,14 +305,14 @@ class SearchViewModel(
         if (currentState !is SearchUiState.Content) return
         val nextToken = currentState.nextPageToken ?: return
         if (currentState.isLoadingNextPage || currentState.isSearching) return
-        val (currentQuery, currentFilter) = committedSearch ?: return
+        val (currentQuery, currentFilter) = _committedSearch.value ?: return
 
         if (!paginationMutex.tryLock()) return
 
         val generation = currentGeneration
         val requestKey = activeRequestKey
 
-        _uiState.value = currentState.copy(isLoadingNextPage = true)
+        _uiState.value = currentState.copy(isLoadingNextPage = true, paginationError = null)
 
         activePaginationJob = viewModelScope.launch {
             try {
@@ -330,8 +345,12 @@ class SearchViewModel(
                                 )
                             }
                             is AppResult.Failure -> {
-                                // Keep current items, reset in-flight state
-                                _uiState.value = latestState.copy(isLoadingNextPage = false)
+                                // Keep loaded pages; the failed append becomes a retryable footer
+                                // error instead of dropping to a full-screen error.
+                                _uiState.value = latestState.copy(
+                                    isLoadingNextPage = false,
+                                    paginationError = result.error
+                                )
                             }
                         }
                     }
@@ -348,7 +367,7 @@ class SearchViewModel(
         activePaginationJob = null
         _uiState.update { state ->
             if (state is SearchUiState.Content) {
-                state.copy(isSearching = false, isLoadingNextPage = false)
+                state.copy(isSearching = false, isLoadingNextPage = false, paginationError = null)
             } else state
         }
     }

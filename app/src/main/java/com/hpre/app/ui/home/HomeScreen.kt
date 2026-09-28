@@ -39,6 +39,7 @@ import com.hpre.app.ui.common.DelayedLinearLoadingIndicator
 import com.hpre.app.ui.common.DelayedLoadingPane
 import com.hpre.app.ui.common.EmptyPane
 import com.hpre.app.ui.common.ErrorPane
+import com.hpre.app.ui.common.InlineErrorPane
 import com.hpre.app.ui.common.VideoCard
 import com.hpre.app.ui.common.videoListItemKey
 
@@ -88,6 +89,7 @@ internal fun HomeScreen(
     onVideoClick: (ContentKey) -> Unit,
     modifier: Modifier = Modifier,
     onVideoSelected: ((VideoSummary) -> Unit)? = null,
+    onChannelClick: ((ContentKey) -> Unit)? = null,
     onContentIdle: () -> Unit = {},
     idleQueueRegistry: IdleQueueRegistry = IdleQueueRegistry.Default
 ) {
@@ -160,26 +162,50 @@ internal fun HomeScreen(
                     ) {
                         items(
                             items = state.content.videos,
-                            key = { videoListItemKey(it.key) }
+                            key = { videoListItemKey(it.key) },
+                            contentType = { "video" }
                         ) { video ->
                             VideoCard(
                                 video = video,
-                                onClick = { if (onVideoSelected != null) onVideoSelected(video) else onVideoClick(it) }
+                                onClick = { if (onVideoSelected != null) onVideoSelected(video) else onVideoClick(it) },
+                                onChannelClick = onChannelClick
                             )
                         }
                     }
 
-                    // Switching chips keeps the previous list on screen; this thin bar is the only
-                    // signal that new content is on the way, instead of blanking the feed.
+                    // Switching chips keeps the previous list on screen; a thin bar plus a label
+                    // naming the selected chip is the only signal that new content is on the way,
+                    // instead of blanking the feed.
                     if (state.content.isLoadingSelection) {
-                        DelayedLinearLoadingIndicator(
-                            testTag = "home_selection_loading",
+                        Column(
                             modifier = Modifier.fillMaxWidth().align(Alignment.TopCenter)
-                        )
+                        ) {
+                            DelayedLinearLoadingIndicator(
+                                testTag = "home_selection_loading",
+                                modifier = Modifier.fillMaxWidth()
+                            )
+                            val loadingLabel = chipsState.chips
+                                .getOrNull(chipsState.selectedIndex)?.label
+                            if (loadingLabel != null) {
+                                Text(
+                                    text = stringResource(R.string.home_loading_chip, loadingLabel),
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    modifier = Modifier
+                                        .align(Alignment.CenterHorizontally)
+                                        .padding(top = 4.dp)
+                                        .testTag("home_selection_loading_label")
+                                )
+                            }
+                        }
                     }
                     state.content.refreshError?.let { error ->
-                        ErrorPane(error = error, onRetry = { viewModel.refresh() },
-                            modifier = Modifier.fillMaxWidth().align(Alignment.TopCenter))
+                        InlineErrorPane(
+                            error = error,
+                            onRetry = { viewModel.refresh() },
+                            testTag = "home_refresh_error",
+                            modifier = Modifier.fillMaxWidth().align(Alignment.TopCenter)
+                        )
                     }
                 }
             }

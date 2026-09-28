@@ -13,6 +13,8 @@ object HPreSpacing {
 object HPreShapes {
     val Badge = 4.dp
     val Card = 12.dp
+    val Group = 16.dp
+    val Sheet = 24.dp
 }
 
 val MinimumTouchTarget = 48.dp
