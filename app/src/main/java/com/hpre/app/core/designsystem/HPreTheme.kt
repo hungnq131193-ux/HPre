@@ -1,11 +1,14 @@
 package com.hpre.app.core.designsystem
 
 import androidx.compose.foundation.isSystemInDarkTheme
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Shapes
 import androidx.compose.material3.darkColorScheme
 import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.unit.dp
 
 internal val DarkColorScheme = darkColorScheme(
     primary = HPreDarkPrimary,
@@ -16,10 +19,10 @@ internal val DarkColorScheme = darkColorScheme(
     onSecondary = HPreDarkOnSecondary,
     secondaryContainer = HPreDarkSecondaryContainer,
     onSecondaryContainer = HPreDarkOnSecondaryContainer,
-    tertiary = HPreDarkSecondary,
-    onTertiary = HPreDarkOnSecondary,
-    tertiaryContainer = HPreDarkSecondaryContainer,
-    onTertiaryContainer = HPreDarkOnSecondaryContainer,
+    tertiary = HPreDarkTertiary,
+    onTertiary = HPreDarkOnTertiary,
+    tertiaryContainer = HPreDarkTertiaryContainer,
+    onTertiaryContainer = HPreDarkOnTertiaryContainer,
     background = HPreDarkBackground,
     onBackground = HPreDarkOnSurface,
     surface = HPreDarkBackground,
@@ -55,10 +58,10 @@ internal val LightColorScheme = lightColorScheme(
     onSecondary = HPreLightOnSecondary,
     secondaryContainer = HPreLightSecondaryContainer,
     onSecondaryContainer = HPreLightOnSecondaryContainer,
-    tertiary = HPreLightSecondary,
-    onTertiary = HPreLightOnSecondary,
-    tertiaryContainer = HPreLightSecondaryContainer,
-    onTertiaryContainer = HPreLightOnSecondaryContainer,
+    tertiary = HPreLightTertiary,
+    onTertiary = HPreLightOnTertiary,
+    tertiaryContainer = HPreLightTertiaryContainer,
+    onTertiaryContainer = HPreLightOnTertiaryContainer,
     background = HPreLightBackground,
     onBackground = HPreLightOnSurface,
     surface = HPreLightSurface,
@@ -85,6 +88,14 @@ internal val LightColorScheme = lightColorScheme(
     scrim = Color.Black
 )
 
+internal val HPreMaterialShapes = Shapes(
+    extraSmall = RoundedCornerShape(8.dp),
+    small = RoundedCornerShape(12.dp),
+    medium = RoundedCornerShape(HPreShapes.Card),
+    large = RoundedCornerShape(HPreShapes.Sheet),
+    extraLarge = RoundedCornerShape(28.dp)
+)
+
 @Composable
 fun HPreTheme(
     darkTheme: Boolean = isSystemInDarkTheme(),
@@ -95,6 +106,7 @@ fun HPreTheme(
     MaterialTheme(
         colorScheme = colorScheme,
         typography = Typography,
+        shapes = HPreMaterialShapes,
         content = content
     )
 }

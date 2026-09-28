@@ -1,0 +1,29 @@
+# Ahead-of-time compile the app and the hot third-party paths it drives on every launch,
+# scroll and video open. Library-shipped profiles (Compose, AndroidX) are merged by AGP.
+HSPLcom/hpre/app/**->**(**)**
+Lcom/hpre/app/**;
+
+HSPLorg/schabi/newpipe/extractor/**->**(**)**
+Lorg/schabi/newpipe/extractor/**;
+HSPLcom/grack/nanojson/**->**(**)**
+Lcom/grack/nanojson/**;
+HSPLorg/jsoup/**->**(**)**
+Lorg/jsoup/**;
+
+HSPLokhttp3/**->**(**)**
+Lokhttp3/**;
+HSPLokio/**->**(**)**
+Lokio/**;
+HSPLcom/squareup/moshi/**->**(**)**
+Lcom/squareup/moshi/**;
+HSPLcoil/**->**(**)**
+Lcoil/**;
+
+HSPLandroidx/media3/common/**->**(**)**
+Landroidx/media3/common/**;
+HSPLandroidx/media3/exoplayer/**->**(**)**
+Landroidx/media3/exoplayer/**;
+HSPLandroidx/media3/datasource/**->**(**)**
+Landroidx/media3/datasource/**;
+HSPLandroidx/media3/session/**->**(**)**
+Landroidx/media3/session/**;

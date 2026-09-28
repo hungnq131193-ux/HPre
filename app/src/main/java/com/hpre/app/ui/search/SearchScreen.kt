@@ -33,16 +33,15 @@ import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextFieldDefaults
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -82,6 +81,7 @@ import com.hpre.app.model.SearchResultItem
 import com.hpre.app.model.VideoSummary
 import com.hpre.app.ui.common.EmptyPane
 import com.hpre.app.ui.common.ErrorPane
+import com.hpre.app.ui.common.HPreChip
 import com.hpre.app.ui.common.InlineErrorPane
 import com.hpre.app.ui.common.DelayedLinearLoadingIndicator
 import com.hpre.app.ui.common.DelayedLoadingPane
@@ -177,14 +177,23 @@ fun SearchScreen(
                             }
                         }
                     },
-                    colors = TextFieldDefaults.colors(
-                        focusedContainerColor = Color.Transparent,
-                        unfocusedContainerColor = Color.Transparent,
-                        focusedIndicatorColor = Color.Transparent,
-                        unfocusedIndicatorColor = Color.Transparent
+                    leadingIcon = {
+                        Icon(
+                            imageVector = Icons.Default.Search,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    },
+                    shape = CircleShape,
+                    colors = OutlinedTextFieldDefaults.colors(
+                        focusedContainerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
+                        unfocusedContainerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
+                        focusedBorderColor = MaterialTheme.colorScheme.primary,
+                        unfocusedBorderColor = Color.Transparent
                     ),
                     modifier = Modifier
                         .fillMaxWidth()
+                        .padding(end = 12.dp)
                         .focusRequester(focusRequester)
                         .testTag("search_text_input")
                 )
@@ -211,21 +220,17 @@ fun SearchScreen(
                 .padding(bottom = 8.dp)
         ) {
             items(SearchFilter.values(), key = { it.name }) { itemFilter ->
-                FilterChip(
+                HPreChip(
+                    label = stringResource(
+                        when (itemFilter) {
+                            SearchFilter.ALL -> R.string.search_filter_all
+                            SearchFilter.VIDEOS -> R.string.search_filter_videos
+                            SearchFilter.CHANNELS -> R.string.search_filter_channels
+                            SearchFilter.PLAYLISTS -> R.string.search_filter_playlists
+                        }
+                    ),
                     selected = (filter == itemFilter),
                     onClick = { viewModel.onFilterChanged(itemFilter) },
-                    label = {
-                        Text(
-                            text = stringResource(
-                                when (itemFilter) {
-                                    SearchFilter.ALL -> R.string.search_filter_all
-                                    SearchFilter.VIDEOS -> R.string.search_filter_videos
-                                    SearchFilter.CHANNELS -> R.string.search_filter_channels
-                                    SearchFilter.PLAYLISTS -> R.string.search_filter_playlists
-                                }
-                            )
-                        )
-                    },
                     modifier = Modifier.testTag("search_filter_${itemFilter.name}")
                 )
             }

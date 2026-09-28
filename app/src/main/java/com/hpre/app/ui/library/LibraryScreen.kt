@@ -36,7 +36,6 @@ import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -66,6 +65,9 @@ import coil.compose.AsyncImage
 import com.hpre.app.core.error.AppError
 import com.hpre.app.model.ContentKey
 import com.hpre.app.R
+import com.hpre.app.core.designsystem.HPreBrandBrush
+import com.hpre.app.core.designsystem.HPreGradientTile
+import com.hpre.app.core.designsystem.HPreShapes
 import com.hpre.app.model.VideoSummary
 import com.hpre.app.ui.common.appErrorMessage
 import com.hpre.app.repository.HistoryRepository
@@ -139,7 +141,6 @@ fun LibraryScreen(
         }
 
         Spacer(modifier = Modifier.height(16.dp))
-        HorizontalDivider()
 
         // Section: Playlists Header
         Row(
@@ -155,16 +156,11 @@ fun LibraryScreen(
             ) {
                 Text(
                     text = stringResource(R.string.screen_playlists),
-                    style = MaterialTheme.typography.titleMedium,
-                    fontWeight = FontWeight.Bold
+                    style = MaterialTheme.typography.titleLarge
                 )
                 if (playlistsList.isNotEmpty()) {
-                    Spacer(modifier = Modifier.width(6.dp))
-                    Text(
-                        text = "(${playlistsList.size})",
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
+                    Spacer(modifier = Modifier.width(8.dp))
+                    CountPill(playlistsList.size)
                 }
             }
             Row {
@@ -205,7 +201,6 @@ fun LibraryScreen(
         }
 
         Spacer(modifier = Modifier.height(16.dp))
-        HorizontalDivider()
 
         // Section: Subscriptions Header
         LibrarySectionHeader(
@@ -280,17 +275,12 @@ private fun LibrarySectionHeader(
         ) {
             Text(
                 text = title,
-                style = MaterialTheme.typography.titleMedium,
-                fontWeight = FontWeight.Bold,
+                style = MaterialTheme.typography.titleLarge,
                 modifier = Modifier.testTag(tag)
             )
             if (count > 0) {
-                Spacer(modifier = Modifier.width(6.dp))
-                Text(
-                    text = "($count)",
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
+                Spacer(modifier = Modifier.width(8.dp))
+                CountPill(count)
             }
         }
         TextButton(
@@ -303,6 +293,19 @@ private fun LibrarySectionHeader(
 }
 
 @Composable
+private fun CountPill(count: Int) {
+    Text(
+        text = count.toString(),
+        style = MaterialTheme.typography.labelMedium,
+        fontWeight = FontWeight.Bold,
+        color = MaterialTheme.colorScheme.onPrimaryContainer,
+        modifier = Modifier
+            .background(MaterialTheme.colorScheme.primaryContainer, CircleShape)
+            .padding(horizontal = 8.dp, vertical = 2.dp)
+    )
+}
+
+@Composable
 private fun RecentHistoryCard(
     item: WatchHistoryItem,
     onClick: () -> Unit
@@ -312,8 +315,8 @@ private fun RecentHistoryCard(
             .width(160.dp)
             .clickable(onClick = onClick)
             .testTag("recent_history_card_${item.key.nativeId}"),
-        shape = RoundedCornerShape(8.dp),
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f))
+        shape = RoundedCornerShape(HPreShapes.Card),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainer)
     ) {
         Column {
             Box(
@@ -333,13 +336,13 @@ private fun RecentHistoryCard(
                 if (item.playbackPositionMs > 0 && HistoryRepository.shouldOfferResume(item.playbackPositionMs, item.durationSeconds)) {
                     val durationMs = (item.durationSeconds ?: 0L) * 1000L
                     val progress = if (durationMs > 0) (item.playbackPositionMs.toFloat() / durationMs.toFloat()).coerceIn(0f, 1f) else 0f
-                    Surface(
-                        color = MaterialTheme.colorScheme.primary,
+                    Box(
                         modifier = Modifier
                             .fillMaxWidth(progress)
-                            .height(3.dp)
+                            .height(4.dp)
                             .align(Alignment.BottomStart)
-                    ) {}
+                            .background(HPreBrandBrush)
+                    )
                 }
             }
             Column(modifier = Modifier.padding(8.dp)) {
@@ -378,19 +381,7 @@ private fun PlaylistItemRow(
             .testTag("playlist_item_${playlist.playlistId}"),
         verticalAlignment = Alignment.CenterVertically
     ) {
-        Surface(
-            modifier = Modifier.size(48.dp),
-            shape = RoundedCornerShape(8.dp),
-            color = MaterialTheme.colorScheme.primaryContainer
-        ) {
-            Box(contentAlignment = Alignment.Center) {
-                Icon(
-                    imageVector = Icons.AutoMirrored.Filled.PlaylistPlay,
-                    contentDescription = null,
-                    tint = MaterialTheme.colorScheme.onPrimaryContainer
-                )
-            }
-        }
+        HPreGradientTile(icon = Icons.AutoMirrored.Filled.PlaylistPlay)
         Spacer(modifier = Modifier.width(16.dp))
         Column(modifier = Modifier.weight(1f)) {
             Text(

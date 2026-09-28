@@ -21,7 +21,9 @@ import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Icon
+import androidx.compose.material3.FilledIconButton
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.IconButtonDefaults
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -76,12 +78,13 @@ fun MiniPlayer(
     }
 
     Card(
-        shape = RoundedCornerShape(topStart = HPreShapes.Card, topEnd = HPreShapes.Card),
+        shape = RoundedCornerShape(HPreShapes.Card),
         colors = CardDefaults.cardColors(
             containerColor = MaterialTheme.colorScheme.surfaceContainerHigh
         ),
-        elevation = CardDefaults.cardElevation(defaultElevation = 8.dp),
+        elevation = CardDefaults.cardElevation(defaultElevation = 6.dp),
         modifier = modifier
+            .padding(horizontal = HPreSpacing.Small, vertical = HPreSpacing.Compact + 2.dp)
             .fillMaxWidth()
             .testTag("mini_player_container")
             .clickable {
@@ -108,8 +111,8 @@ fun MiniPlayer(
                     modifier = Modifier
                         .height(54.dp)
                         .aspectRatio(16f / 9f)
-                        .clip(RoundedCornerShape(4.dp))
-                        .background(MaterialTheme.colorScheme.secondaryContainer)
+                        .clip(RoundedCornerShape(HPreShapes.Thumbnail))
+                        .background(Color.Black)
                         .testTag("mini_player_thumbnail"),
                     contentAlignment = Alignment.Center
                 ) {
@@ -144,14 +147,22 @@ fun MiniPlayer(
                                 else -> R.string.status_paused
                             }
                         ),
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        style = MaterialTheme.typography.labelMedium,
+                        color = if (state.isPlaying) {
+                            MaterialTheme.colorScheme.primary
+                        } else {
+                            MaterialTheme.colorScheme.onSurfaceVariant
+                        },
                         modifier = Modifier.testTag("mini_player_status")
                     )
                 }
 
-                IconButton(
+                FilledIconButton(
                     onClick = { playerController.playPause() },
+                    colors = IconButtonDefaults.filledIconButtonColors(
+                        containerColor = MaterialTheme.colorScheme.primary,
+                        contentColor = MaterialTheme.colorScheme.onPrimary
+                    ),
                     modifier = Modifier
                         .size(MinimumTouchTarget)
                         .testTag("mini_player_play_pause_button")
@@ -160,8 +171,7 @@ fun MiniPlayer(
                         imageVector = if (state.isPlaying) Icons.Default.Pause else Icons.Default.PlayArrow,
                         contentDescription = stringResource(
                             if (state.isPlaying) R.string.action_pause else R.string.action_play
-                        ),
-                        tint = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
                     )
                 }
 

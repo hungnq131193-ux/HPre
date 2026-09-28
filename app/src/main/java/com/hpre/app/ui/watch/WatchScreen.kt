@@ -40,9 +40,11 @@ import androidx.compose.material.icons.filled.ThumbUp
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.AssistChip
 import androidx.compose.material3.AssistChipDefaults
+import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DividerDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -89,6 +91,7 @@ import androidx.core.view.WindowInsetsControllerCompat
 import androidx.lifecycle.SavedStateHandle
 import coil.compose.AsyncImage
 import com.hpre.app.R
+import com.hpre.app.core.designsystem.HPreShapes
 import com.hpre.app.model.ContentKey
 import com.hpre.app.model.VideoDetails
 import com.hpre.app.model.VideoSummary
@@ -662,8 +665,8 @@ fun WatchMetadataContent(
         // Channel card: avatar + name + subscribers, with the Follow action on the same row.
         item(key = WATCH_KEY_CHANNEL_CARD) {
             Surface(
-                color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
-                shape = RoundedCornerShape(12.dp),
+                color = MaterialTheme.colorScheme.surfaceContainer,
+                shape = RoundedCornerShape(HPreShapes.Card),
                 modifier = Modifier.fillMaxWidth().testTag("watch_channel_card")
             ) {
                 Row(
@@ -689,10 +692,10 @@ fun WatchMetadataContent(
                                 contentDescription = stringResource(R.string.watch_channel_avatar),
                                 contentScale = ContentScale.Crop,
                                 modifier = Modifier
-                                    .size(36.dp)
+                                    .size(40.dp)
                                     .clip(CircleShape)
                             )
-                            Spacer(modifier = Modifier.width(10.dp))
+                            Spacer(modifier = Modifier.width(12.dp))
                         }
 
                         Column {
@@ -715,17 +718,20 @@ fun WatchMetadataContent(
                     }
                     if (details.channelKey != null) {
                         Spacer(modifier = Modifier.width(8.dp))
-                        AssistChip(
-                            onClick = onToggleSubscription,
-                            label = {
-                                Text(
-                                    stringResource(
-                                        if (isSubscribed) R.string.watch_following else R.string.watch_follow
-                                    )
-                                )
-                            },
-                            modifier = Modifier.testTag("watch_follow_button")
+                        val followLabel = stringResource(
+                            if (isSubscribed) R.string.watch_following else R.string.watch_follow
                         )
+                        if (isSubscribed) {
+                            FilledTonalButton(
+                                onClick = onToggleSubscription,
+                                modifier = Modifier.testTag("watch_follow_button")
+                            ) { Text(followLabel) }
+                        } else {
+                            Button(
+                                onClick = onToggleSubscription,
+                                modifier = Modifier.testTag("watch_follow_button")
+                            ) { Text(followLabel) }
+                        }
                     }
                 }
             }
@@ -745,6 +751,11 @@ fun WatchMetadataContent(
                     onClick = { showPlaylistSheet = true },
                     label = { Text(stringResource(R.string.watch_save)) },
                     leadingIcon = { Icon(Icons.Default.BookmarkBorder, contentDescription = null) },
+                    shape = CircleShape,
+                    border = null,
+                    colors = AssistChipDefaults.assistChipColors(
+                        containerColor = MaterialTheme.colorScheme.surfaceContainerHigh
+                    ),
                     modifier = Modifier.testTag("watch_add_playlist_button")
                 )
                 if (ShareUrlValidator.isValid(details.canonicalUrl)) {
@@ -752,6 +763,11 @@ fun WatchMetadataContent(
                         onClick = { shareLauncher.launchShare(details.title, details.canonicalUrl) },
                         label = { Text(stringResource(R.string.watch_share)) },
                         leadingIcon = { Icon(Icons.Default.Share, contentDescription = null) },
+                        shape = CircleShape,
+                        border = null,
+                        colors = AssistChipDefaults.assistChipColors(
+                            containerColor = MaterialTheme.colorScheme.surfaceContainerHigh
+                        ),
                         modifier = Modifier.testTag("watch_share_button")
                     )
                 }
@@ -810,8 +826,8 @@ fun WatchMetadataContent(
         item(key = WATCH_KEY_COMMENTS_HEADER) {
             Surface(
                 onClick = { onCommentsExpandedChange(true) },
-                color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
-                shape = RoundedCornerShape(12.dp),
+                color = MaterialTheme.colorScheme.surfaceContainer,
+                shape = RoundedCornerShape(HPreShapes.Card),
                 modifier = Modifier.fillMaxWidth().testTag("comments_section")
             ) {
                 Row(

@@ -28,6 +28,8 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Shape
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.graphics.vector.rememberVectorPainter
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalDensity
@@ -86,7 +88,7 @@ private fun LargeVideoCard(
             .fillMaxWidth()
             .clickable { onClick(video.key) }
             .testTag("video_card_${video.key.nativeId}")
-            .padding(bottom = HPreSpacing.Large)
+            .padding(top = HPreSpacing.Compact, bottom = HPreSpacing.Section - HPreSpacing.Compact)
     ) {
         VideoThumbnail(
             video = video,
@@ -97,7 +99,7 @@ private fun LargeVideoCard(
                 .aspectRatio(16f / 9f)
         )
 
-        Spacer(modifier = Modifier.height(HPreSpacing.Small))
+        Spacer(modifier = Modifier.height(HPreSpacing.Medium))
 
         Row(
             modifier = Modifier
@@ -156,9 +158,10 @@ private fun CompactVideoCard(
         VideoThumbnail(
             video = video,
             onClick = onClick,
+            shape = RoundedCornerShape(HPreShapes.Thumbnail),
             modifier = Modifier
-                .width(128.dp)
-                .height(72.dp)
+                .width(144.dp)
+                .height(81.dp)
         )
 
         Column(
@@ -182,13 +185,14 @@ private fun CompactVideoCard(
 private fun VideoThumbnail(
     video: VideoSummary,
     onClick: (ContentKey) -> Unit,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    shape: Shape = RoundedCornerShape(HPreShapes.Card)
 ) {
     val fallbackPainter = rememberVectorPainter(Icons.Default.PlayArrow)
     val playLabel = stringResource(R.string.action_play)
     Box(
         modifier = modifier
-            .clip(RoundedCornerShape(HPreShapes.Card))
+            .clip(shape)
             .background(MaterialTheme.colorScheme.surfaceContainerHighest)
             .clickable { onClick(video.key) }
             .semantics { contentDescription = playLabel }
@@ -225,11 +229,12 @@ private fun VideoThumbnail(
                 text = stringResource(R.string.video_live),
                 background = HPreLiveBadge,
                 contentColor = HPreOnLiveBadge,
+                showDot = true,
                 modifier = Modifier.align(Alignment.BottomEnd).padding(HPreSpacing.Small)
             )
             durationText.isNotEmpty() -> VideoBadge(
                 text = durationText,
-                background = Color.Black.copy(alpha = 0.8f),
+                background = Color.Black.copy(alpha = 0.75f),
                 contentColor = Color.White,
                 modifier = Modifier.align(Alignment.BottomEnd).padding(HPreSpacing.Small)
             )
@@ -308,16 +313,27 @@ private fun VideoBadge(
     text: String,
     background: Color,
     contentColor: Color,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    showDot: Boolean = false
 ) {
-    Box(
+    Row(
         modifier = modifier
             .background(background, RoundedCornerShape(HPreShapes.Badge))
-            .padding(horizontal = 6.dp, vertical = 2.dp)
+            .padding(horizontal = 6.dp, vertical = 2.dp),
+        verticalAlignment = Alignment.CenterVertically
     ) {
+        if (showDot) {
+            Box(
+                modifier = Modifier
+                    .size(6.dp)
+                    .background(contentColor, CircleShape)
+            )
+            Spacer(modifier = Modifier.width(HPreSpacing.Compact))
+        }
         Text(
             text = text,
             style = MaterialTheme.typography.labelSmall,
+            fontWeight = FontWeight.SemiBold,
             color = contentColor
         )
     }

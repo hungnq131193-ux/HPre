@@ -14,9 +14,6 @@ import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
-import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material3.FilterChip
-import androidx.compose.material3.FilterChipDefaults
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -39,6 +36,7 @@ import com.hpre.app.ui.common.DelayedLinearLoadingIndicator
 import com.hpre.app.ui.common.DelayedLoadingPane
 import com.hpre.app.ui.common.EmptyPane
 import com.hpre.app.ui.common.ErrorPane
+import com.hpre.app.ui.common.HPreChip
 import com.hpre.app.ui.common.InlineErrorPane
 import com.hpre.app.ui.common.VideoCard
 import com.hpre.app.ui.common.videoListItemKey
@@ -99,25 +97,19 @@ internal fun HomeScreen(
 
     Column(modifier = modifier.fillMaxSize().testTag("home_screen")) {
         LazyRow(
-            contentPadding = PaddingValues(horizontal = 12.dp),
+            contentPadding = PaddingValues(horizontal = 16.dp),
             horizontalArrangement = Arrangement.spacedBy(8.dp),
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(vertical = 8.dp)
+                .padding(bottom = 8.dp)
                 .testTag("home_filter_chips")
         ) {
             itemsIndexed(chipsState.chips) { index, chip ->
-                FilterChip(
+                HPreChip(
+                    label = chip.label,
                     selected = index == chipsState.selectedIndex,
                     onClick = { viewModel.selectChip(index) },
-                    label = { Text(chip.label) },
-                    shape = RoundedCornerShape(8.dp),
-                    modifier = Modifier.testTag("home_filter_chip_$index"),
-                    colors = FilterChipDefaults.filterChipColors(
-                        containerColor = MaterialTheme.colorScheme.surfaceContainer,
-                        selectedContainerColor = MaterialTheme.colorScheme.onSurface,
-                        selectedLabelColor = MaterialTheme.colorScheme.surface
-                    )
+                    modifier = Modifier.testTag("home_filter_chip_$index")
                 )
             }
         }

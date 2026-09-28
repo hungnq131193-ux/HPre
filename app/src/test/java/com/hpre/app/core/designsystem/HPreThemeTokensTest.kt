@@ -11,7 +11,7 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 /**
- * Locks the visual tokens approved in the UI/UX upgrade plan (section 2.3).
+ * Locks the HPre visual tokens (midnight / sunset palette).
  * Color roles must match the spec exactly and text roles must keep WCAG 4.5:1
  * contrast against their background role.
  */
@@ -36,35 +36,35 @@ class HPreThemeTokensTest {
     @Test
     fun dark_scheme_uses_approved_palette() {
         val scheme = DarkColorScheme
-        assertEquals(Color(0xFF101114), scheme.background)
-        assertEquals(Color(0xFF101114), scheme.surface)
-        assertEquals(Color(0xFF17191D), scheme.surfaceContainerLow)
-        assertEquals(Color(0xFF1E2025), scheme.surfaceContainer)
-        assertEquals(Color(0xFF25282E), scheme.surfaceContainerHigh)
-        assertEquals(Color(0xFF2D3038), scheme.surfaceContainerHighest)
-        assertEquals(Color(0xFFF4F4F5), scheme.onSurface)
-        assertEquals(Color(0xFFB4B6BF), scheme.onSurfaceVariant)
-        assertEquals(Color(0xFFFFB4AB), scheme.primary)
-        assertEquals(Color(0xFF690005), scheme.onPrimary)
-        assertEquals(Color(0xFF8C1D18), scheme.primaryContainer)
-        assertEquals(Color(0xFFFFDAD6), scheme.onPrimaryContainer)
+        assertEquals(Color(0xFF0D0E17), scheme.background)
+        assertEquals(Color(0xFF0D0E17), scheme.surface)
+        assertEquals(Color(0xFF14151F), scheme.surfaceContainerLow)
+        assertEquals(Color(0xFF1A1C28), scheme.surfaceContainer)
+        assertEquals(Color(0xFF222433), scheme.surfaceContainerHigh)
+        assertEquals(Color(0xFF2A2D3E), scheme.surfaceContainerHighest)
+        assertEquals(Color(0xFFF3F3F8), scheme.onSurface)
+        assertEquals(Color(0xFFAEB1C6), scheme.onSurfaceVariant)
+        assertEquals(Color(0xFFFF8A80), scheme.primary)
+        assertEquals(Color(0xFF3F0008), scheme.onPrimary)
+        assertEquals(Color(0xFF5E1726), scheme.primaryContainer)
+        assertEquals(Color(0xFFFFDADE), scheme.onPrimaryContainer)
     }
 
     @Test
     fun light_scheme_uses_approved_palette() {
         val scheme = LightColorScheme
-        assertEquals(Color(0xFFFAFAFC), scheme.background)
+        assertEquals(Color(0xFFFAF8FB), scheme.background)
         assertEquals(Color(0xFFFFFFFF), scheme.surface)
-        assertEquals(Color(0xFFF5F5F8), scheme.surfaceContainerLow)
-        assertEquals(Color(0xFFEEEEF3), scheme.surfaceContainer)
-        assertEquals(Color(0xFFE8E8EE), scheme.surfaceContainerHigh)
-        assertEquals(Color(0xFFE1E1E8), scheme.surfaceContainerHighest)
-        assertEquals(Color(0xFF18191D), scheme.onSurface)
-        assertEquals(Color(0xFF5F626D), scheme.onSurfaceVariant)
-        assertEquals(Color(0xFFB32624), scheme.primary)
+        assertEquals(Color(0xFFF6F3F8), scheme.surfaceContainerLow)
+        assertEquals(Color(0xFFF0ECF3), scheme.surfaceContainer)
+        assertEquals(Color(0xFFEAE5EE), scheme.surfaceContainerHigh)
+        assertEquals(Color(0xFFE3DEE9), scheme.surfaceContainerHighest)
+        assertEquals(Color(0xFF1B1A22), scheme.onSurface)
+        assertEquals(Color(0xFF585566), scheme.onSurfaceVariant)
+        assertEquals(Color(0xFFC62838), scheme.primary)
         assertEquals(Color(0xFFFFFFFF), scheme.onPrimary)
-        assertEquals(Color(0xFFFFDAD6), scheme.primaryContainer)
-        assertEquals(Color(0xFF410002), scheme.onPrimaryContainer)
+        assertEquals(Color(0xFFFFE0E2), scheme.primaryContainer)
+        assertEquals(Color(0xFF40000C), scheme.onPrimaryContainer)
     }
 
     @Test
@@ -78,6 +78,13 @@ class HPreThemeTokensTest {
                     (scheme.onPrimaryContainer to scheme.primaryContainer),
                 "onSecondaryContainer/secondaryContainer" to
                     (scheme.onSecondaryContainer to scheme.secondaryContainer),
+                "onTertiaryContainer/tertiaryContainer" to
+                    (scheme.onTertiaryContainer to scheme.tertiaryContainer),
+                "onSurface/surfaceContainerHigh" to
+                    (scheme.onSurface to scheme.surfaceContainerHigh),
+                "onSurfaceVariant/surfaceContainerHigh" to
+                    (scheme.onSurfaceVariant to scheme.surfaceContainerHigh),
+                "primary/surfaceContainerLow" to (scheme.primary to scheme.surfaceContainerLow),
                 "onError/error" to (scheme.onError to scheme.error),
                 "onErrorContainer/errorContainer" to
                     (scheme.onErrorContainer to scheme.errorContainer)
@@ -91,13 +98,13 @@ class HPreThemeTokensTest {
 
     @Test
     fun typography_uses_approved_scale() {
-        assertEquals(22.sp, Typography.headlineSmall.fontSize)
-        assertEquals(28.sp, Typography.headlineSmall.lineHeight)
-        assertEquals(FontWeight.SemiBold, Typography.headlineSmall.fontWeight)
+        assertEquals(24.sp, Typography.headlineSmall.fontSize)
+        assertEquals(30.sp, Typography.headlineSmall.lineHeight)
+        assertEquals(FontWeight.Bold, Typography.headlineSmall.fontWeight)
 
         assertEquals(16.sp, Typography.titleMedium.fontSize)
         assertEquals(22.sp, Typography.titleMedium.lineHeight)
-        assertEquals(FontWeight.Medium, Typography.titleMedium.fontWeight)
+        assertEquals(FontWeight.SemiBold, Typography.titleMedium.fontWeight)
 
         assertEquals(14.sp, Typography.bodyMedium.fontSize)
         assertEquals(20.sp, Typography.bodyMedium.lineHeight)
@@ -112,9 +119,10 @@ class HPreThemeTokensTest {
 
     @Test
     fun shape_and_spacing_tokens_cover_component_roles() {
-        assertEquals(12.dp, HPreShapes.Card)
-        assertEquals(16.dp, HPreShapes.Group)
-        assertEquals(24.dp, HPreShapes.Sheet)
+        assertEquals(10.dp, HPreShapes.Thumbnail)
+        assertEquals(16.dp, HPreShapes.Card)
+        assertEquals(20.dp, HPreShapes.Group)
+        assertEquals(28.dp, HPreShapes.Sheet)
         assertEquals(48.dp, MinimumTouchTarget)
         assertEquals(16.dp, HPreSpacing.Large)
         assertEquals(24.dp, HPreSpacing.Section)

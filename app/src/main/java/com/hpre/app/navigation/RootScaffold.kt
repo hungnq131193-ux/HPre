@@ -1,5 +1,6 @@
 package com.hpre.app.navigation
 
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -15,7 +16,6 @@ import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.statusBars
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Home
-import androidx.compose.material.icons.filled.PlayCircleOutline
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Subscriptions
@@ -29,6 +29,7 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
+import androidx.compose.material3.NavigationBarItemDefaults
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
@@ -40,7 +41,9 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
@@ -50,7 +53,10 @@ import androidx.navigation.NavGraph.Companion.findStartDestination
 import androidx.navigation.NavHostController
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
+import com.hpre.app.core.designsystem.HPreBrandMark
 import com.hpre.app.core.designsystem.HPreSpacing
+import com.hpre.app.core.designsystem.HPreWordmark
+import com.hpre.app.core.designsystem.hpreChromeBrush
 import com.hpre.app.di.AppContainer
 import com.hpre.app.R
 import com.hpre.app.player.SessionPlayerController
@@ -142,6 +148,8 @@ fun RootScaffold(
         )
     }
 
+    val chromeBrush = hpreChromeBrush()
+
     Scaffold(
         contentWindowInsets = WindowInsets(0, 0, 0, 0),
         topBar = {
@@ -150,18 +158,9 @@ fun RootScaffold(
                     title = {
                         if (currentRoute == Screen.Home.route) {
                             Row(verticalAlignment = Alignment.CenterVertically) {
-                                Icon(
-                                    imageVector = Icons.Default.PlayCircleOutline,
-                                    contentDescription = null,
-                                    tint = MaterialTheme.colorScheme.primary,
-                                    modifier = Modifier.size(24.dp)
-                                )
-                                Spacer(modifier = Modifier.width(HPreSpacing.Small))
-                                Text(
-                                    text = stringResource(R.string.app_name),
-                                    style = MaterialTheme.typography.titleLarge,
-                                    color = MaterialTheme.colorScheme.onSurface
-                                )
+                                HPreBrandMark(size = 28.dp)
+                                Spacer(modifier = Modifier.width(HPreSpacing.Small + 2.dp))
+                                HPreWordmark(text = stringResource(R.string.app_name))
                             }
                         } else {
                             Text(
@@ -198,10 +197,12 @@ fun RootScaffold(
                         }
                     },
                     colors = TopAppBarDefaults.topAppBarColors(
-                        containerColor = MaterialTheme.colorScheme.surface
+                        containerColor = Color.Transparent
                     ),
                     windowInsets = WindowInsets.statusBars,
-                    modifier = Modifier.testTag("root_top_bar")
+                    modifier = Modifier
+                        .background(chromeBrush)
+                        .testTag("root_top_bar")
                 )
             }
         },
@@ -234,6 +235,8 @@ fun RootScaffold(
 
                 if (isTopLevelDestination) {
                     NavigationBar(
+                        containerColor = MaterialTheme.colorScheme.surfaceContainerLow,
+                        tonalElevation = 0.dp,
                         windowInsets = WindowInsets.navigationBars,
                         modifier = Modifier.testTag("root_bottom_bar")
                     ) {
@@ -259,7 +262,19 @@ fun RootScaffold(
                                         contentDescription = title
                                     )
                                 },
-                                label = { Text(text = title) },
+                                label = {
+                                    Text(
+                                        text = title,
+                                        fontWeight = if (selected) FontWeight.Bold else FontWeight.Medium
+                                    )
+                                },
+                                colors = NavigationBarItemDefaults.colors(
+                                    selectedIconColor = MaterialTheme.colorScheme.onPrimary,
+                                    selectedTextColor = MaterialTheme.colorScheme.primary,
+                                    indicatorColor = MaterialTheme.colorScheme.primary,
+                                    unselectedIconColor = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    unselectedTextColor = MaterialTheme.colorScheme.onSurfaceVariant
+                                ),
                                 modifier = Modifier.testTag("bottom_nav_${item.route}")
                             )
                         }
