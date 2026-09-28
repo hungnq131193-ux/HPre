@@ -66,7 +66,7 @@ class WatchScreenTest {
     private val testKey = ContentKey(0, "watch_ui_test_video")
 
     @Test
-    fun comments_section_opens_sheet_and_long_comment_can_expand_and_collapse() {
+    fun comments_section_and_long_comment_can_expand_and_collapse() {
         var expanded by androidx.compose.runtime.mutableStateOf(false)
         val comment = com.hpre.app.model.Comment("fold", "A", null, null,
             (1..6).joinToString("\n") { "Comment line $it" }, null, null)
