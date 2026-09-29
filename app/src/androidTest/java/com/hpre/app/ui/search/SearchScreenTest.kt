@@ -22,6 +22,7 @@ import com.hpre.app.model.SearchResultItem
 import com.hpre.app.model.VideoSummary
 import com.hpre.app.repository.CatalogRepository
 import com.hpre.app.testing.FakeVideoService
+import kotlinx.coroutines.cancel
 import org.junit.Assert.assertEquals
 import org.junit.Rule
 import org.junit.Test
@@ -708,6 +709,40 @@ class SearchScreenTest {
                 .fetchSemanticsNodes().isNotEmpty()
         }
         composeTestRule.onNodeWithTag("suggestions_list").assertDoesNotExist()
+    }
+
+    @Test
+    fun raw_network_failure_shows_retry_and_recovers() {
+        var failSearch = true
+        val service = FakeVideoService(searchHandler = { _, _, _ ->
+            if (failSearch) throw java.net.SocketTimeoutException()
+            AppResult.Success(SearchPage(listOf(SearchResultItem.VideoItem(summary("recovered"))), null))
+        })
+        val scope = kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.SupervisorJob() + kotlinx.coroutines.Dispatchers.Main.immediate)
+        val model = SearchViewModel(CatalogRepository(service, scope), service)
+        val store = androidx.lifecycle.ViewModelStore().apply { put("search", model) }
+        try {
+            composeTestRule.setContent {
+                HPreTheme {
+                    SearchScreen(viewModel = model, onNavigateBack = {}, onVideoClick = {})
+                }
+            }
+            composeTestRule.runOnIdle { model.onQuerySubmitted("network") }
+            composeTestRule.waitUntil(5_000) { model.uiState.value is SearchUiState.Error }
+            val context = androidx.test.core.app.ApplicationProvider.getApplicationContext<android.content.Context>()
+            composeTestRule.onNodeWithText(context.getString(com.hpre.app.R.string.error_network)).assertIsDisplayed()
+            composeTestRule.onNodeWithTag("error_retry_button").assertIsDisplayed()
+            composeTestRule.runOnIdle { failSearch = false }
+            composeTestRule.onNodeWithTag("error_retry_button").performClick()
+            composeTestRule.waitUntil(5_000) { model.uiState.value is SearchUiState.Content }
+            composeTestRule.onNodeWithTag("video_card_recovered").assertIsDisplayed()
+            composeTestRule.onNodeWithTag("error_retry_button").assertDoesNotExist()
+            assertEquals("network", model.query.value)
+            assertEquals(2, service.searchCallCount)
+        } finally {
+            composeTestRule.runOnIdle { store.clear() }
+            scope.cancel()
+        }
     }
 }
 

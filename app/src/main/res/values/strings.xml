@@ -197,6 +197,6 @@
     <string name="error_login_required">Nội dung này yêu cầu đăng nhập, hiện chưa được hỗ trợ.</string>
     <string name="error_stream_expired">Luồng phát đã hết hạn.</string>
     <string name="error_unsupported_format">Định dạng này không được hỗ trợ.</string>
-    <string name="error_extraction_failed">Không thể tải nội dung từ nhà cung cấp.</string>
+    <string name="error_extraction_failed">Không đọc được dữ liệu video. Hãy thử lại; nếu vẫn lỗi, kiểm tra cập nhật HPre trong Cài đặt.</string>
     <string name="error_unknown">Đã xảy ra lỗi không mong muốn.</string>
 </resources>

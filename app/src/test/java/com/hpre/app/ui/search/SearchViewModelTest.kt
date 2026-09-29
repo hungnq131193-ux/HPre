@@ -33,6 +33,7 @@ import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
+import java.net.SocketTimeoutException
 
 @OptIn(ExperimentalCoroutinesApi::class)
 class SearchViewModelTest {
@@ -327,6 +328,58 @@ class SearchViewModelTest {
         val contentState = viewModel.uiState.value
         assertTrue(contentState is SearchUiState.Content)
         assertEquals(1, (contentState as SearchUiState.Content).items.size)
+    }
+
+    @Test
+    fun raw_search_timeout_exposes_network_error_and_retry_restores_results() = runTest(testDispatcher) {
+        var failSearch = true
+        val service = FakeVideoService(searchHandler = { _, _, _ ->
+            if (failSearch) throw SocketTimeoutException()
+            AppResult.Success(page("recovered"))
+        })
+        val model = SearchViewModel(CatalogRepository(service, this), service)
+        model.onQuerySubmitted("network")
+        advanceUntilIdle()
+        assertEquals(AppError.NetworkError, (model.uiState.value as SearchUiState.Error).error)
+        failSearch = false
+        model.retry()
+        advanceUntilIdle()
+        assertEquals(listOf(videoItem("recovered")), (model.uiState.value as SearchUiState.Content).items)
+        assertEquals("network", model.query.value)
+        assertEquals(2, service.searchCallCount)
+    }
+
+    @Test
+    fun raw_pagination_timeout_keeps_results_and_retries_the_same_page() = runTest(testDispatcher) {
+        var failNextPage = true
+        val tokens = mutableListOf<PageToken?>()
+        val nextToken = PageToken.Id("next")
+        val service = FakeVideoService(searchHandler = { _, _, token ->
+            tokens += token
+            if (token == null) AppResult.Success(page("first", nextToken = nextToken))
+            else {
+                if (failNextPage) throw SocketTimeoutException()
+                AppResult.Success(page("second"))
+            }
+        })
+        val model = SearchViewModel(CatalogRepository(service, this), service)
+        model.onQuerySubmitted("network")
+        advanceUntilIdle()
+        model.loadNextPage()
+        advanceUntilIdle()
+        val failed = model.uiState.value as SearchUiState.Content
+        assertEquals(listOf(videoItem("first")), failed.items)
+        assertEquals(AppError.NetworkError, failed.paginationError)
+        assertEquals(nextToken, failed.nextPageToken)
+        assertFalse(failed.isLoadingNextPage)
+        failNextPage = false
+        model.loadNextPage()
+        advanceUntilIdle()
+        val recovered = model.uiState.value as SearchUiState.Content
+        assertEquals(listOf(videoItem("first"), videoItem("second")), recovered.items)
+        assertEquals(null, recovered.paginationError)
+        assertEquals(null, recovered.nextPageToken)
+        assertEquals(listOf(null, nextToken, nextToken), tokens)
     }
 
     @Test

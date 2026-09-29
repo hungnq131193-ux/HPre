@@ -47,7 +47,7 @@ jobs:
           sudo udevadm control --reload-rules
           sudo udevadm trigger --name-match=kvm
 
-      - name: Smoke test collapsible comments and bounded Watch navigation
+      - name: Run deterministic reliability UI tests
         uses: reactivecircus/android-emulator-runner@1dcd0090116d15e7c562f8db72807de5e036a4ed # v2.34.0
         with:
           api-level: 29
@@ -55,8 +55,20 @@ jobs:
           disable-animations: true
           script: >-
             ./gradlew connectedDebugAndroidTest
-            '-Pandroid.testInstrumentationRunnerArguments.class=com.hpre.app.ui.watch.WatchScreenTest#comments_section_and_long_comment_can_expand_and_collapse,com.hpre.app.navigation.NavigationFlowTest#replacing_related_watch_releases_old_entry_and_keeps_source_destination'
-            --no-daemon
+            '-Pandroid.testInstrumentationRunnerArguments.class=com.hpre.app.ui.common.ErrorPaneTest,com.hpre.app.ui.search.SearchScreenTest#raw_network_failure_shows_retry_and_recovers,com.hpre.app.ui.search.SearchScreenTest#pagination_failure_shows_inline_footer_and_retry_recovers,com.hpre.app.ui.library.LibraryScreenTest#create_playlist_failure_keeps_dialog_open_with_error,com.hpre.app.ui.library.LibraryScreenTest#settings_screen_toggles_and_choices_persist_state,com.hpre.app.ui.watch.WatchScreenTest#watch_screen_shows_error_pane_and_retries_on_stream_failure,com.hpre.app.ui.watch.WatchScreenTest#watch_screen_controls_dispatch_play_pause_and_seek,com.hpre.app.ui.watch.WatchScreenTest#comments_section_and_long_comment_can_expand_and_collapse,com.hpre.app.navigation.NavigationFlowTest#replacing_related_watch_releases_old_entry_and_keeps_source_destination'
+            --no-daemon --max-workers=2
+
+      - name: Upload verification reports
+        if: always()
+        uses: actions/upload-artifact@v4.6.2
+        with:
+          name: android-verification-reports
+          path: |
+            app/build/reports/tests/
+            app/build/reports/androidTests/
+            app/build/reports/lint-results-debug.*
+            app/build/outputs/androidTest-results/
+          if-no-files-found: ignore
 
   release:
     needs: build

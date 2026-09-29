@@ -72,7 +72,7 @@ class CatalogRepository(
             } catch (ce: CancellationException) {
                 throw ce
             } catch (t: Throwable) {
-                AppResult.Failure(AppError.Unknown)
+                AppResult.Failure(t.toAppError())
             }
 
             mutex.withLock {
@@ -152,7 +152,7 @@ class CatalogRepository(
                 } catch (ce: CancellationException) {
                     throw ce
                 } catch (t: Throwable) {
-                    AppResult.Failure(AppError.Unknown)
+                    AppResult.Failure(t.toAppError())
                 }
             }
         }
@@ -178,7 +178,7 @@ class CatalogRepository(
             } catch (ce: CancellationException) {
                 throw ce
             } catch (t: Throwable) {
-                AppResult.Failure(AppError.Unknown)
+                AppResult.Failure(t.toAppError())
             }
 
             mutex.withLock {
