@@ -33,7 +33,6 @@ class ScrollBenchmark {
     )
 
     private fun scroll(compilationMode: CompilationMode) {
-        var firstStart = true
         benchmarkRule.measureRepeated(
             packageName = TARGET_PACKAGE,
             metrics = listOf(FrameTimingMetric()),
@@ -41,12 +40,11 @@ class ScrollBenchmark {
             iterations = DEFAULT_ITERATIONS,
             startupMode = null,
             setupBlock = {
-                if (firstStart) {
-                    uiAutomator {
+                uiAutomator {
+                    if (onElementOrNull(5_000) { viewIdResourceName == HOME_LIST_TAG } == null) {
                         startApp(TARGET_PACKAGE)
                         onElement(30_000) { viewIdResourceName == HOME_LIST_TAG }
                     }
-                    firstStart = false
                 }
             }
         ) {
