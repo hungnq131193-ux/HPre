@@ -139,6 +139,7 @@ class SearchViewModel(
 
     private var lastSearchedQuery: String? = null
     private var lastSearchedFilter: SearchFilter? = null
+    private var interruptedSearch: Pair<String, SearchFilter>? = null
 
     /**
      * First page of recent searches, keyed by filter and normalized query.
@@ -203,7 +204,18 @@ class SearchViewModel(
 
         _query.value = normalized
         recordRecentQuery(normalized)
+        // The typing debounce may already be fetching this exact search; restarting it would only
+        // discard the in-flight request.
+        if (normalized == lastSearchedQuery && _filter.value == lastSearchedFilter &&
+            activeSearchJob?.isActive == true
+        ) return
         performSearch(normalized, _filter.value, isExplicit = true)
+    }
+
+    /** Re-runs a search that [onVideoSelected] interrupted, so results match the query box again. */
+    fun resumeInterruptedSearch() {
+        val (query, filter) = interruptedSearch ?: return
+        performSearch(query, filter, isExplicit = false)
     }
 
     fun onFilterChanged(newFilter: SearchFilter) {
@@ -217,6 +229,7 @@ class SearchViewModel(
 
     private fun performSearch(query: String, filter: SearchFilter, isExplicit: Boolean) {
         cancelAllSearches()
+        interruptedSearch = null
         val generation = currentGeneration
         val requestKey = "${filter.name}:$query"
         activeRequestKey = requestKey
@@ -362,6 +375,11 @@ class SearchViewModel(
     }
 
     fun onVideoSelected() {
+        val query = lastSearchedQuery
+        val filter = lastSearchedFilter
+        if (activeSearchJob?.isActive == true && query != null && filter != null) {
+            interruptedSearch = query to filter
+        }
         cancelAllSearches()
         activeSearchJob = null
         activePaginationJob = null

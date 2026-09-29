@@ -342,6 +342,11 @@ fun WatchScreen(
     LaunchedEffect(contentKey, initialThumbnailUrl) {
         viewModel.load(contentKey, initialThumbnailUrl = initialThumbnailUrl)
     }
+    // With background playback off, stopping the activity clears the media; reload it on return
+    // (a no-op while the same video is still active).
+    androidx.lifecycle.compose.LifecycleEventEffect(androidx.lifecycle.Lifecycle.Event.ON_START) {
+        viewModel.load(contentKey, initialThumbnailUrl = initialThumbnailUrl)
+    }
 
     // Fullscreen back handler: back exits fullscreen first
     BackHandler {

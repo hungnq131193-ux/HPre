@@ -477,7 +477,42 @@ class RecommendationRepositoryTest {
         val result = repository.home(RecommendationRequest(limit = 100))
 
         assertEquals(AppResult.Failure(AppError.NetworkError), result)
-        assertEquals(COLLECTION_DEADLINE_MS, testScheduler.currentTime)
+        assertEquals(COLLECTION_MAX_WAIT_MS, testScheduler.currentTime)
+    }
+
+    @Test
+    fun `slow network keeps waiting past the soft deadline for the first source`() = runTest {
+        val service = FakeVideoService()
+        service.trendingHandler = { kotlinx.coroutines.delay(20_000L); AppResult.Success(emptyList()) }
+        service.searchHandler = { query, _, _ ->
+            kotlinx.coroutines.delay(3_000L)
+            AppResult.Success(
+                SearchPage(
+                    items = listOf(
+                        SearchResultItem.VideoItem(
+                            VideoSummary(
+                                key = ContentKey(0, "${query}_slow"),
+                                title = "$query slow video",
+                                canonicalUrl = "https://example.test/${query}_slow",
+                                channelKey = null, channelName = "Channel", channelAvatarUrl = null, thumbnailUrl = null,
+                                durationSeconds = 120, viewCount = null, publishedTimestamp = null
+                            )
+                        )
+                    ),
+                    nextPageToken = null
+                )
+            )
+        }
+        val repository = RecommendationRepository(
+            CatalogRepository(service, this),
+            searchHistory(listOf(LocalSearchHistoryItem("slow_topic", 100L))),
+            history(emptyList())
+        )
+
+        val result = repository.home(RecommendationRequest(limit = 100)).valueOrThrow()
+
+        assertEquals(listOf("slow_topic_slow"), result.map { it.key.nativeId })
+        assertTrue(testScheduler.currentTime < COLLECTION_MAX_WAIT_MS)
     }
 
     @Test

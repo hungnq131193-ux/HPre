@@ -13,6 +13,7 @@ import java.util.Locale
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.TimeoutCancellationException
 import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
@@ -43,7 +44,10 @@ internal const val MAX_TOPIC_CONCURRENCY = 6
 internal const val MAX_PAGES_PER_QUERY = 2
 internal const val MAX_TOTAL_CONTINUATIONS = 6
 internal const val COLLECTION_DEADLINE_MS = 1_500L
-internal const val HOME_DEADLINE_MS = 1_900L
+/** Hard cap when nothing has arrived by [COLLECTION_DEADLINE_MS], e.g. on a slow or cold network. */
+internal const val COLLECTION_MAX_WAIT_MS = 8_000L
+internal const val COLLECTION_POLL_MS = 100L
+internal const val HOME_DEADLINE_MS = COLLECTION_MAX_WAIT_MS + 400L
 internal const val DEFAULT_FEED_LIMIT = 30
 internal const val MAX_FEED_LIMIT = 100
 
@@ -152,7 +156,7 @@ class RecommendationRepository(
         val state = CollectionState()
 
         try {
-            withTimeoutOrNull(COLLECTION_DEADLINE_MS) {
+            collectUntilDeadline(state) {
                 coroutineScope {
                     launch {
                         val res = safeRequest { catalogRepository.getTrending(request.forceRefresh) }
@@ -249,7 +253,7 @@ class RecommendationRepository(
         val relatedLock = Mutex()
 
         try {
-            withTimeoutOrNull(COLLECTION_DEADLINE_MS) {
+            collectUntilDeadline(state) {
                 coroutineScope {
                     launch {
                         val res = safeRequest { service.related(key) }
@@ -403,10 +407,30 @@ class RecommendationRepository(
         }
     }
 
+    /**
+     * Runs [collect] for up to [COLLECTION_DEADLINE_MS]. When nothing has succeeded by then it keeps
+     * waiting for the first success, up to [COLLECTION_MAX_WAIT_MS], instead of failing and
+     * cancelling requests that were about to complete.
+     */
+    private suspend fun collectUntilDeadline(state: CollectionState, collect: suspend () -> Unit) {
+        withTimeoutOrNull(COLLECTION_MAX_WAIT_MS) {
+            coroutineScope {
+                val work = launch { collect() }
+                if (withTimeoutOrNull(COLLECTION_DEADLINE_MS) { work.join() } == null) {
+                    while (work.isActive && !state.hasAnySuccess()) delay(COLLECTION_POLL_MS)
+                    work.cancel(SoftDeadlineReached())
+                }
+            }
+        }
+    }
+
+    /** Ends collection with partial results; [safeRequest] must not treat it as caller cancellation. */
+    private class SoftDeadlineReached : CancellationException("Recommendation collection deadline reached")
+
     private suspend fun <T> safeRequest(block: suspend () -> AppResult<T>): AppResult<T> = try {
         backgroundRequests.withPermit { block() }
     } catch (cancelled: CancellationException) {
-        if (cancelled is TimeoutCancellationException) throw cancelled
+        if (cancelled is TimeoutCancellationException || cancelled is SoftDeadlineReached) throw cancelled
         throw SourceRequestCancelled(cancelled)
     } catch (_: Throwable) {
         AppResult.Failure(AppError.Unknown)

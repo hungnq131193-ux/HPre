@@ -124,6 +124,8 @@ fun SearchScreen(
         }
     }
 
+    LaunchedEffect(viewModel) { viewModel.resumeInterruptedSearch() }
+
     LaunchedEffect(Unit) {
         // Automatically request focus when opening search — once per entry, not on every
         // return from a detail screen.
@@ -135,10 +137,15 @@ fun SearchScreen(
         }
     }
 
-    // A newly committed query starts from the top; page appends and in-progress typing do not
-    // touch the scroll position.
+    // A newly committed query starts from the top; page appends, in-progress typing and returning
+    // from a video (which re-enters composition with the same query) keep the scroll position.
+    var scrolledForSearch by rememberSaveable { mutableStateOf<String?>(null) }
     LaunchedEffect(committedQuery, filter) {
-        if (committedQuery != null) listState.scrollToItem(0)
+        val searchKey = committedQuery?.let { "${filter.name}:$it" }
+        if (searchKey != null && searchKey != scrolledForSearch) {
+            scrolledForSearch = searchKey
+            listState.scrollToItem(0)
+        }
     }
 
     Box(

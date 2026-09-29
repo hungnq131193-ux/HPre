@@ -261,8 +261,7 @@ class WatchViewModel(
     val commentsPagination: StateFlow<CommentsPaginationState> = _commentsPagination.asStateFlow()
 
     @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
-    val isSubscribed: StateFlow<Boolean> = _uiState.flatMapLatest { state ->
-        val cKey = state.details?.channelKey
+    val isSubscribed: StateFlow<Boolean> = _uiState.map { it.details?.channelKey }.distinctUntilChanged().flatMapLatest { cKey ->
         if (cKey != null && subscriptionRepository != null) {
             subscriptionRepository.observeIsSubscribed(cKey)
         } else {
@@ -333,15 +332,13 @@ class WatchViewModel(
     private suspend fun loadResumePosition(key: ContentKey): Long {
         val repository = historyRepository ?: return 0L
         return try {
-            withTimeoutOrNull(RESUME_LOOKUP_TIMEOUT_MS) {
-                val item = (repository.getHistoryItem(key) as? AppResult.Success)?.value
-                item?.takeIf {
-                    HistoryRepository.shouldOfferResume(
-                        positionMs = it.playbackPositionMs,
-                        durationSeconds = it.durationSeconds
-                    )
-                }?.playbackPositionMs ?: 0L
-            } ?: 0L
+            val item = (repository.getHistoryItem(key) as? AppResult.Success)?.value
+            item?.takeIf {
+                HistoryRepository.shouldOfferResume(
+                    positionMs = it.playbackPositionMs,
+                    durationSeconds = it.durationSeconds
+                )
+            }?.playbackPositionMs ?: 0L
         } catch (cancelled: CancellationException) {
             throw cancelled
         } catch (_: Exception) {
@@ -489,7 +486,11 @@ class WatchViewModel(
                             return@loadRequest
                         }
                         metricsSession?.let { videoOpenMetrics.mark(it, VideoOpenEvent.STREAM_INFO_READY) }
-                        val resumePositionMs = resumeDeferred.await()
+                        // The lookup overlaps stream resolution, so only bound the extra wait after
+                        // the stream is ready; a slow cold database open still gets that head start.
+                        val resumePositionMs = withTimeoutOrNull(RESUME_LOOKUP_TIMEOUT_MS) {
+                            resumeDeferred.await()
+                        } ?: 0L.also { resumeDeferred.cancel() }
                         synchronized(sessionGuard) {
                             if (!isCurrentRequest(key, generation)) return@loadRequest
                             playerController.prepare(

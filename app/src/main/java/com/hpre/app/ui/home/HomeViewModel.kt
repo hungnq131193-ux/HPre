@@ -116,8 +116,9 @@ class HomeViewModel(
             if (memoryCached == null && !forceRefresh) {
                 val diskCached = feedStore?.load(cacheKey)
                 if (generation != loadGeneration) return@launch
+                // Disk content may be days old, so it is shown but never cached as fresh; otherwise a
+                // failed or cancelled revalidation would suppress reloads for the whole TTL.
                 if (diskCached != null && diskCached.isNotEmpty()) {
-                    chipCache.put(cacheKey, diskCached)
                     _uiState.value = HomeUiState.Content(
                         HomeContent(videos = diskCached, isLoadingSelection = true)
                     )
@@ -290,7 +291,7 @@ class HomeViewModel(
     }
 
     companion object {
-        internal const val INITIAL_LOAD_TIMEOUT_MS = 2_000L
+        internal const val INITIAL_LOAD_TIMEOUT_MS = com.hpre.app.repository.HOME_DEADLINE_MS + 500L
 
         /** Cache key for the "Tất cả" chip, which has no query of its own. */
         private const val ALL_CHIP_CACHE_KEY = "__all__"
