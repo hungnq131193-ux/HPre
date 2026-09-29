@@ -209,4 +209,26 @@ class PlayerGesturePolicyTest {
         assertFalse(PlayerGesturePolicy.isPointInProtectedRegion(50f, 50f, bounds))
         assertFalse(PlayerGesturePolicy.isPointInProtectedRegion(300f, 300f, bounds))
     }
+
+    @Test
+    fun brightness_volume_only_allowed_fullscreen_not_pip() {
+        assertTrue(PlayerGesturePolicy.isBrightnessVolumeGestureAllowed(true, false))
+        assertFalse(PlayerGesturePolicy.isBrightnessVolumeGestureAllowed(false, false))
+        assertFalse(PlayerGesturePolicy.isBrightnessVolumeGestureAllowed(true, true))
+    }
+
+    @Test
+    fun left_half_adjusts_brightness_right_half_volume() {
+        assertEquals(AdjustTarget.BRIGHTNESS, PlayerGesturePolicy.adjustTargetForDrag(100f, 800f))
+        assertEquals(AdjustTarget.VOLUME, PlayerGesturePolicy.adjustTargetForDrag(700f, 800f))
+    }
+
+    @Test
+    fun drag_up_increases_drag_down_decreases_and_clamps() {
+        assertEquals(0.75f, PlayerGesturePolicy.adjustedValue(0.5f, -250f, 1000f), 0.001f)
+        assertEquals(0.25f, PlayerGesturePolicy.adjustedValue(0.5f, 250f, 1000f), 0.001f)
+        assertEquals(1f, PlayerGesturePolicy.adjustedValue(0.9f, -500f, 1000f), 0.001f)
+        assertEquals(0f, PlayerGesturePolicy.adjustedValue(0.1f, 500f, 1000f), 0.001f)
+        assertEquals(0.5f, PlayerGesturePolicy.adjustedValue(0.5f, 100f, 0f), 0.001f)
+    }
 }

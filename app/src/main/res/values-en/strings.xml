@@ -131,6 +131,8 @@
     <string name="subtitles_off">Subtitles off</string>
     <string name="subtitle_auto_generated">%1$s (auto-generated)</string>
     <string name="audio_language_default">Default audio language</string>
+    <string name="gesture_brightness">Brightness</string>
+    <string name="gesture_volume">Volume</string>
     <string name="quality_auto">Auto</string>
     <string name="watch_save">Save</string>
     <string name="watch_share">Share</string>

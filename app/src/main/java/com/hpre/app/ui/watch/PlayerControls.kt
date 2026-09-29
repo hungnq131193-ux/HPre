@@ -24,6 +24,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.AspectRatio
+import androidx.compose.material.icons.filled.Brightness6
 import androidx.compose.material.icons.filled.Forward10
 import androidx.compose.material.icons.filled.Fullscreen
 import androidx.compose.material.icons.filled.FullscreenExit
@@ -36,6 +37,7 @@ import androidx.compose.material.icons.automirrored.filled.QueueMusic
 import androidx.compose.material.icons.filled.Speed
 import androidx.compose.material.icons.filled.Subtitles
 import androidx.compose.material.icons.filled.Timer
+import androidx.compose.material.icons.filled.VolumeUp
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
@@ -76,6 +78,7 @@ import androidx.compose.ui.layout.boundsInParent
 import androidx.compose.ui.layout.boundsInWindow
 import androidx.compose.ui.layout.findRootCoordinates
 import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
@@ -96,6 +99,7 @@ import com.hpre.app.player.PlaybackState
 import com.hpre.app.player.PlaybackStreamType
 import com.hpre.app.player.QualityOption
 import com.hpre.app.player.toProgress
+import kotlin.math.roundToInt
 import kotlinx.coroutines.delay
 
 /** How long the double-tap seek badge stays on screen. */
@@ -197,6 +201,7 @@ fun PlayerControlsOverlay(
     // Transient double-tap seek badge. The nonce lets repeated taps on the same side restart the
     // dismiss timer instead of being swallowed as an unchanged state.
     var seekFeedback by remember { mutableStateOf(SeekGesture.NONE) }
+    var adjustFeedback by remember { mutableStateOf<AdjustFeedback?>(null) }
     var feedbackNonce by remember { mutableIntStateOf(0) }
 
     val currentReadProgress = rememberUpdatedState(readProgress)
@@ -286,6 +291,11 @@ fun PlayerControlsOverlay(
         isInPip = isInPip,
         minimizeEnabled = minimizeEnabled
     )
+    val isBrightnessVolumeAllowed = PlayerGesturePolicy.isBrightnessVolumeGestureAllowed(
+        isFullscreen = isFullscreen,
+        isInPip = isInPip
+    )
+    val gestureContext = LocalContext.current
 
     // Delay spinner appearance by 150ms to eliminate visual flicker for instant cache-hits / fast starts
     var showLoadingSpinner by remember { mutableStateOf(false) }
@@ -310,7 +320,7 @@ fun PlayerControlsOverlay(
             .onGloballyPositioned { coordinates ->
                 overlayLayoutCoordinates = coordinates
             }
-            .pointerInput(isMinimizeAllowed) {
+            .pointerInput(isMinimizeAllowed, isBrightnessVolumeAllowed) {
                 val touchSlopPx = viewConfiguration.touchSlop
                 val doubleTapTimeoutMs = viewConfiguration.doubleTapTimeoutMillis
                 val doubleTapMinTimeMs = viewConfiguration.doubleTapMinTimeMillis
@@ -354,6 +364,8 @@ fun PlayerControlsOverlay(
                     var totalX = 0f
                     var totalY = 0f
                     var decision = PlayerDragDecision.UNDECIDED
+                    var adjustTarget: AdjustTarget? = null
+                    var adjustStartValue = 0f
                     val velocityTracker = VelocityTracker()
                     velocityTracker.addPosition(down.uptimeMillis, down.position)
 
@@ -403,15 +415,50 @@ fun PlayerControlsOverlay(
 
                         if (decision == PlayerDragDecision.UNDECIDED) {
                             decision = PlayerGesturePolicy.classifyDrag(totalX, totalY, touchSlopPx)
+                            if (decision == PlayerDragDecision.REJECTED && isBrightnessVolumeAllowed) {
+                                decision = PlayerDragDecision.VERTICAL_UP
+                            }
+                            if (isBrightnessVolumeAllowed &&
+                                (decision == PlayerDragDecision.VERTICAL_DOWN ||
+                                    decision == PlayerDragDecision.VERTICAL_UP)
+                            ) {
+                                adjustTarget = PlayerGesturePolicy.adjustTargetForDrag(
+                                    downPosition.x,
+                                    size.width.toFloat()
+                                )
+                                adjustStartValue = when (adjustTarget) {
+                                    AdjustTarget.VOLUME -> currentVolumeFraction(gestureContext)
+                                    AdjustTarget.BRIGHTNESS -> currentBrightnessFraction(gestureContext)
+                                }
+                            }
                         }
 
                         if (decision == PlayerDragDecision.VERTICAL_DOWN && isMinimizeAllowed) {
                             // Downward drag classified: consume event so parent scroll/views don't steal
                             change.consume()
                         }
+
+                        val activeAdjust = adjustTarget
+                        if (activeAdjust != null &&
+                            (decision == PlayerDragDecision.VERTICAL_DOWN ||
+                                decision == PlayerDragDecision.VERTICAL_UP)
+                        ) {
+                            change.consume()
+                            val fraction = PlayerGesturePolicy.adjustedValue(
+                                adjustStartValue,
+                                totalY,
+                                size.height.toFloat()
+                            )
+                            when (activeAdjust) {
+                                AdjustTarget.VOLUME -> setVolumeFraction(gestureContext, fraction)
+                                AdjustTarget.BRIGHTNESS -> setBrightnessFraction(gestureContext, fraction)
+                            }
+                            adjustFeedback = AdjustFeedback(activeAdjust, fraction)
+                        }
                     }
 
                     if (isCancelled || confirmedUpChange == null) {
+                        adjustFeedback = null
                         return@awaitEachGesture
                     }
 
@@ -430,6 +477,13 @@ fun PlayerControlsOverlay(
                             currentOnMinimizeToHome.value()
                         }
                         // Drag completed, clear double-tap state
+                        lastUpUptime = 0L
+                        lastUpPosition = Offset.Zero
+                    } else if (decision == PlayerDragDecision.VERTICAL_DOWN ||
+                        decision == PlayerDragDecision.VERTICAL_UP
+                    ) {
+                        // Brightness/volume drag finished
+                        adjustFeedback = null
                         lastUpUptime = 0L
                         lastUpPosition = Offset.Zero
                     } else if (decision == PlayerDragDecision.UNDECIDED) {
@@ -541,6 +595,47 @@ fun PlayerControlsOverlay(
                     Spacer(modifier = Modifier.width(6.dp))
                     Text(
                         text = stringResource(R.string.seek_step_seconds, 10),
+                        color = Color.White,
+                        fontSize = 13.sp,
+                        fontWeight = FontWeight.Medium
+                    )
+                }
+            }
+        }
+
+        // Brightness/volume drag feedback — mirrors the seek badge, pinned to the side the
+        // gesture started on.
+        adjustFeedback?.let { feedback ->
+            val isBrightness = feedback.target == AdjustTarget.BRIGHTNESS
+            Surface(
+                color = Color.Black.copy(alpha = 0.55f),
+                shape = CircleShape,
+                modifier = Modifier
+                    .align(if (isBrightness) Alignment.CenterStart else Alignment.CenterEnd)
+                    .padding(horizontal = 32.dp)
+                    .testTag(
+                        if (isBrightness) "gesture_feedback_brightness" else "gesture_feedback_volume"
+                    )
+            ) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp)
+                ) {
+                    Icon(
+                        imageVector = if (isBrightness) {
+                            Icons.Default.Brightness6
+                        } else {
+                            Icons.Default.VolumeUp
+                        },
+                        contentDescription = stringResource(
+                            if (isBrightness) R.string.gesture_brightness else R.string.gesture_volume
+                        ),
+                        tint = Color.White,
+                        modifier = Modifier.size(28.dp)
+                    )
+                    Spacer(modifier = Modifier.width(6.dp))
+                    Text(
+                        text = "${(feedback.fraction * 100).toInt()}%",
                         color = Color.White,
                         fontSize = 13.sp,
                         fontWeight = FontWeight.Medium
@@ -1430,6 +1525,38 @@ private fun formatTime(ms: Long): String {
     } else {
         "%d:%02d".format(minutes, seconds)
     }
+}
+
+private data class AdjustFeedback(val target: AdjustTarget, val fraction: Float)
+
+private fun currentVolumeFraction(context: android.content.Context): Float {
+    val manager = context.getSystemService(android.content.Context.AUDIO_SERVICE) as? android.media.AudioManager
+        ?: return 0f
+    val max = manager.getStreamMaxVolume(android.media.AudioManager.STREAM_MUSIC)
+    if (max <= 0) return 0f
+    return manager.getStreamVolume(android.media.AudioManager.STREAM_MUSIC).toFloat() / max
+}
+
+private fun setVolumeFraction(context: android.content.Context, fraction: Float) {
+    val manager = context.getSystemService(android.content.Context.AUDIO_SERVICE) as? android.media.AudioManager
+        ?: return
+    val max = manager.getStreamMaxVolume(android.media.AudioManager.STREAM_MUSIC)
+    if (max <= 0) return
+    val value = (fraction * max).roundToInt().coerceIn(0, max)
+    manager.setStreamVolume(android.media.AudioManager.STREAM_MUSIC, value, 0)
+}
+
+private fun currentBrightnessFraction(context: android.content.Context): Float {
+    val activity = context.findActivity() ?: return 0.5f
+    return activity.window?.attributes?.screenBrightness?.takeIf { it >= 0f } ?: 0.5f
+}
+
+private fun setBrightnessFraction(context: android.content.Context, fraction: Float) {
+    val activity = context.findActivity() ?: return
+    val window = activity.window ?: return
+    val attrs = window.attributes
+    attrs.screenBrightness = fraction.coerceIn(0f, 1f)
+    window.attributes = attrs
 }
 
 private fun languageLabel(tag: String): String =
