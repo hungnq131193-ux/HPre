@@ -320,6 +320,11 @@ fun WatchScreen(
     val playbackState by viewModel.structuralPlaybackState.collectAsStateWithLifecycle()
     val relatedState by viewModel.relatedState.collectAsStateWithLifecycle()
     val commentsState by viewModel.commentsState.collectAsStateWithLifecycle()
+    val downloadUiState by viewModel.downloadUiState.collectAsStateWithLifecycle()
+    val castDevices by viewModel.castDevices.collectAsStateWithLifecycle()
+    val castActiveDevice by viewModel.castActiveDevice.collectAsStateWithLifecycle()
+    val castError by viewModel.castError.collectAsStateWithLifecycle()
+    var isCastSheetOpen by remember { mutableStateOf(false) }
     val commentsPagination by viewModel.commentsPagination.collectAsStateWithLifecycle()
     val context = LocalContext.current
     val isFullscreen = uiState.isFullscreen
@@ -432,6 +437,28 @@ fun WatchScreen(
                 onSeekTo = { pos -> viewModel.seekTo(pos) },
                 onSpeedSelected = { speed -> viewModel.setPlaybackSpeed(speed) },
                 onQualitySelected = { quality -> viewModel.selectQuality(quality) },
+                sleepTimerEndsAtMs = playbackState.sleepTimerEndsAtMs,
+                onSleepTimerSelected = { duration -> viewModel.setSleepTimer(duration) },
+                playQueue = playbackState.playQueue,
+                onQueueItemClick = { index ->
+                    playbackState.playQueue.getOrNull(index)?.let { item ->
+                        viewModel.skipQueueTo(index)
+                        onRelatedVideoClick(item.key)
+                    }
+                },
+                onQueueItemRemove = { index -> viewModel.removeFromQueue(index) },
+                onSubtitleSelected = { lang -> viewModel.selectSubtitle(lang) },
+                onAudioLanguageSelected = { lang -> viewModel.selectAudioLanguage(lang) },
+                downloadState = downloadUiState.first,
+                downloadProgressPercent = downloadUiState.second,
+                onDownloadVideo = { viewModel.downloadCurrent(audioOnly = false) },
+                onDownloadAudio = { viewModel.downloadCurrent(audioOnly = true) },
+                onDownloadRemove = { viewModel.removeCurrentDownload() },
+                onCastClick = {
+                    viewModel.startCastDiscovery()
+                    isCastSheetOpen = true
+                },
+                isCasting = castActiveDevice != null,
                 onToggleFullscreen = { viewModel.setFullscreen(false) },
                 onMinimizeToHome = onMinimizeToHome,
                 minimizeEnabled = false,
@@ -482,6 +509,28 @@ fun WatchScreen(
                         onSeekTo = { pos -> viewModel.seekTo(pos) },
                         onSpeedSelected = { speed -> viewModel.setPlaybackSpeed(speed) },
                         onQualitySelected = { quality -> viewModel.selectQuality(quality) },
+                        sleepTimerEndsAtMs = playbackState.sleepTimerEndsAtMs,
+                        onSleepTimerSelected = { duration -> viewModel.setSleepTimer(duration) },
+                        playQueue = playbackState.playQueue,
+                        onQueueItemClick = { index ->
+                            playbackState.playQueue.getOrNull(index)?.let { item ->
+                                viewModel.skipQueueTo(index)
+                                onRelatedVideoClick(item.key)
+                            }
+                        },
+                        onQueueItemRemove = { index -> viewModel.removeFromQueue(index) },
+                        onSubtitleSelected = { lang -> viewModel.selectSubtitle(lang) },
+                        onAudioLanguageSelected = { lang -> viewModel.selectAudioLanguage(lang) },
+                        downloadState = downloadUiState.first,
+                        downloadProgressPercent = downloadUiState.second,
+                        onDownloadVideo = { viewModel.downloadCurrent(audioOnly = false) },
+                        onDownloadAudio = { viewModel.downloadCurrent(audioOnly = true) },
+                        onDownloadRemove = { viewModel.removeCurrentDownload() },
+                        onCastClick = {
+                            viewModel.startCastDiscovery()
+                            isCastSheetOpen = true
+                        },
+                        isCasting = castActiveDevice != null,
                         onToggleFullscreen = { viewModel.setFullscreen(true) },
                         onMinimizeToHome = onMinimizeToHome,
                         minimizeEnabled = isPortrait,
@@ -531,6 +580,9 @@ fun WatchScreen(
                         onRetryComments = viewModel::retryComments,
                         onLoadMoreComments = viewModel::loadMoreComments,
                         onChannelClick = onChannelClick,
+                        onEnqueueVideo = { video, playNext ->
+                            viewModel.enqueue(com.hpre.app.player.QueuedItem(video.key, video.title), playNext)
+                        },
                         allowSheets = !isInPip,
                         modifier = Modifier
                             .fillMaxWidth()
@@ -538,6 +590,24 @@ fun WatchScreen(
                     )
                 }
         }
+    }
+
+    if (isCastSheetOpen) {
+        CastDeviceDialog(
+            devices = castDevices,
+            activeDevice = castActiveDevice,
+            error = castError,
+            isPlaying = playbackState.isPlaying,
+            onSelect = { device -> viewModel.castTo(device) },
+            onPause = { viewModel.castPause() },
+            onResume = { viewModel.castResume() },
+            onDisconnect = { viewModel.castDisconnect() },
+            onDismiss = {
+                isCastSheetOpen = false
+                viewModel.stopCastDiscovery()
+                viewModel.consumeCastError()
+            }
+        )
     }
 }
 
@@ -554,6 +624,20 @@ private fun WatchPlayerControls(
     onSeekTo: (Long) -> Unit,
     onSpeedSelected: (Float) -> Unit,
     onQualitySelected: (com.hpre.app.player.QualityOption) -> Unit,
+    sleepTimerEndsAtMs: Long? = null,
+    onSleepTimerSelected: (Long?) -> Unit = {},
+    playQueue: List<com.hpre.app.player.QueuedItem> = emptyList(),
+    onQueueItemClick: (Int) -> Unit = {},
+    onQueueItemRemove: (Int) -> Unit = {},
+    onSubtitleSelected: (String?) -> Unit = {},
+    onAudioLanguageSelected: (String?) -> Unit = {},
+    downloadState: com.hpre.app.download.DownloadUiState = com.hpre.app.download.DownloadUiState.NONE,
+    downloadProgressPercent: Int = 0,
+    onDownloadVideo: () -> Unit = {},
+    onDownloadAudio: () -> Unit = {},
+    onDownloadRemove: () -> Unit = {},
+    onCastClick: () -> Unit = {},
+    isCasting: Boolean = false,
     onToggleFullscreen: () -> Unit,
     onMinimizeToHome: () -> Unit,
     minimizeEnabled: Boolean,
@@ -571,6 +655,20 @@ private fun WatchPlayerControls(
         onSeekTo = onSeekTo,
         onSpeedSelected = onSpeedSelected,
         onQualitySelected = onQualitySelected,
+        sleepTimerEndsAtMs = sleepTimerEndsAtMs,
+        onSleepTimerSelected = onSleepTimerSelected,
+        playQueue = playQueue,
+        onQueueItemClick = onQueueItemClick,
+        onQueueItemRemove = onQueueItemRemove,
+        onSubtitleSelected = onSubtitleSelected,
+        onAudioLanguageSelected = onAudioLanguageSelected,
+        downloadState = downloadState,
+        downloadProgressPercent = downloadProgressPercent,
+        onDownloadVideo = onDownloadVideo,
+        onDownloadAudio = onDownloadAudio,
+        onDownloadRemove = onDownloadRemove,
+        onCastClick = onCastClick,
+        isCasting = isCasting,
         onToggleFullscreen = onToggleFullscreen,
         readProgress = readProgress,
         onMinimizeToHome = onMinimizeToHome,
@@ -609,6 +707,7 @@ fun WatchMetadataContent(
     lazyListState: LazyListState? = null,
     onRelatedVideoSelected: ((VideoSummary) -> Unit)? = null,
     onChannelClick: ((ContentKey) -> Unit)? = null,
+    onEnqueueVideo: ((VideoSummary, Boolean) -> Unit)? = null,
     allowSheets: Boolean = true
 ) {
     val effectiveLazyListState = lazyListState ?: rememberLazyListState()
@@ -862,7 +961,8 @@ fun WatchMetadataContent(
             onRetry = onRetryRelated,
             onRefresh = onRefreshRelated,
             onVideoSelected = onRelatedVideoSelected,
-            onChannelClick = onChannelClick
+            onChannelClick = onChannelClick,
+            onEnqueueVideo = onEnqueueVideo
         )
 
         item(key = "section:watch_bottom_spacer") {
@@ -1053,4 +1153,85 @@ fun AddToPlaylistSheet(
             Spacer(modifier = Modifier.height(24.dp))
         }
     }
+}
+
+
+@Composable
+private fun CastDeviceDialog(
+    devices: List<com.hpre.app.cast.FCastDevice>,
+    activeDevice: com.hpre.app.cast.FCastDevice?,
+    error: String?,
+    isPlaying: Boolean,
+    onSelect: (com.hpre.app.cast.FCastDevice) -> Unit,
+    onPause: () -> Unit,
+    onResume: () -> Unit,
+    onDisconnect: () -> Unit,
+    onDismiss: () -> Unit
+) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        confirmButton = {},
+        dismissButton = {
+            TextButton(onClick = onDismiss) { Text(stringResource(R.string.action_close)) }
+        },
+        title = { Text(stringResource(R.string.cast_devices_title)) },
+        text = {
+            Column(modifier = Modifier.fillMaxWidth()) {
+                if (error != null) {
+                    Text(
+                        text = stringResource(
+                            when (error) {
+                                "cast_no_playable_stream" -> R.string.cast_error_no_stream
+                                else -> R.string.cast_error_connect
+                            }
+                        ),
+                        color = MaterialTheme.colorScheme.error,
+                        style = MaterialTheme.typography.bodySmall
+                    )
+                }
+                if (activeDevice != null) {
+                    Text(
+                        text = stringResource(R.string.cast_connected_to, activeDevice.name),
+                        style = MaterialTheme.typography.bodyMedium
+                    )
+                    Row(
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        modifier = Modifier.padding(top = 8.dp)
+                    ) {
+                        if (isPlaying) {
+                            TextButton(onClick = onPause, modifier = Modifier.testTag("cast_pause")) {
+                                Text(stringResource(R.string.action_pause))
+                            }
+                        } else {
+                            TextButton(onClick = onResume, modifier = Modifier.testTag("cast_resume")) {
+                                Text(stringResource(R.string.action_play))
+                            }
+                        }
+                        TextButton(onClick = onDisconnect, modifier = Modifier.testTag("cast_disconnect")) {
+                            Text(stringResource(R.string.cast_disconnect))
+                        }
+                    }
+                } else if (devices.isEmpty()) {
+                    Text(
+                        text = stringResource(R.string.cast_no_devices),
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.testTag("cast_empty")
+                    )
+                } else {
+                    devices.forEach { device ->
+                        Text(
+                            text = device.name,
+                            style = MaterialTheme.typography.bodyLarge,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clickable { onSelect(device) }
+                                .padding(vertical = 12.dp)
+                                .testTag("cast_device_${device.name}")
+                        )
+                    }
+                }
+            }
+        }
+    )
 }

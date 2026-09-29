@@ -8,6 +8,32 @@ internal class AutoplayQueue {
     private var candidates: List<ContentKey> = emptyList()
     private val visited = linkedSetOf<ContentKey>()
     private var lastHandledSessionGeneration = Long.MIN_VALUE
+    private val manual = ArrayDeque<QueuedItem>()
+    private var pendingNext: ContentKey? = null
+
+    var lastTakeWasManual: Boolean = false
+        private set
+
+    val manualSnapshot: List<QueuedItem>
+        get() = manual.toList()
+
+    fun enqueue(item: QueuedItem, playNext: Boolean): Boolean {
+        if (item.key == currentKey) return false
+        if (playNext) manual.addFirst(item) else manual.addLast(item)
+        return true
+    }
+
+    fun removeManual(index: Int): Boolean {
+        if (index !in manual.indices) return false
+        manual.removeAt(index)
+        return true
+    }
+
+    fun dropManualThrough(index: Int): Boolean {
+        if (index !in manual.indices) return false
+        repeat(index + 1) { manual.removeFirst() }
+        return true
+    }
 
     fun resetForManualStart(key: ContentKey) {
         currentKey = key
@@ -15,6 +41,8 @@ internal class AutoplayQueue {
         visited.clear()
         visited += key
         lastHandledSessionGeneration = Long.MIN_VALUE
+        pendingNext = null
+        lastTakeWasManual = false
     }
 
     fun updateCandidates(sourceKey: ContentKey, values: List<ContentKey>): Boolean {
@@ -33,12 +61,23 @@ internal class AutoplayQueue {
     ): ContentKey? {
         if (endedKey != currentKey || sessionGeneration <= lastHandledSessionGeneration) return null
         lastHandledSessionGeneration = sessionGeneration
+        pendingNext = null
+        lastTakeWasManual = false
+        // User-queued items run regardless of the autoplay setting; suggestions still honor it.
+        val manualNext = manual.removeFirstOrNull()
+        if (manualNext != null) {
+            pendingNext = manualNext.key
+            lastTakeWasManual = true
+            return manualNext.key
+        }
         if (!allowAdvance) return null
-        return candidates.firstOrNull()
+        pendingNext = candidates.firstOrNull()
+        return pendingNext
     }
 
     fun commit(endedKey: ContentKey, next: ContentKey): Boolean {
-        if (currentKey != endedKey || next !in candidates) return false
+        if (currentKey != endedKey || next != pendingNext) return false
+        pendingNext = null
         candidates = candidates.filter { it != next }
         visited += next
         currentKey = next
@@ -50,6 +89,9 @@ internal class AutoplayQueue {
         candidates = emptyList()
         visited.clear()
         lastHandledSessionGeneration = Long.MIN_VALUE
+        manual.clear()
+        pendingNext = null
+        lastTakeWasManual = false
     }
 }
 

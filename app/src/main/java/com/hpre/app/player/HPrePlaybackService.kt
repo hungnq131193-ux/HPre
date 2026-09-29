@@ -17,6 +17,9 @@ import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.trackselection.DefaultTrackSelector
 import androidx.media3.exoplayer.analytics.AnalyticsListener
 import androidx.media3.session.CommandButton
+import androidx.media3.session.LibraryResult
+import androidx.media3.session.MediaLibraryService
+
 import androidx.media3.session.MediaNotification
 import androidx.media3.session.MediaSession
 import androidx.media3.session.MediaSessionService
@@ -26,6 +29,7 @@ import androidx.media3.session.SessionResult
 import androidx.media3.session.SessionError
 import com.hpre.app.HPreApplication
 import com.hpre.app.MainActivity
+import com.hpre.app.R
 import com.hpre.app.core.error.AppError
 import com.hpre.app.core.error.AppResult
 import com.hpre.app.core.performance.VideoOpenEvent
@@ -43,6 +47,7 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.cancel
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
@@ -80,10 +85,15 @@ internal fun decideSessionRestore(
 }
 
 @OptIn(UnstableApi::class)
-class HPrePlaybackService : MediaSessionService() {
+class HPrePlaybackService : MediaLibraryService() {
 
     companion object {
         const val KEY_INFRASTRUCTURE_PREWARM = "extra_infrastructure_prewarm"
+
+        const val BROWSE_ROOT_ID = "hpre_root"
+        const val BROWSE_QUEUE_ID = "hpre_queue"
+        const val BROWSE_HISTORY_ID = "hpre_history"
+        const val BROWSE_ITEM_PREFIX = "hpre_item"
 
         const val CUSTOM_COMMAND_SELECT_QUALITY = "com.hpre.app.CUSTOM_COMMAND_SELECT_QUALITY"
         const val CUSTOM_COMMAND_SET_QUALITY_POLICY = "com.hpre.app.CUSTOM_COMMAND_SET_QUALITY_POLICY"
@@ -93,6 +103,10 @@ class HPrePlaybackService : MediaSessionService() {
         const val CUSTOM_COMMAND_STOP_FOR_TRANSITION = "com.hpre.app.CUSTOM_COMMAND_STOP_FOR_TRANSITION"
         const val CUSTOM_COMMAND_SET_BACKGROUND_ENABLED = "com.hpre.app.CUSTOM_COMMAND_SET_BACKGROUND_ENABLED"
         const val CUSTOM_COMMAND_UPDATE_AUTOPLAY_CANDIDATES = "com.hpre.app.CUSTOM_COMMAND_UPDATE_AUTOPLAY_CANDIDATES"
+        const val CUSTOM_COMMAND_ENQUEUE = "com.hpre.app.CUSTOM_COMMAND_ENQUEUE"
+        const val CUSTOM_COMMAND_QUEUE_REMOVE = "com.hpre.app.CUSTOM_COMMAND_QUEUE_REMOVE"
+        const val CUSTOM_COMMAND_QUEUE_SKIP_TO = "com.hpre.app.CUSTOM_COMMAND_QUEUE_SKIP_TO"
+        const val CUSTOM_COMMAND_QUEUE_CHANGED = "com.hpre.app.CUSTOM_COMMAND_QUEUE_CHANGED"
         const val CUSTOM_COMMAND_AUTOPLAY_TRANSITION = "com.hpre.app.CUSTOM_COMMAND_AUTOPLAY_TRANSITION"
         const val CUSTOM_COMMAND_TERMINAL_ERROR = "com.hpre.app.CUSTOM_COMMAND_TERMINAL_ERROR"
         const val CUSTOM_COMMAND_RECOVERY_STARTED = "com.hpre.app.CUSTOM_COMMAND_RECOVERY_STARTED"
@@ -120,6 +134,10 @@ class HPrePlaybackService : MediaSessionService() {
         const val EXTRA_POLICY_MAX_BITRATE = "extra_policy_max_bitrate"
         const val EXTRA_CANDIDATE_SERVICE_IDS = "extra_candidate_service_ids"
         const val EXTRA_CANDIDATE_NATIVE_IDS = "extra_candidate_native_ids"
+        const val EXTRA_TITLE = "extra_title"
+        const val EXTRA_PLAY_NEXT = "extra_play_next"
+        const val EXTRA_QUEUE_INDEX = "extra_queue_index"
+        const val EXTRA_QUEUE_ITEMS = "extra_queue_items"
         const val EXTRA_PREVIOUS_SERVICE_ID = "extra_previous_service_id"
         const val EXTRA_PREVIOUS_NATIVE_ID = "extra_previous_native_id"
         const val EXTRA_PREVIOUS_SESSION_GENERATION = "extra_previous_session_generation"
@@ -151,16 +169,29 @@ class HPrePlaybackService : MediaSessionService() {
 
     private var exoPlayer: ExoPlayer? = null
     private var trackSelector: DefaultTrackSelector? = null
-    private var mediaSession: MediaSession? = null
+    private var mediaSession: MediaLibraryService.MediaLibrarySession? = null
     private val serviceScope = CoroutineScope(Dispatchers.Main + Job())
     private val historyScheduler by lazy {
         PlaybackHistoryScheduler(serviceScope, onWrite = ::recordCurrentHistory)
     }
 
     private var mediaSourceFactory: MediaSourceCreator? = null
+
+    private val downloadTracker: com.hpre.app.download.DownloadTracker?
+        get() = (application as? HPreApplication)?.container?.downloadTracker
     private var recoveryCoordinator: StreamRecoveryCoordinator? = null
     private var snapshotStore: PlaybackSnapshotStore? = null
     private var settingsSnapshot: AppSettingsSnapshot? = null
+
+    private val sponsorSkip = com.hpre.app.sponsorblock.SponsorSkipController()
+    private val sponsorClient by lazy {
+        com.hpre.app.sponsorblock.SponsorBlockClient(
+            (application as? HPreApplication)?.container?.okHttpClient
+                ?: okhttp3.OkHttpClient()
+        )
+    }
+    private var sponsorFetchJob: Job? = null
+    private var sponsorPollJob: Job? = null
 
     private var currentKey: ContentKey? = null
     private var currentStreamInfo: StreamInfo? = null
@@ -284,9 +315,8 @@ class HPrePlaybackService : MediaSessionService() {
             PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
         )
 
-        mediaSession = MediaSession.Builder(this, player)
+        mediaSession = MediaLibraryService.MediaLibrarySession.Builder(this, player, SessionCallback())
             .setSessionActivity(sessionActivityPendingIntent)
-            .setCallback(SessionCallback())
             .build()
     }
 
@@ -309,9 +339,7 @@ class HPrePlaybackService : MediaSessionService() {
                     }
 
                     val effectivePlayWhenReady = if (authoritativeBackgroundAllowed != true) false else snapshot.playWhenReady
-                    val streamResult = withContext(Dispatchers.IO) {
-                        app.container.videoService.streamInfo(snapshot.key)
-                    }
+                    val streamResult = resolveStreamInfo(snapshot.key)
 
                     if (streamResult !is AppResult.Success) {
                         if (!isReleased && restoreRequest == prepareRequestGeneration) snapshotStore?.clear()
@@ -340,7 +368,9 @@ class HPrePlaybackService : MediaSessionService() {
         }
     }
 
-    override fun onGetSession(controllerInfo: MediaSession.ControllerInfo): MediaSession? {
+    override fun onGetSession(
+        controllerInfo: MediaSession.ControllerInfo
+    ): MediaLibraryService.MediaLibrarySession? {
         ensurePlayerAndSessionInitialized()
         return mediaSession
     }
@@ -411,6 +441,14 @@ class HPrePlaybackService : MediaSessionService() {
     }
 
     private val playerListener = object : Player.Listener {
+        override fun onPositionDiscontinuity(
+            oldPosition: Player.PositionInfo,
+            newPosition: Player.PositionInfo,
+            reason: Int
+        ) {
+            sponsorSkip.onSeekTo(newPosition.positionMs)
+        }
+
         override fun onPlayerError(error: PlaybackException) {
             if (isReleased) return
             autoplayReadyAction = null
@@ -558,14 +596,13 @@ class HPrePlaybackService : MediaSessionService() {
             sessionGeneration = previousSession,
             allowAdvance = allowAdvance
         ) ?: return
+        val wasManual = autoplayQueue.lastTakeWasManual
         val app = application as? HPreApplication ?: return
         val requestGeneration = prepareRequestGeneration
         val transportRequest = transportGeneration
         autoplayJob?.cancel()
         autoplayJob = serviceScope.launch(Dispatchers.Main) {
-            val streamResult = withContext(Dispatchers.IO) {
-                app.container.videoService.streamInfo(nextKey)
-            }
+            val streamResult = resolveStreamInfo(nextKey)
             if (streamResult !is AppResult.Success) return@launch
             val latestSettings = settingsSnapshot?.value ?: return@launch
             if (isReleased || exoPlayer?.playbackState != Player.STATE_ENDED || !userRequestedPlay || !canCommitAutoplay(
@@ -575,7 +612,7 @@ class HPrePlaybackService : MediaSessionService() {
                     currentSessionGeneration = playbackSessionGeneration,
                     expectedRequestGeneration = requestGeneration,
                     currentRequestGeneration = prepareRequestGeneration,
-                    enabled = latestSettings.autoplay,
+                    enabled = latestSettings.autoplay || wasManual,
                     lifecycleStarted = isLifecycleStarted,
                     backgroundEnabled = latestSettings.backgroundPlaybackEnabled && backgroundPlaybackEnabled,
                     pipActive = isPipActiveOrEntering
@@ -599,12 +636,28 @@ class HPrePlaybackService : MediaSessionService() {
                     autoplayReadyAction = {
                         if (currentKey == nextKey && transportRequest == transportGeneration &&
                             autoplayQueue.commit(previousKey, nextKey)) {
+                            if (wasManual) broadcastQueueState()
                             broadcastAutoplayTransition(previousKey, previousSession, streamResult.value, defaults)
                         }
                     }
                 }
             )
         }
+    }
+
+    private fun broadcastQueueState() {
+        val items = ArrayList<Bundle>(autoplayQueue.manualSnapshot.size)
+        autoplayQueue.manualSnapshot.forEach { item ->
+            items += Bundle().apply {
+                putInt(EXTRA_SERVICE_ID, item.key.serviceId)
+                putString(EXTRA_NATIVE_ID, item.key.nativeId)
+                putString(EXTRA_TITLE, item.title)
+            }
+        }
+        mediaSession?.broadcastCustomCommand(
+            SessionCommand(CUSTOM_COMMAND_QUEUE_CHANGED, Bundle.EMPTY),
+            Bundle().apply { putParcelableArrayList(EXTRA_QUEUE_ITEMS, items) }
+        )
     }
 
     private fun broadcastAutoplayTransition(
@@ -656,6 +709,41 @@ class HPrePlaybackService : MediaSessionService() {
         autoplayReadyAction = null
         autoplayJob?.cancel()
         autoplayJob = null
+    }
+
+    // SponsorBlock: only YouTube (serviceId 0) videos have segments on sponsor.ajay.app.
+    private fun startSponsorTracking(key: ContentKey) {
+        sponsorSkip.reset()
+        sponsorFetchJob?.cancel()
+        sponsorPollJob?.cancel()
+        if (key.serviceId != 0) return
+        sponsorFetchJob = serviceScope.launch(Dispatchers.IO) {
+            val segments = sponsorClient.fetchSegments(key.nativeId)
+            withContext(Dispatchers.Main) {
+                if (isReleased || currentKey != key || segments.isEmpty()) return@withContext
+                sponsorSkip.setSegments(segments)
+                sponsorPollJob = serviceScope.launch(Dispatchers.Main) {
+                    while (true) {
+                        val player = exoPlayer
+                        if (player != null && player.isPlaying && currentKey == key &&
+                            settingsSnapshot?.value?.sponsorBlockEnabled == true
+                        ) {
+                            sponsorSkip.skipTargetFor(player.currentPosition)
+                                ?.let { player.seekTo(it) }
+                        }
+                        kotlinx.coroutines.delay(500L)
+                    }
+                }
+            }
+        }
+    }
+
+    private fun stopSponsorTracking() {
+        sponsorSkip.reset()
+        sponsorFetchJob?.cancel()
+        sponsorFetchJob = null
+        sponsorPollJob?.cancel()
+        sponsorPollJob = null
     }
 
     private fun checkBufferingWatchdog() {
@@ -826,6 +914,19 @@ class HPrePlaybackService : MediaSessionService() {
         }
     }
 
+    /**
+     * Resolve stream info, falling back to a synthesized entry for fully-downloaded content so
+     * playback still works with no network.
+     */
+    private suspend fun resolveStreamInfo(key: ContentKey): AppResult<StreamInfo> {
+        val result = withContext(Dispatchers.IO) {
+            (application as? HPreApplication)?.container?.videoService?.streamInfo(key)
+                ?: AppResult.Failure(AppError.Unknown)
+        }
+        if (result is AppResult.Success) return result
+        return downloadTracker?.offlineInfoFor(key)?.let { AppResult.Success(it) } ?: result
+    }
+
     private fun prepareInternal(
         key: ContentKey,
         streamInfo: StreamInfo,
@@ -884,6 +985,7 @@ class HPrePlaybackService : MediaSessionService() {
         currentStreamInfo = streamInfo
         userRequestedPlay = playWhenReady
         lastReportedAppError = null
+        startSponsorTracking(key)
         if (!preserveSourceAttempts && !preserveRecoverySession) {
             currentQualityPolicy = qualityPolicy
         }
@@ -901,6 +1003,18 @@ class HPrePlaybackService : MediaSessionService() {
             }
 
             val selectionAndSource = withContext(Dispatchers.IO) {
+                val offlineSource = downloadTracker?.buildOfflineMediaSource(key)
+                if (offlineSource != null) {
+                    return@withContext AppResult.Success(Pair(
+                        SelectedStreams(
+                            key = key,
+                            title = streamInfo.title,
+                            streamType = PlaybackStreamType.PROGRESSIVE,
+                            isLive = false
+                        ),
+                        offlineSource
+                    ))
+                }
                 val selectionResult = if (explicitPreference != null) {
                     StreamSelector.selectStream(streamInfo, explicitPreference)
                 } else {
@@ -1199,7 +1313,9 @@ class HPrePlaybackService : MediaSessionService() {
     private fun clearMediaInternal(releaseResources: Boolean = true) {
         historyScheduler.stop()
         cancelAutoplay()
+        stopSponsorTracking()
         autoplayQueue.clear()
+        broadcastQueueState()
 
         currentKey = null
         currentStreamInfo = null
@@ -1237,7 +1353,163 @@ class HPrePlaybackService : MediaSessionService() {
         exoPlayer = null
     }
 
-    private inner class SessionCallback : MediaSession.Callback {
+    private val browseItems = java.util.concurrent.ConcurrentHashMap<String, MediaItem>()
+
+    private fun browseMediaId(key: ContentKey): String =
+        "$BROWSE_ITEM_PREFIX:${key.serviceId}:${key.nativeId}"
+
+    private fun browseItemFor(key: ContentKey, title: String, subtitle: String?, artwork: String?): MediaItem {
+        val mediaId = browseMediaId(key)
+        return MediaItem.Builder()
+            .setMediaId(mediaId)
+            .setMediaMetadata(
+                MediaMetadata.Builder()
+                    .setTitle(title)
+                    .setSubtitle(subtitle)
+                    .setArtworkUri(artwork?.let(android.net.Uri::parse))
+                    .setIsBrowsable(false)
+                    .setIsPlayable(true)
+                    .build()
+            )
+            .build()
+            .also { browseItems[mediaId] = it }
+    }
+
+    private fun folderItem(mediaId: String, title: String): MediaItem =
+        MediaItem.Builder()
+            .setMediaId(mediaId)
+            .setMediaMetadata(
+                MediaMetadata.Builder()
+                    .setTitle(title)
+                    .setIsBrowsable(true)
+                    .setIsPlayable(false)
+                    .build()
+            )
+            .build()
+
+    private inner class SessionCallback : MediaLibraryService.MediaLibrarySession.Callback {
+
+        override fun onGetLibraryRoot(
+            session: MediaLibraryService.MediaLibrarySession,
+            browser: MediaSession.ControllerInfo,
+            params: MediaLibraryService.LibraryParams?
+        ): ListenableFuture<LibraryResult<MediaItem>> {
+            return Futures.immediateFuture(
+                LibraryResult.ofItem(
+                    folderItem(BROWSE_ROOT_ID, getString(R.string.app_name)),
+                    params
+                )
+            )
+        }
+
+        override fun onGetChildren(
+            session: MediaLibraryService.MediaLibrarySession,
+            browser: MediaSession.ControllerInfo,
+            parentId: String,
+            page: Int,
+            pageSize: Int,
+            params: MediaLibraryService.LibraryParams?
+        ): ListenableFuture<LibraryResult<com.google.common.collect.ImmutableList<MediaItem>>> {
+            val result = SettableFuture.create<LibraryResult<com.google.common.collect.ImmutableList<MediaItem>>>()
+            serviceScope.launch(Dispatchers.Main) {
+                try {
+                    val children: List<MediaItem> = when (parentId) {
+                        BROWSE_ROOT_ID -> listOf(
+                            folderItem(BROWSE_QUEUE_ID, getString(R.string.queue_title)),
+                            folderItem(BROWSE_HISTORY_ID, getString(R.string.auto_browse_history))
+                        )
+                        BROWSE_QUEUE_ID -> autoplayQueue.manualSnapshot.map {
+                            browseItemFor(it.key, it.title, null, null)
+                        }
+                        BROWSE_HISTORY_ID -> {
+                            val app = application as? HPreApplication
+                            val history = app?.container?.historyRepository?.let { repo ->
+                                withContext(Dispatchers.IO) {
+                                    repo.observeHistory().first().take(20)
+                                }
+                            }.orEmpty()
+                            history.map {
+                                browseItemFor(it.key, it.title, it.channelName, it.thumbnailUrl)
+                            }
+                        }
+                        else -> emptyList()
+                    }
+                    result.set(LibraryResult.ofItemList(
+                        com.google.common.collect.ImmutableList.copyOf(children), params))
+                } catch (t: Throwable) {
+                    if (t is CancellationException) throw t
+                    result.set(LibraryResult.ofError(SessionError.ERROR_BAD_VALUE))
+                }
+            }
+            return result
+        }
+
+        override fun onGetItem(
+            session: MediaLibraryService.MediaLibrarySession,
+            browser: MediaSession.ControllerInfo,
+            mediaId: String
+        ): ListenableFuture<LibraryResult<MediaItem>> {
+            val item = browseItems[mediaId]
+                ?: when (mediaId) {
+                    BROWSE_ROOT_ID -> folderItem(BROWSE_ROOT_ID, getString(R.string.app_name))
+                    BROWSE_QUEUE_ID -> folderItem(BROWSE_QUEUE_ID, getString(R.string.queue_title))
+                    BROWSE_HISTORY_ID -> folderItem(BROWSE_HISTORY_ID, getString(R.string.auto_browse_history))
+                    else -> null
+                }
+            return Futures.immediateFuture(
+                item?.let { LibraryResult.ofItem(it, null) }
+                    ?: LibraryResult.ofError(SessionError.ERROR_BAD_VALUE)
+            )
+        }
+
+        override fun onSetMediaItems(
+            mediaSession: MediaSession,
+            controller: MediaSession.ControllerInfo,
+            mediaItems: List<MediaItem>,
+            startIndex: Int,
+            startPositionMs: Long
+        ): ListenableFuture<MediaSession.MediaItemsWithStartPosition> {
+            val first = mediaItems.getOrNull(startIndex) ?: mediaItems.firstOrNull()
+            val mediaId = first?.mediaId
+            if (mediaId == null || !mediaId.startsWith("$BROWSE_ITEM_PREFIX:")) {
+                return super.onSetMediaItems(
+                    mediaSession, controller, mediaItems, startIndex, startPositionMs
+                )
+            }
+            // A browsed Queue/History entry was tapped on Auto: resolve the stream and prepare it.
+            val parts = mediaId.removePrefix("$BROWSE_ITEM_PREFIX:").split(":", limit = 2)
+            val key = parts.getOrNull(1)?.let { ContentKey(parts[0].toIntOrNull() ?: 0, it) }
+            val completion = SettableFuture.create<MediaSession.MediaItemsWithStartPosition>()
+            if (key == null) {
+                completion.set(MediaSession.MediaItemsWithStartPosition(mediaItems, startIndex, startPositionMs))
+                return completion
+            }
+            val requestGeneration = ++prepareRequestGeneration
+            serviceScope.launch(Dispatchers.Main) {
+                val app = application as? HPreApplication
+                val streamResult = resolveStreamInfo(key)
+                if (isReleased || requestGeneration != prepareRequestGeneration ||
+                    streamResult !is AppResult.Success
+                ) {
+                    completion.set(
+                        MediaSession.MediaItemsWithStartPosition(mediaItems, startIndex, startPositionMs)
+                    )
+                    return@launch
+                }
+                autoplayQueue.resetForManualStart(key)
+                prepareInternal(
+                    key = key,
+                    streamInfo = streamResult.value,
+                    startPositionMs = 0L,
+                    playWhenReady = true
+                )
+                completion.set(
+                    MediaSession.MediaItemsWithStartPosition(mediaItems, startIndex, startPositionMs)
+                )
+            }
+            return completion
+        }
+
         override fun onPlayerCommandRequest(
             session: MediaSession,
             controller: MediaSession.ControllerInfo,
@@ -1264,7 +1536,12 @@ class HPrePlaybackService : MediaSessionService() {
                 controllerUid = controller.uid
             )
             if (!isAuthorized) {
-                return MediaSession.ConnectionResult.reject()
+                // External controllers (Android Auto, BT AVRCP, other media apps) may attach for
+                // transport control and browsing, but get only the default command set — every
+                // custom command handler still enforces isControllerAuthorized internally.
+                return MediaSession.ConnectionResult.AcceptedResultBuilder(session)
+                    .setAvailableSessionCommands(MediaSession.ConnectionResult.DEFAULT_SESSION_COMMANDS)
+                    .build()
             }
             onControllerConnected(controller.connectionHints)
             val availableCommands = MediaSession.ConnectionResult.DEFAULT_SESSION_COMMANDS
@@ -1277,6 +1554,9 @@ class HPrePlaybackService : MediaSessionService() {
                 .add(SessionCommand(CUSTOM_COMMAND_STOP_FOR_TRANSITION, Bundle.EMPTY))
                 .add(SessionCommand(CUSTOM_COMMAND_SET_BACKGROUND_ENABLED, Bundle.EMPTY))
                 .add(SessionCommand(CUSTOM_COMMAND_UPDATE_AUTOPLAY_CANDIDATES, Bundle.EMPTY))
+                .add(SessionCommand(CUSTOM_COMMAND_ENQUEUE, Bundle.EMPTY))
+                .add(SessionCommand(CUSTOM_COMMAND_QUEUE_REMOVE, Bundle.EMPTY))
+                .add(SessionCommand(CUSTOM_COMMAND_QUEUE_SKIP_TO, Bundle.EMPTY))
                 .build()
             return MediaSession.ConnectionResult.AcceptedResultBuilder(session)
                 .setAvailableSessionCommands(availableCommands)
@@ -1394,9 +1674,7 @@ class HPrePlaybackService : MediaSessionService() {
                                 start = kotlinx.coroutines.CoroutineStart.LAZY
                             ) {
                                 try {
-                                    val streamResult = withContext(Dispatchers.IO) {
-                                        videoService.streamInfo(key)
-                                    }
+                                    val streamResult = resolveStreamInfo(key)
                                     if (isReleased || requestGeneration != prepareRequestGeneration) {
                                         completion.set(SessionResult(SessionError.ERROR_INVALID_STATE))
                                     } else if (streamResult is AppResult.Success) {
@@ -1543,6 +1821,43 @@ class HPrePlaybackService : MediaSessionService() {
                     return Futures.immediateFuture(
                         SessionResult(
                             if (accepted) SessionResult.RESULT_SUCCESS else SessionError.ERROR_INVALID_STATE
+                        )
+                    )
+                }
+                CUSTOM_COMMAND_ENQUEUE -> {
+                    val nativeId = args.getString(EXTRA_NATIVE_ID).orEmpty()
+                    if (nativeId.isBlank()) {
+                        return Futures.immediateFuture(SessionResult(SessionError.ERROR_BAD_VALUE))
+                    }
+                    val accepted = autoplayQueue.enqueue(
+                        QueuedItem(
+                            key = ContentKey(args.getInt(EXTRA_SERVICE_ID, 0), nativeId),
+                            title = args.getString(EXTRA_TITLE).orEmpty()
+                        ),
+                        playNext = args.getBoolean(EXTRA_PLAY_NEXT, false)
+                    )
+                    if (accepted) broadcastQueueState()
+                    return Futures.immediateFuture(
+                        SessionResult(
+                            if (accepted) SessionResult.RESULT_SUCCESS else SessionError.ERROR_INVALID_STATE
+                        )
+                    )
+                }
+                CUSTOM_COMMAND_QUEUE_REMOVE -> {
+                    val removed = autoplayQueue.removeManual(args.getInt(EXTRA_QUEUE_INDEX, -1))
+                    if (removed) broadcastQueueState()
+                    return Futures.immediateFuture(
+                        SessionResult(
+                            if (removed) SessionResult.RESULT_SUCCESS else SessionError.ERROR_INVALID_STATE
+                        )
+                    )
+                }
+                CUSTOM_COMMAND_QUEUE_SKIP_TO -> {
+                    val dropped = autoplayQueue.dropManualThrough(args.getInt(EXTRA_QUEUE_INDEX, -1))
+                    if (dropped) broadcastQueueState()
+                    return Futures.immediateFuture(
+                        SessionResult(
+                            if (dropped) SessionResult.RESULT_SUCCESS else SessionError.ERROR_INVALID_STATE
                         )
                     )
                 }

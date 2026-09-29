@@ -177,6 +177,7 @@ fun HPreNavHost(
                 onNavigateToHistory = { navController.navigate(Screen.History.route) },
                 onNavigateToSubscriptions = { navController.navigate(Screen.Subscriptions.route) },
                 onNavigateToPlaylists = { navController.navigate(Screen.Playlists.route) },
+                onNavigateToDownloads = { navController.navigate(Screen.Downloads.route) },
                 onPlaylistClick = { id -> navController.navigate(Screen.PlaylistDetail.createRoute(id)) },
                 onVideoClick = { key ->
                     beginVideoNavigation(key = key, navigate = {
@@ -191,6 +192,16 @@ fun HPreNavHost(
                         navController.navigate(Screen.Watch.createRoute(key, thumb))
                     })
                 }
+            )
+        }
+
+        composable(Screen.Downloads.route) {
+            com.hpre.app.ui.library.DownloadsScreen(
+                tracker = container.downloadTracker,
+                onVideoClick = { videoKey ->
+                    navController.navigate(Screen.Watch.createRoute(videoKey))
+                },
+                onNavigateBack = { navController.popBackStack() }
             )
         }
 
@@ -261,7 +272,12 @@ fun HPreNavHost(
                     installedVersion = com.hpre.app.BuildConfig.VERSION_NAME,
                     mediaCacheManager = container.mediaCacheManager,
                     settingsSnapshot = container.settingsSnapshot,
-                    updateManager = container.appUpdateManager
+                    updateManager = container.appUpdateManager,
+                    backupManager = com.hpre.app.repository.BackupManager(
+                        container.historyRepository,
+                        container.playlistRepository,
+                        container.subscriptionRepository
+                    )
                 )
             )
             com.hpre.app.settings.SettingsScreen(
@@ -370,7 +386,9 @@ fun HPreNavHost(
                         subscriptionRepository = container.subscriptionRepository,
                         playlistRepository = container.playlistRepository,
                         watchRecommendationSource = container.recommendationRepository,
-                        watchStateCache = container.watchStateCache
+                        watchStateCache = container.watchStateCache,
+                        downloadTracker = container.downloadTracker,
+                        castController = container.castController
                     )
                 )
                 androidx.compose.runtime.LaunchedEffect(watchViewModel, backStackEntry.id) {

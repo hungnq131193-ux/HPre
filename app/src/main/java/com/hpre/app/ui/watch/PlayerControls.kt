@@ -3,9 +3,13 @@ import androidx.lifecycle.repeatOnLifecycle
 import androidx.compose.ui.semantics.onClick
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.displayCutoutPadding
 import androidx.compose.foundation.layout.fillMaxSize
@@ -20,6 +24,11 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.AspectRatio
+import androidx.compose.material.icons.filled.Cast
+import androidx.compose.material.icons.filled.Download
+import com.hpre.app.download.DownloadUiState
+import androidx.compose.material.icons.filled.DownloadDone
+import androidx.compose.material.icons.filled.Brightness6
 import androidx.compose.material.icons.filled.Forward10
 import androidx.compose.material.icons.filled.Fullscreen
 import androidx.compose.material.icons.filled.FullscreenExit
@@ -27,10 +36,16 @@ import androidx.compose.material.icons.filled.HighQuality
 import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Replay10
+import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.automirrored.filled.QueueMusic
 import androidx.compose.material.icons.filled.Speed
+import androidx.compose.material.icons.filled.Subtitles
+import androidx.compose.material.icons.filled.Timer
+import androidx.compose.material.icons.filled.VolumeUp
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -67,6 +82,7 @@ import androidx.compose.ui.layout.boundsInParent
 import androidx.compose.ui.layout.boundsInWindow
 import androidx.compose.ui.layout.findRootCoordinates
 import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
@@ -87,6 +103,7 @@ import com.hpre.app.player.PlaybackState
 import com.hpre.app.player.PlaybackStreamType
 import com.hpre.app.player.QualityOption
 import com.hpre.app.player.toProgress
+import kotlin.math.roundToInt
 import kotlinx.coroutines.delay
 
 /** How long the double-tap seek badge stays on screen. */
@@ -145,6 +162,20 @@ fun PlayerControlsOverlay(
     onSeekTo: (positionMs: Long) -> Unit,
     onSpeedSelected: (Float) -> Unit,
     onQualitySelected: (QualityOption) -> Unit,
+    sleepTimerEndsAtMs: Long? = null,
+    onSleepTimerSelected: (Long?) -> Unit = {},
+    playQueue: List<com.hpre.app.player.QueuedItem> = emptyList(),
+    onQueueItemClick: (Int) -> Unit = {},
+    onQueueItemRemove: (Int) -> Unit = {},
+    onSubtitleSelected: (String?) -> Unit = {},
+    onAudioLanguageSelected: (String?) -> Unit = {},
+    onCastClick: () -> Unit = {},
+    isCasting: Boolean = false,
+    downloadState: DownloadUiState = DownloadUiState.NONE,
+    downloadProgressPercent: Int = 0,
+    onDownloadVideo: () -> Unit = {},
+    onDownloadAudio: () -> Unit = {},
+    onDownloadRemove: () -> Unit = {},
     onToggleFullscreen: () -> Unit,
     modifier: Modifier = Modifier,
     readProgress: suspend () -> PlaybackProgress = { playbackState.toProgress() },
@@ -158,6 +189,22 @@ fun PlayerControlsOverlay(
     }
     var isSpeedMenuOpen by remember { mutableStateOf(false) }
     var isQualityMenuOpen by remember { mutableStateOf(false) }
+    var isTimerMenuOpen by remember { mutableStateOf(false) }
+    var isQueueOpen by remember { mutableStateOf(false) }
+    var isTrackMenuOpen by remember { mutableStateOf(false) }
+    var isDownloadMenuOpen by remember { mutableStateOf(false) }
+    var sleepTimerRemainingMs by remember(sleepTimerEndsAtMs) {
+        mutableStateOf(sleepTimerEndsAtMs?.let { it - System.currentTimeMillis() })
+    }
+    LaunchedEffect(sleepTimerEndsAtMs) {
+        val deadline = sleepTimerEndsAtMs ?: return@LaunchedEffect
+        while (true) {
+            val remaining = deadline - System.currentTimeMillis()
+            sleepTimerRemainingMs = remaining
+            if (remaining <= 0L) break
+            delay(1_000L)
+        }
+    }
     var isResizeMenuOpen by remember { mutableStateOf(false) }
     var isDragging by remember { mutableStateOf(false) }
     var dragPosition by remember { mutableFloatStateOf(0f) }
@@ -166,6 +213,7 @@ fun PlayerControlsOverlay(
     // Transient double-tap seek badge. The nonce lets repeated taps on the same side restart the
     // dismiss timer instead of being swallowed as an unchanged state.
     var seekFeedback by remember { mutableStateOf(SeekGesture.NONE) }
+    var adjustFeedback by remember { mutableStateOf<AdjustFeedback?>(null) }
     var feedbackNonce by remember { mutableIntStateOf(0) }
 
     val currentReadProgress = rememberUpdatedState(readProgress)
@@ -217,7 +265,7 @@ fun PlayerControlsOverlay(
         }
     }
 
-    val isMenuOpen = isSpeedMenuOpen || isQualityMenuOpen || isResizeMenuOpen
+    val isMenuOpen = isSpeedMenuOpen || isQualityMenuOpen || isTimerMenuOpen || isResizeMenuOpen || isQueueOpen || isTrackMenuOpen || isDownloadMenuOpen
     val keepControlsAlive: () -> Unit = {
         controlsVisible = true
         interactionNonce++
@@ -255,6 +303,11 @@ fun PlayerControlsOverlay(
         isInPip = isInPip,
         minimizeEnabled = minimizeEnabled
     )
+    val isBrightnessVolumeAllowed = PlayerGesturePolicy.isBrightnessVolumeGestureAllowed(
+        isFullscreen = isFullscreen,
+        isInPip = isInPip
+    )
+    val gestureContext = LocalContext.current
 
     // Delay spinner appearance by 150ms to eliminate visual flicker for instant cache-hits / fast starts
     var showLoadingSpinner by remember { mutableStateOf(false) }
@@ -279,7 +332,7 @@ fun PlayerControlsOverlay(
             .onGloballyPositioned { coordinates ->
                 overlayLayoutCoordinates = coordinates
             }
-            .pointerInput(isMinimizeAllowed) {
+            .pointerInput(isMinimizeAllowed, isBrightnessVolumeAllowed) {
                 val touchSlopPx = viewConfiguration.touchSlop
                 val doubleTapTimeoutMs = viewConfiguration.doubleTapTimeoutMillis
                 val doubleTapMinTimeMs = viewConfiguration.doubleTapMinTimeMillis
@@ -323,6 +376,8 @@ fun PlayerControlsOverlay(
                     var totalX = 0f
                     var totalY = 0f
                     var decision = PlayerDragDecision.UNDECIDED
+                    var adjustTarget: AdjustTarget? = null
+                    var adjustStartValue = 0f
                     val velocityTracker = VelocityTracker()
                     velocityTracker.addPosition(down.uptimeMillis, down.position)
 
@@ -372,15 +427,50 @@ fun PlayerControlsOverlay(
 
                         if (decision == PlayerDragDecision.UNDECIDED) {
                             decision = PlayerGesturePolicy.classifyDrag(totalX, totalY, touchSlopPx)
+                            if (decision == PlayerDragDecision.REJECTED && isBrightnessVolumeAllowed) {
+                                decision = PlayerDragDecision.VERTICAL_UP
+                            }
+                            if (isBrightnessVolumeAllowed &&
+                                (decision == PlayerDragDecision.VERTICAL_DOWN ||
+                                    decision == PlayerDragDecision.VERTICAL_UP)
+                            ) {
+                                adjustTarget = PlayerGesturePolicy.adjustTargetForDrag(
+                                    downPosition.x,
+                                    size.width.toFloat()
+                                )
+                                adjustStartValue = when (adjustTarget) {
+                                    AdjustTarget.VOLUME -> currentVolumeFraction(gestureContext)
+                                    AdjustTarget.BRIGHTNESS -> currentBrightnessFraction(gestureContext)
+                                }
+                            }
                         }
 
                         if (decision == PlayerDragDecision.VERTICAL_DOWN && isMinimizeAllowed) {
                             // Downward drag classified: consume event so parent scroll/views don't steal
                             change.consume()
                         }
+
+                        val activeAdjust = adjustTarget
+                        if (activeAdjust != null &&
+                            (decision == PlayerDragDecision.VERTICAL_DOWN ||
+                                decision == PlayerDragDecision.VERTICAL_UP)
+                        ) {
+                            change.consume()
+                            val fraction = PlayerGesturePolicy.adjustedValue(
+                                adjustStartValue,
+                                totalY,
+                                size.height.toFloat()
+                            )
+                            when (activeAdjust) {
+                                AdjustTarget.VOLUME -> setVolumeFraction(gestureContext, fraction)
+                                AdjustTarget.BRIGHTNESS -> setBrightnessFraction(gestureContext, fraction)
+                            }
+                            adjustFeedback = AdjustFeedback(activeAdjust, fraction)
+                        }
                     }
 
                     if (isCancelled || confirmedUpChange == null) {
+                        adjustFeedback = null
                         return@awaitEachGesture
                     }
 
@@ -399,6 +489,13 @@ fun PlayerControlsOverlay(
                             currentOnMinimizeToHome.value()
                         }
                         // Drag completed, clear double-tap state
+                        lastUpUptime = 0L
+                        lastUpPosition = Offset.Zero
+                    } else if (decision == PlayerDragDecision.VERTICAL_DOWN ||
+                        decision == PlayerDragDecision.VERTICAL_UP
+                    ) {
+                        // Brightness/volume drag finished
+                        adjustFeedback = null
                         lastUpUptime = 0L
                         lastUpPosition = Offset.Zero
                     } else if (decision == PlayerDragDecision.UNDECIDED) {
@@ -510,6 +607,47 @@ fun PlayerControlsOverlay(
                     Spacer(modifier = Modifier.width(6.dp))
                     Text(
                         text = stringResource(R.string.seek_step_seconds, 10),
+                        color = Color.White,
+                        fontSize = 13.sp,
+                        fontWeight = FontWeight.Medium
+                    )
+                }
+            }
+        }
+
+        // Brightness/volume drag feedback — mirrors the seek badge, pinned to the side the
+        // gesture started on.
+        adjustFeedback?.let { feedback ->
+            val isBrightness = feedback.target == AdjustTarget.BRIGHTNESS
+            Surface(
+                color = Color.Black.copy(alpha = 0.55f),
+                shape = CircleShape,
+                modifier = Modifier
+                    .align(if (isBrightness) Alignment.CenterStart else Alignment.CenterEnd)
+                    .padding(horizontal = 32.dp)
+                    .testTag(
+                        if (isBrightness) "gesture_feedback_brightness" else "gesture_feedback_volume"
+                    )
+            ) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp)
+                ) {
+                    Icon(
+                        imageVector = if (isBrightness) {
+                            Icons.Default.Brightness6
+                        } else {
+                            Icons.Default.VolumeUp
+                        },
+                        contentDescription = stringResource(
+                            if (isBrightness) R.string.gesture_brightness else R.string.gesture_volume
+                        ),
+                        tint = Color.White,
+                        modifier = Modifier.size(28.dp)
+                    )
+                    Spacer(modifier = Modifier.width(6.dp))
+                    Text(
+                        text = "${(feedback.fraction * 100).toInt()}%",
                         color = Color.White,
                         fontSize = 13.sp,
                         fontWeight = FontWeight.Medium
@@ -658,6 +796,7 @@ fun PlayerControlsOverlay(
                     unregisterProtectedBounds("top_end_menus")
                     unregisterProtectedBounds("control_speed_button")
                     unregisterProtectedBounds("control_quality_button")
+                    unregisterProtectedBounds("control_timer_button")
                     unregisterProtectedBounds("control_resize_mode_button")
                 }
             }
@@ -863,6 +1002,382 @@ fun PlayerControlsOverlay(
                         }
                     }
                 }
+
+                // Sleep timer menu — button shows the countdown once armed.
+                Box {
+                    val timerLabel = sleepTimerRemainingMs
+                        ?.takeIf { it > 0L }
+                        ?.let { remaining ->
+                            val totalSeconds = remaining / 1_000L
+                            "%d:%02d".format(totalSeconds / 60, totalSeconds % 60)
+                        }
+                    val timerDescription = if (timerLabel != null) {
+                        stringResource(R.string.sleep_timer_active, timerLabel)
+                    } else {
+                        stringResource(R.string.sleep_timer)
+                    }
+                    Surface(
+                        onClick = {
+                            keepControlsAlive()
+                            isTimerMenuOpen = true
+                        },
+                        color = Color.Black.copy(alpha = 0.4f),
+                        shape = RoundedCornerShape(6.dp),
+                        modifier = Modifier
+                            .testTag("control_timer_button")
+                            .onGloballyPositioned { coords ->
+                                registerProtectedBounds("control_timer_button", coords)
+                            }
+                            .semantics {
+                                role = Role.Button
+                                contentDescription = timerDescription
+                            }
+                    ) {
+                        if (timerLabel != null) {
+                            Text(
+                                text = timerLabel,
+                                color = Color.White,
+                                fontSize = 13.sp,
+                                fontWeight = FontWeight.Medium,
+                                modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp)
+                            )
+                        } else {
+                            Icon(
+                                imageVector = Icons.Default.Timer,
+                                contentDescription = null,
+                                tint = Color.White,
+                                modifier = Modifier
+                                    .padding(horizontal = 10.dp, vertical = 6.dp)
+                                    .size(20.dp)
+                            )
+                        }
+                    }
+                    DropdownMenu(
+                        expanded = isTimerMenuOpen,
+                        onDismissRequest = { isTimerMenuOpen = false },
+                        modifier = Modifier.testTag("timer_menu")
+                    ) {
+                        listOf(15L, 30L, 45L, 60L).forEach { minutes ->
+                            val isSelected = false
+                            DropdownMenuItem(
+                                text = {
+                                    Text(
+                                        text = stringResource(R.string.sleep_timer_minutes, minutes),
+                                        fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal
+                                    )
+                                },
+                                onClick = {
+                                    onSleepTimerSelected(minutes * 60_000L)
+                                    isTimerMenuOpen = false
+                                    keepControlsAlive()
+                                },
+                                modifier = Modifier
+                                    .testTag("timer_option_${minutes}")
+                                    .semantics {
+                                        role = Role.RadioButton
+                                        selected = isSelected
+                                    }
+                            )
+                        }
+                        if (sleepTimerEndsAtMs != null) {
+                            DropdownMenuItem(
+                                text = { Text(text = stringResource(R.string.sleep_timer_off)) },
+                                onClick = {
+                                    onSleepTimerSelected(null)
+                                    isTimerMenuOpen = false
+                                    keepControlsAlive()
+                                },
+                                modifier = Modifier.testTag("timer_option_off")
+                            )
+                        }
+                    }
+                }
+
+                // Subtitle / audio-language picker — only when the stream offers a choice.
+                if (playbackState.subtitles.isNotEmpty() || playbackState.audioLanguages.size > 1) {
+                    DisposableEffect(Unit) {
+                        onDispose { unregisterProtectedBounds("control_tracks_button") }
+                    }
+                    Box {
+                        val trackDescription = stringResource(R.string.tracks_menu)
+                        Surface(
+                            onClick = {
+                                keepControlsAlive()
+                                isTrackMenuOpen = true
+                            },
+                            color = Color.Black.copy(alpha = 0.4f),
+                            shape = RoundedCornerShape(6.dp),
+                            modifier = Modifier
+                                .testTag("control_tracks_button")
+                                .onGloballyPositioned { coords ->
+                                    registerProtectedBounds("control_tracks_button", coords)
+                                }
+                                .semantics {
+                                    role = Role.Button
+                                    contentDescription = trackDescription
+                                }
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Subtitles,
+                                contentDescription = null,
+                                tint = if (playbackState.subtitlesEnabled &&
+                                    playbackState.selectedSubtitleLanguage != null
+                                ) {
+                                    MaterialTheme.colorScheme.primary
+                                } else {
+                                    Color.White
+                                },
+                                modifier = Modifier
+                                    .padding(horizontal = 10.dp, vertical = 6.dp)
+                                    .size(20.dp)
+                            )
+                        }
+                        DropdownMenu(
+                            expanded = isTrackMenuOpen,
+                            onDismissRequest = { isTrackMenuOpen = false },
+                            modifier = Modifier.testTag("tracks_menu")
+                        ) {
+                            if (playbackState.subtitles.isNotEmpty()) {
+                                val offSelected = !playbackState.subtitlesEnabled
+                                DropdownMenuItem(
+                                    text = {
+                                        Text(
+                                            text = stringResource(R.string.subtitles_off),
+                                            fontWeight = if (offSelected) FontWeight.Bold else FontWeight.Normal
+                                        )
+                                    },
+                                    onClick = {
+                                        onSubtitleSelected(null)
+                                        isTrackMenuOpen = false
+                                        keepControlsAlive()
+                                    },
+                                    modifier = Modifier
+                                        .testTag("subtitle_option_off")
+                                        .semantics {
+                                            role = Role.RadioButton
+                                            selected = offSelected
+                                        }
+                                )
+                                playbackState.subtitles.forEach { subtitle ->
+                                    val isSelected = playbackState.subtitlesEnabled &&
+                                        playbackState.selectedSubtitleLanguage == subtitle.language
+                                    val baseLabel = languageLabel(subtitle.language)
+                                    val label = if (subtitle.isAutoGenerated) {
+                                        stringResource(R.string.subtitle_auto_generated, baseLabel)
+                                    } else {
+                                        baseLabel
+                                    }
+                                    DropdownMenuItem(
+                                        text = {
+                                            Text(
+                                                text = label,
+                                                fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal
+                                            )
+                                        },
+                                        onClick = {
+                                            onSubtitleSelected(subtitle.language)
+                                            isTrackMenuOpen = false
+                                            keepControlsAlive()
+                                        },
+                                        modifier = Modifier
+                                            .testTag("subtitle_option_${subtitle.language}")
+                                            .semantics {
+                                                role = Role.RadioButton
+                                                selected = isSelected
+                                            }
+                                    )
+                                }
+                            }
+                            if (playbackState.audioLanguages.size > 1) {
+                                if (playbackState.subtitles.isNotEmpty()) {
+                                    HorizontalDivider()
+                                }
+                                val defaultAudioSelected = playbackState.selectedAudioLanguage == null
+                                DropdownMenuItem(
+                                    text = {
+                                        Text(
+                                            text = stringResource(R.string.audio_language_default),
+                                            fontWeight = if (defaultAudioSelected) FontWeight.Bold else FontWeight.Normal
+                                        )
+                                    },
+                                    onClick = {
+                                        onAudioLanguageSelected(null)
+                                        isTrackMenuOpen = false
+                                        keepControlsAlive()
+                                    },
+                                    modifier = Modifier
+                                        .testTag("audio_option_default")
+                                        .semantics {
+                                            role = Role.RadioButton
+                                            selected = defaultAudioSelected
+                                        }
+                                )
+                                playbackState.audioLanguages.forEach { language ->
+                                    val isSelected = playbackState.selectedAudioLanguage == language
+                                    DropdownMenuItem(
+                                        text = {
+                                            Text(
+                                                text = languageLabel(language),
+                                                fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal
+                                            )
+                                        },
+                                        onClick = {
+                                            onAudioLanguageSelected(language)
+                                            isTrackMenuOpen = false
+                                            keepControlsAlive()
+                                        },
+                                        modifier = Modifier
+                                            .testTag("audio_option_$language")
+                                            .semantics {
+                                                role = Role.RadioButton
+                                                selected = isSelected
+                                            }
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+
+                // Play queue — badge with item count when non-empty.
+                DisposableEffect(Unit) {
+                    onDispose { unregisterProtectedBounds("control_queue_button") }
+                }
+                Box {
+                    val queueDescription = stringResource(R.string.queue_title)
+                    Surface(
+                        onClick = {
+                            keepControlsAlive()
+                            isQueueOpen = true
+                        },
+                        color = Color.Black.copy(alpha = 0.4f),
+                        shape = RoundedCornerShape(6.dp),
+                        modifier = Modifier
+                            .testTag("control_queue_button")
+                            .onGloballyPositioned { coords ->
+                                registerProtectedBounds("control_queue_button", coords)
+                            }
+                            .semantics {
+                                role = Role.Button
+                                contentDescription = queueDescription
+                            }
+                    ) {
+                        if (playQueue.isNotEmpty()) {
+                            Text(
+                                text = "${playQueue.size}",
+                                color = Color.White,
+                                fontSize = 13.sp,
+                                fontWeight = FontWeight.Medium,
+                                modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp)
+                            )
+                        } else {
+                            Icon(
+                                imageVector = Icons.AutoMirrored.Filled.QueueMusic,
+                                contentDescription = null,
+                                tint = Color.White,
+                                modifier = Modifier
+                                    .padding(horizontal = 10.dp, vertical = 6.dp)
+                                    .size(20.dp)
+                            )
+                        }
+                    }
+
+                    val castDescription = stringResource(R.string.cast_to_tv)
+                    Surface(
+                        onClick = {
+                            keepControlsAlive()
+                            onCastClick()
+                        },
+                        color = Color.Black.copy(alpha = 0.4f),
+                        shape = RoundedCornerShape(6.dp),
+                        modifier = Modifier
+                            .testTag("control_cast_button")
+                            .onGloballyPositioned { coords ->
+                                registerProtectedBounds("control_cast_button", coords)
+                            }
+                            .semantics {
+                                role = Role.Button
+                                contentDescription = castDescription
+                            }
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Cast,
+                            contentDescription = null,
+                            tint = if (isCasting) MaterialTheme.colorScheme.primary else Color.White,
+                            modifier = Modifier
+                                .padding(horizontal = 10.dp, vertical = 6.dp)
+                                .size(20.dp)
+                        )
+                    }
+
+                    val downloadDescription = stringResource(R.string.download_video)
+                    Surface(
+                        onClick = {
+                            keepControlsAlive()
+                            isDownloadMenuOpen = true
+                        },
+                        color = Color.Black.copy(alpha = 0.4f),
+                        shape = RoundedCornerShape(6.dp),
+                        modifier = Modifier
+                            .testTag("control_download_button")
+                            .onGloballyPositioned { coords ->
+                                registerProtectedBounds("control_download_button", coords)
+                            }
+                            .semantics {
+                                role = Role.Button
+                                contentDescription = downloadDescription
+                            }
+                    ) {
+                        Icon(
+                            imageVector = when (downloadState) {
+                                DownloadUiState.COMPLETED -> Icons.Default.DownloadDone
+                                else -> Icons.Default.Download
+                            },
+                            contentDescription = null,
+                            tint = when (downloadState) {
+                                DownloadUiState.COMPLETED -> MaterialTheme.colorScheme.primary
+                                DownloadUiState.FAILED -> MaterialTheme.colorScheme.error
+                                else -> Color.White
+                            },
+                            modifier = Modifier
+                                .padding(horizontal = 10.dp, vertical = 6.dp)
+                                .size(20.dp)
+                        )
+                    }
+                    DropdownMenu(
+                        expanded = isDownloadMenuOpen,
+                        onDismissRequest = { isDownloadMenuOpen = false },
+                        modifier = Modifier.testTag("download_menu")
+                    ) {
+                        if (downloadState == DownloadUiState.COMPLETED) {
+                            DropdownMenuItem(
+                                text = { Text(stringResource(R.string.download_remove)) },
+                                onClick = {
+                                    onDownloadRemove()
+                                    isDownloadMenuOpen = false
+                                    keepControlsAlive()
+                                }
+                            )
+                        } else {
+                            DropdownMenuItem(
+                                text = { Text(stringResource(R.string.download_video)) },
+                                onClick = {
+                                    onDownloadVideo()
+                                    isDownloadMenuOpen = false
+                                    keepControlsAlive()
+                                }
+                            )
+                            DropdownMenuItem(
+                                text = { Text(stringResource(R.string.download_audio_only)) },
+                                onClick = {
+                                    onDownloadAudio()
+                                    isDownloadMenuOpen = false
+                                    keepControlsAlive()
+                                }
+                            )
+                        }
+                    }
+                }
             }
 
             // Bottom bar: Progress slider, time labels, fullscreen toggle
@@ -1045,6 +1560,66 @@ fun PlayerControlsOverlay(
             }
         }
     }
+
+    if (isQueueOpen) {
+        androidx.compose.material3.ModalBottomSheet(
+            onDismissRequest = { isQueueOpen = false },
+            modifier = Modifier.testTag("queue_sheet")
+        ) {
+            Column(modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp)) {
+                Text(
+                    text = stringResource(R.string.queue_title),
+                    style = MaterialTheme.typography.titleMedium,
+                    modifier = Modifier.padding(vertical = 8.dp)
+                )
+                if (playQueue.isEmpty()) {
+                    Text(
+                        text = stringResource(R.string.queue_empty),
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.padding(vertical = 16.dp).testTag("queue_empty")
+                    )
+                } else {
+                    LazyColumn {
+                        itemsIndexed(
+                            items = playQueue,
+                            key = { index, item -> "queue_${index}_${item.key.nativeId}" },
+                            contentType = { _, _ -> "queue_item" }
+                        ) { index, item ->
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clickable {
+                                        onQueueItemClick(index)
+                                        isQueueOpen = false
+                                    }
+                                    .testTag("queue_item_$index")
+                            ) {
+                                Text(
+                                    text = item.title.ifBlank { item.key.nativeId },
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    maxLines = 2,
+                                    overflow = TextOverflow.Ellipsis,
+                                    modifier = Modifier.weight(1f).padding(vertical = 12.dp)
+                                )
+                                IconButton(
+                                    onClick = { onQueueItemRemove(index) },
+                                    modifier = Modifier.testTag("queue_remove_$index")
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Default.Close,
+                                        contentDescription = stringResource(R.string.queue_remove),
+                                        tint = MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
 }
 
 private fun formatTime(ms: Long): String {
@@ -1059,3 +1634,41 @@ private fun formatTime(ms: Long): String {
         "%d:%02d".format(minutes, seconds)
     }
 }
+
+private data class AdjustFeedback(val target: AdjustTarget, val fraction: Float)
+
+private fun currentVolumeFraction(context: android.content.Context): Float {
+    val manager = context.getSystemService(android.content.Context.AUDIO_SERVICE) as? android.media.AudioManager
+        ?: return 0f
+    val max = manager.getStreamMaxVolume(android.media.AudioManager.STREAM_MUSIC)
+    if (max <= 0) return 0f
+    return manager.getStreamVolume(android.media.AudioManager.STREAM_MUSIC).toFloat() / max
+}
+
+private fun setVolumeFraction(context: android.content.Context, fraction: Float) {
+    val manager = context.getSystemService(android.content.Context.AUDIO_SERVICE) as? android.media.AudioManager
+        ?: return
+    val max = manager.getStreamMaxVolume(android.media.AudioManager.STREAM_MUSIC)
+    if (max <= 0) return
+    val value = (fraction * max).roundToInt().coerceIn(0, max)
+    manager.setStreamVolume(android.media.AudioManager.STREAM_MUSIC, value, 0)
+}
+
+private fun currentBrightnessFraction(context: android.content.Context): Float {
+    val activity = context.findActivity() ?: return 0.5f
+    return activity.window?.attributes?.screenBrightness?.takeIf { it >= 0f } ?: 0.5f
+}
+
+private fun setBrightnessFraction(context: android.content.Context, fraction: Float) {
+    val activity = context.findActivity() ?: return
+    val window = activity.window ?: return
+    val attrs = window.attributes
+    attrs.screenBrightness = fraction.coerceIn(0f, 1f)
+    window.attributes = attrs
+}
+
+private fun languageLabel(tag: String): String =
+    runCatching {
+        java.util.Locale.forLanguageTag(tag).getDisplayLanguage(java.util.Locale.getDefault())
+    }.getOrNull()?.takeIf { it.isNotBlank() } ?: tag
+

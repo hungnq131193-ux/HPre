@@ -27,6 +27,7 @@ import com.hpre.app.repository.CatalogRepository
 import com.hpre.app.repository.HistoryRepository
 import com.hpre.app.repository.RecommendationRequest
 import com.hpre.app.repository.VideoService
+import com.hpre.app.download.toUiState
 import com.hpre.app.repository.WatchRecommendationSource
 import com.hpre.app.repository.WatchStateCache
 import com.hpre.app.repository.WatchStateSnapshot
@@ -149,6 +150,7 @@ data class CommentsPaginationState(
     val earlierCommentsDropped: Boolean = false
 )
 
+@androidx.annotation.OptIn(androidx.media3.common.util.UnstableApi::class)
 class WatchViewModel(
     private val videoService: VideoService,
     val playerController: PlayerController,
@@ -159,6 +161,8 @@ class WatchViewModel(
     private val playlistRepository: com.hpre.app.repository.PlaylistRepository? = null,
     private val watchRecommendationSource: WatchRecommendationSource? = null,
     private val watchStateCache: WatchStateCache? = null,
+    private val downloadTracker: com.hpre.app.download.DownloadTracker? = null,
+    private val castController: com.hpre.app.cast.CastController? = null,
     private val ioDispatcher: CoroutineDispatcher = Dispatchers.IO,
     private val videoOpenMetrics: VideoOpenMetrics = VideoOpenMetrics.Default
 ) : ViewModel() {
@@ -183,6 +187,8 @@ class WatchViewModel(
             playlistRepository: com.hpre.app.repository.PlaylistRepository? = null,
             watchRecommendationSource: WatchRecommendationSource? = null,
             watchStateCache: WatchStateCache? = null,
+            downloadTracker: com.hpre.app.download.DownloadTracker? = null,
+            castController: com.hpre.app.cast.CastController? = null,
             ioDispatcher: CoroutineDispatcher = Dispatchers.IO
         ): ViewModelProvider.Factory = object : ViewModelProvider.Factory {
             @Suppress("UNCHECKED_CAST")
@@ -198,6 +204,8 @@ class WatchViewModel(
                     playlistRepository = playlistRepository,
                     watchRecommendationSource = watchRecommendationSource,
                     watchStateCache = watchStateCache,
+                    downloadTracker = downloadTracker,
+                    castController = castController,
                     ioDispatcher = ioDispatcher
                 ) as T
             }
@@ -214,6 +222,8 @@ class WatchViewModel(
                     playlistRepository = playlistRepository,
                     watchRecommendationSource = watchRecommendationSource,
                     watchStateCache = watchStateCache,
+                    downloadTracker = downloadTracker,
+                    castController = castController,
                     ioDispatcher = ioDispatcher
                 ) as T
             }
@@ -228,6 +238,8 @@ class WatchViewModel(
             playlistRepository: com.hpre.app.repository.PlaylistRepository? = null,
             watchRecommendationSource: WatchRecommendationSource? = null,
             watchStateCache: WatchStateCache? = null,
+            downloadTracker: com.hpre.app.download.DownloadTracker? = null,
+            castController: com.hpre.app.cast.CastController? = null,
             ioDispatcher: CoroutineDispatcher = Dispatchers.IO
         ): ViewModelProvider.Factory = provideFactory(
             videoService = videoService,
@@ -238,6 +250,8 @@ class WatchViewModel(
             playlistRepository = playlistRepository,
             watchRecommendationSource = watchRecommendationSource,
             watchStateCache = watchStateCache,
+            downloadTracker = downloadTracker,
+            castController = castController,
             ioDispatcher = ioDispatcher
         )
     }
@@ -1101,6 +1115,87 @@ class WatchViewModel(
     fun selectQuality(quality: QualityOption) {
         playerController.selectQuality(quality)
     }
+
+    fun setSleepTimer(durationMs: Long?) {
+        playerController.setSleepTimer(durationMs)
+    }
+
+    fun enqueue(item: com.hpre.app.player.QueuedItem, playNext: Boolean = false) {
+        playerController.enqueue(item, playNext)
+    }
+
+    fun removeFromQueue(index: Int) {
+        playerController.removeFromQueue(index)
+    }
+
+    fun skipQueueTo(index: Int) {
+        playerController.skipQueueTo(index)
+    }
+
+    fun selectSubtitle(language: String?) {
+        playerController.selectSubtitle(language)
+    }
+
+    fun selectAudioLanguage(language: String?) {
+        playerController.selectAudioLanguage(language)
+    }
+
+    /** Download state of the currently loaded video, mapped from the tracker entry list. */
+    val downloadUiState: StateFlow<Pair<com.hpre.app.download.DownloadUiState, Int>> =
+        kotlinx.coroutines.flow.combine(
+            playerController.state,
+            downloadTracker?.downloads
+                ?: kotlinx.coroutines.flow.MutableStateFlow(emptyList<com.hpre.app.download.DownloadTracker.Entry>())
+        ) { state: com.hpre.app.player.PlaybackState, entries: List<com.hpre.app.download.DownloadTracker.Entry> ->
+            val key = state.key
+            val entry = entries.firstOrNull { it.key == key }
+            if (key == null || entry == null) {
+                com.hpre.app.download.DownloadUiState.NONE to 0
+            } else {
+                entry.toUiState() to entry.percent.toInt()
+            }
+        }.stateIn(
+            viewModelScope,
+            kotlinx.coroutines.flow.SharingStarted.WhileSubscribed(5_000L),
+            com.hpre.app.download.DownloadUiState.NONE to 0
+        )
+
+    fun downloadCurrent(audioOnly: Boolean) {
+        val key = playerController.state.value.key ?: return
+        downloadTracker?.enqueue(key, audioOnly)
+    }
+
+    fun removeCurrentDownload() {
+        val key = playerController.state.value.key ?: return
+        downloadTracker?.remove(key)
+    }
+
+    val castDevices: StateFlow<List<com.hpre.app.cast.FCastDevice>> =
+        castController?.devices
+            ?: kotlinx.coroutines.flow.MutableStateFlow(emptyList())
+    val castActiveDevice: StateFlow<com.hpre.app.cast.FCastDevice?> =
+        castController?.activeDevice
+            ?: kotlinx.coroutines.flow.MutableStateFlow(null)
+    val castError: StateFlow<String?> =
+        castController?.error ?: kotlinx.coroutines.flow.MutableStateFlow(null)
+
+    fun startCastDiscovery() = castController?.startDiscovery()
+    fun stopCastDiscovery() = castController?.stopDiscovery()
+
+    fun castTo(device: com.hpre.app.cast.FCastDevice) {
+        val state = playerController.state.value
+        val key = state.key ?: return
+        castController?.playOn(
+            device = device,
+            key = key,
+            startSeconds = state.currentPositionMs / 1000.0
+        )
+    }
+
+    fun castPause() = castController?.pause()
+    fun castResume() = castController?.resume()
+    fun castDisconnect() = castController?.disconnect()
+    fun consumeCastError() = castController?.consumeError()
 
     override fun onCleared() {
         synchronized(sessionGuard) {

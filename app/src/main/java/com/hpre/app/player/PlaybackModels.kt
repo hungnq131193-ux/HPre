@@ -68,6 +68,11 @@ data class SelectedStreams(
     val isLive: Boolean = false
 )
 
+data class QueuedItem(
+    val key: ContentKey,
+    val title: String
+)
+
 data class RetrySnapshot(
     val key: ContentKey,
     val sessionGen: Long,
@@ -97,7 +102,14 @@ data class PlaybackState(
     val error: com.hpre.app.core.error.AppError? = null,
     val retrySnapshot: RetrySnapshot? = null,
     val hasRenderedFirstFrame: Boolean = false,
-    val autoplayTransitionGeneration: Long = 0L
+    val autoplayTransitionGeneration: Long = 0L,
+    val sleepTimerEndsAtMs: Long? = null,
+    val playQueue: List<QueuedItem> = emptyList(),
+    val subtitles: List<SubtitleStream> = emptyList(),
+    val subtitlesEnabled: Boolean = true,
+    val selectedSubtitleLanguage: String? = null,
+    val audioLanguages: List<String> = emptyList(),
+    val selectedAudioLanguage: String? = null
 )
 
 data class PlaybackProgress(

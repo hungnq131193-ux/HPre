@@ -10,12 +10,19 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyListScope
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
@@ -41,7 +48,8 @@ fun LazyListScope.relatedVideoItems(
     onRetry: () -> Unit,
     onRefresh: () -> Unit = {},
     onVideoSelected: ((VideoSummary) -> Unit)? = null,
-    onChannelClick: ((ContentKey) -> Unit)? = null
+    onChannelClick: ((ContentKey) -> Unit)? = null,
+    onEnqueueVideo: ((VideoSummary, Boolean) -> Unit)? = null
 ) {
     item(key = WATCH_KEY_RELATED_HEADER) {
         Column(
@@ -123,12 +131,55 @@ fun LazyListScope.relatedVideoItems(
                 key = { video -> videoListItemKey(video.key) },
                 contentType = { "video" }
             ) { video ->
-                VideoCard(
-                    video = video,
-                    onClick = { if (onVideoSelected != null) onVideoSelected(video) else onVideoClick(it) },
-                    onChannelClick = onChannelClick,
-                    horizontalPadding = 0.dp
-                )
+                Row(
+                    verticalAlignment = Alignment.Top,
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    androidx.compose.foundation.layout.Box(modifier = Modifier.weight(1f)) {
+                        VideoCard(
+                            video = video,
+                            onClick = { if (onVideoSelected != null) onVideoSelected(video) else onVideoClick(it) },
+                            onChannelClick = onChannelClick,
+                            horizontalPadding = 0.dp
+                        )
+                    }
+                    if (onEnqueueVideo != null) {
+                        var menuOpen by remember(video.key) { mutableStateOf(false) }
+                        androidx.compose.foundation.layout.Box {
+                            IconButton(
+                                onClick = { menuOpen = true },
+                                modifier = Modifier.testTag("related_enqueue_${'$'}{video.key.nativeId}")
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.MoreVert,
+                                    contentDescription = stringResource(R.string.queue_add),
+                                    tint = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
+                            DropdownMenu(
+                                expanded = menuOpen,
+                                onDismissRequest = { menuOpen = false }
+                            ) {
+                                DropdownMenuItem(
+                                    text = { Text(stringResource(R.string.queue_play_next)) },
+                                    onClick = {
+                                        onEnqueueVideo(video, true)
+                                        menuOpen = false
+                                    },
+                                    modifier = Modifier.testTag("enqueue_next_${'$'}{video.key.nativeId}")
+                                )
+                                DropdownMenuItem(
+                                    text = { Text(stringResource(R.string.queue_add)) },
+                                    onClick = {
+                                        onEnqueueVideo(video, false)
+                                        menuOpen = false
+                                    },
+                                    modifier = Modifier.testTag("enqueue_last_${'$'}{video.key.nativeId}")
+                                )
+                            }
+                        }
+                    }
+                }
             }
         }
         else -> {

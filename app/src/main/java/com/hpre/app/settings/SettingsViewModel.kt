@@ -46,13 +46,22 @@ sealed interface VideoCacheClearUiState {
     data object Error : VideoCacheClearUiState
 }
 
+sealed interface BackupUiState {
+    data object Idle : BackupUiState
+    data object Running : BackupUiState
+    data object Exported : BackupUiState
+    data class Imported(val summary: com.hpre.app.repository.BackupImportSummary) : BackupUiState
+    data object Error : BackupUiState
+}
+
 class SettingsViewModel(
     private val settingsRepository: SettingsRepository,
     private val appUpdateChecker: AppUpdateChecker,
     val installedVersion: String,
     private val mediaCacheManager: MediaCacheManager? = null,
     settingsSnapshot: AppSettingsSnapshot? = null,
-    updateManager: AppUpdateManager? = null
+    updateManager: AppUpdateManager? = null,
+    private val backupManager: com.hpre.app.repository.BackupManager? = null
 ) : ViewModel() {
 
     private val updates = updateManager ?: AppUpdateManager(appUpdateChecker, installedVersion, viewModelScope)
@@ -121,6 +130,50 @@ class SettingsViewModel(
         }
     }
 
+    fun setSponsorBlock(enabled: Boolean) {
+        viewModelScope.launch {
+            settingsRepository.setSponsorBlockEnabled(enabled)
+        }
+    }
+
+    private val _backupState = MutableStateFlow<BackupUiState>(BackupUiState.Idle)
+    val backupState: StateFlow<BackupUiState> = _backupState.asStateFlow()
+
+    fun exportBackup(resolver: android.content.ContentResolver, uri: android.net.Uri) {
+        val manager = backupManager ?: return
+        if (_backupState.value == BackupUiState.Running) return
+        _backupState.value = BackupUiState.Running
+        viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) {
+            val json = (manager.exportJson() as? com.hpre.app.core.error.AppResult.Success)?.value
+            val ok = json != null && runCatching {
+                resolver.openOutputStream(uri)?.use { it.write(json.toByteArray(Charsets.UTF_8)) } != null
+            }.getOrDefault(false)
+            _backupState.value = if (ok) BackupUiState.Exported else BackupUiState.Error
+        }
+    }
+
+    fun importBackup(resolver: android.content.ContentResolver, uri: android.net.Uri) {
+        val manager = backupManager ?: return
+        if (_backupState.value == BackupUiState.Running) return
+        _backupState.value = BackupUiState.Running
+        viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) {
+            val json = runCatching {
+                resolver.openInputStream(uri)?.use { it.readBytes().toString(Charsets.UTF_8) }
+            }.getOrNull()
+            val result = json?.let { manager.importJson(it) }
+            _backupState.value = when (result) {
+                is com.hpre.app.core.error.AppResult.Success -> BackupUiState.Imported(result.value)
+                else -> BackupUiState.Error
+            }
+        }
+    }
+
+    fun consumeBackupResult() {
+        if (_backupState.value != BackupUiState.Running) {
+            _backupState.value = BackupUiState.Idle
+        }
+    }
+
     fun clearVideoCache() {
         if (_videoCacheClearState.value == VideoCacheClearUiState.Clearing) return
         _videoCacheClearState.value = VideoCacheClearUiState.Clearing
@@ -156,7 +209,8 @@ class SettingsViewModel(
             installedVersion: String,
             mediaCacheManager: MediaCacheManager? = null,
             settingsSnapshot: AppSettingsSnapshot? = null,
-            updateManager: AppUpdateManager? = null
+            updateManager: AppUpdateManager? = null,
+            backupManager: com.hpre.app.repository.BackupManager? = null
         ): ViewModelProvider.Factory =
             object : ViewModelProvider.Factory {
                 @Suppress("UNCHECKED_CAST")
@@ -167,7 +221,8 @@ class SettingsViewModel(
                         installedVersion,
                         mediaCacheManager,
                         settingsSnapshot,
-                        updateManager
+                        updateManager,
+                        backupManager
                     ) as T
                 }
             }

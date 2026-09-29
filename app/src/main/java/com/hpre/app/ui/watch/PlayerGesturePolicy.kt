@@ -15,8 +15,12 @@ enum class PlayerDragDecision {
     UNDECIDED,
     HORIZONTAL,
     VERTICAL_DOWN,
+    VERTICAL_UP,
     REJECTED
 }
+
+/** Which screen half a vertical adjust drag belongs to. */
+enum class AdjustTarget { BRIGHTNESS, VOLUME }
 
 /**
  * Pixel-space configuration values for player gesture handling.
@@ -118,5 +122,25 @@ object PlayerGesturePolicy {
         minimizeEnabled: Boolean
     ): Boolean {
         return minimizeEnabled && !isFullscreen && !isInPip
+    }
+
+    /**
+     * Brightness/volume swipe only runs fullscreen — in the inline player a downward drag is
+     * already the swipe-to-minimize gesture, so splitting by direction there is ambiguous.
+     */
+    fun isBrightnessVolumeGestureAllowed(isFullscreen: Boolean, isInPip: Boolean): Boolean =
+        isFullscreen && !isInPip
+
+    /** Left half of the surface adjusts brightness, right half volume. */
+    fun adjustTargetForDrag(downX: Float, width: Float): AdjustTarget =
+        if (downX < width / 2f) AdjustTarget.BRIGHTNESS else AdjustTarget.VOLUME
+
+    /**
+     * Maps accumulated vertical displacement to a 0..1 value: dragging the full surface height
+     * sweeps the whole range; upward increases.
+     */
+    fun adjustedValue(startValue: Float, totalYPx: Float, heightPx: Float): Float {
+        if (heightPx <= 0f) return startValue
+        return (startValue - totalYPx / heightPx).coerceIn(0f, 1f)
     }
 }
