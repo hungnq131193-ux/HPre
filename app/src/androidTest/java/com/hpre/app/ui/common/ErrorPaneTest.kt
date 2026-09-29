@@ -4,6 +4,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithTag
+import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import com.hpre.app.core.designsystem.HPreTheme
@@ -44,6 +45,20 @@ class ErrorPaneTest {
         composeTestRule.onNodeWithTag("error_retry_button").assertIsDisplayed()
         composeTestRule.onNodeWithTag("error_retry_button").performClick()
         assertEquals(2, retryClicked)
+    }
+
+    @Test
+    fun inline_extraction_failure_shows_guidance_and_dispatches_retry() {
+        var retries = 0
+        val context = androidx.test.core.app.ApplicationProvider.getApplicationContext<android.content.Context>()
+        composeTestRule.setContent {
+            HPreTheme {
+                InlineErrorPane(error = AppError.ExtractionFailed, onRetry = { retries++ })
+            }
+        }
+        composeTestRule.onNodeWithText(context.getString(com.hpre.app.R.string.error_extraction_failed)).assertIsDisplayed()
+        composeTestRule.onNodeWithTag("inline_error_retry").performClick()
+        assertEquals(1, retries)
     }
 
     @Test

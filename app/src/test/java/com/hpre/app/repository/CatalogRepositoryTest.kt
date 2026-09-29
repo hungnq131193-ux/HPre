@@ -15,7 +15,9 @@ import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
+import java.io.IOException
 import java.net.SocketTimeoutException
+import java.net.UnknownHostException
 
 class CatalogRepositoryTest {
     @Test
@@ -50,6 +52,40 @@ class CatalogRepositoryTest {
         viewCount = 1000,
         publishedTimestamp = 10000L
     )
+
+    @Test
+    fun raw_network_failures_remain_retryable_across_catalog_operations() = runTest {
+        for (failure in listOf(IOException(), SocketTimeoutException(), UnknownHostException())) {
+            val service = FakeVideoService(
+                trendingHandler = { throw failure },
+                searchHandler = { _, _, _ -> throw failure },
+                videoHandler = { throw failure }
+            )
+            val repository = CatalogRepository(service, this)
+            val expected = AppResult.Failure(AppError.NetworkError)
+            assertEquals(expected, repository.getTrending())
+            assertEquals(expected, repository.search("network"))
+            assertEquals(expected, repository.search("network", pageToken = PageToken.Id("next")))
+            assertEquals(expected, repository.video(ContentKey(0, "network")))
+        }
+    }
+
+    @Test
+    fun provider_failure_categories_survive_all_catalog_operations() = runTest {
+        for (error in listOf(AppError.ExtractionFailed, AppError.RateLimited, AppError.LoginRequired)) {
+            val failure = AppResult.Failure(error)
+            val service = FakeVideoService(
+                trendingHandler = { failure },
+                searchHandler = { _, _, _ -> failure },
+                videoHandler = { failure }
+            )
+            val repository = CatalogRepository(service, this)
+            assertEquals(failure, repository.getTrending())
+            assertEquals(failure, repository.search("provider"))
+            assertEquals(failure, repository.search("provider", pageToken = PageToken.Id("next")))
+            assertEquals(failure, repository.video(ContentKey(0, "provider")))
+        }
+    }
 
     @Test
     fun raw_metadata_socket_timeout_returns_network_failure() = runTest {

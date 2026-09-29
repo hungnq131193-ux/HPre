@@ -40,6 +40,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
+import androidx.compose.ui.ExperimentalComposeUiApi
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
@@ -47,6 +48,8 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.testTagsAsResourceId
 import androidx.compose.ui.unit.dp
 import androidx.annotation.StringRes
 import androidx.navigation.NavGraph.Companion.findStartDestination
@@ -98,7 +101,7 @@ private val bottomNavItems = listOf(
     BottomNavItem.Library
 )
 
-@OptIn(ExperimentalMaterial3Api::class)
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalComposeUiApi::class)
 @Composable
 fun RootScaffold(
     container: AppContainer,
@@ -290,7 +293,10 @@ fun RootScaffold(
                 }
             }
         },
-        modifier = modifier.fillMaxSize().testTag("root_scaffold")
+        modifier = modifier
+            .fillMaxSize()
+            .semantics { testTagsAsResourceId = true }
+            .testTag("root_scaffold")
     ) { innerPadding ->
         HPreNavHost(
             navController = navController,
