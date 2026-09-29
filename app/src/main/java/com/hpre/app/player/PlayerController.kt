@@ -44,6 +44,10 @@ interface PlayerController {
     fun removeFromQueue(index: Int) = Unit
     /** Drops queue entries 0..index inclusive — the caller is about to play that entry directly. */
     fun skipQueueTo(index: Int) = Unit
+    /** Selects a subtitle track by language tag, or disables subtitles when null. */
+    fun selectSubtitle(language: String?) = Unit
+    /** Prefers an audio track language for multi-language manifests; null restores default. */
+    fun selectAudioLanguage(language: String?) = Unit
     /** Invalidate the previous media without destroying the shared playback session. */
     fun stopForTransition() = pause()
     fun clearMedia() = Unit

@@ -104,7 +104,12 @@ data class PlaybackState(
     val hasRenderedFirstFrame: Boolean = false,
     val autoplayTransitionGeneration: Long = 0L,
     val sleepTimerEndsAtMs: Long? = null,
-    val playQueue: List<QueuedItem> = emptyList()
+    val playQueue: List<QueuedItem> = emptyList(),
+    val subtitles: List<SubtitleStream> = emptyList(),
+    val subtitlesEnabled: Boolean = true,
+    val selectedSubtitleLanguage: String? = null,
+    val audioLanguages: List<String> = emptyList(),
+    val selectedAudioLanguage: String? = null
 )
 
 data class PlaybackProgress(

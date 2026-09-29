@@ -127,6 +127,10 @@
     <string name="queue_remove">Xóa khỏi hàng đợi</string>
     <string name="queue_play_next">Phát tiếp theo</string>
     <string name="queue_add">Thêm vào hàng đợi</string>
+    <string name="tracks_menu">Phụ đề và ngôn ngữ</string>
+    <string name="subtitles_off">Tắt phụ đề</string>
+    <string name="subtitle_auto_generated">%1$s (tự động)</string>
+    <string name="audio_language_default">Ngôn ngữ mặc định</string>
     <string name="quality_auto">Tự động</string>
     <string name="watch_save">Lưu</string>
     <string name="watch_share">Chia sẻ</string>

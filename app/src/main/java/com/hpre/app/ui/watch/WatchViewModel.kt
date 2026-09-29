@@ -1118,6 +1118,14 @@ class WatchViewModel(
         playerController.skipQueueTo(index)
     }
 
+    fun selectSubtitle(language: String?) {
+        playerController.selectSubtitle(language)
+    }
+
+    fun selectAudioLanguage(language: String?) {
+        playerController.selectAudioLanguage(language)
+    }
+
     override fun onCleared() {
         synchronized(sessionGuard) {
             currentMetricsSession?.let { videoOpenMetrics.cancel(it) }

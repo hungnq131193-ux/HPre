@@ -127,6 +127,10 @@
     <string name="queue_remove">Remove from queue</string>
     <string name="queue_play_next">Play next</string>
     <string name="queue_add">Add to queue</string>
+    <string name="tracks_menu">Subtitles and language</string>
+    <string name="subtitles_off">Subtitles off</string>
+    <string name="subtitle_auto_generated">%1$s (auto-generated)</string>
+    <string name="audio_language_default">Default audio language</string>
     <string name="quality_auto">Auto</string>
     <string name="watch_save">Save</string>
     <string name="watch_share">Share</string>

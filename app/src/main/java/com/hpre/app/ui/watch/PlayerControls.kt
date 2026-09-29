@@ -34,10 +34,12 @@ import androidx.compose.material.icons.filled.Replay10
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.automirrored.filled.QueueMusic
 import androidx.compose.material.icons.filled.Speed
+import androidx.compose.material.icons.filled.Subtitles
 import androidx.compose.material.icons.filled.Timer
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -157,6 +159,8 @@ fun PlayerControlsOverlay(
     playQueue: List<com.hpre.app.player.QueuedItem> = emptyList(),
     onQueueItemClick: (Int) -> Unit = {},
     onQueueItemRemove: (Int) -> Unit = {},
+    onSubtitleSelected: (String?) -> Unit = {},
+    onAudioLanguageSelected: (String?) -> Unit = {},
     onToggleFullscreen: () -> Unit,
     modifier: Modifier = Modifier,
     readProgress: suspend () -> PlaybackProgress = { playbackState.toProgress() },
@@ -172,6 +176,7 @@ fun PlayerControlsOverlay(
     var isQualityMenuOpen by remember { mutableStateOf(false) }
     var isTimerMenuOpen by remember { mutableStateOf(false) }
     var isQueueOpen by remember { mutableStateOf(false) }
+    var isTrackMenuOpen by remember { mutableStateOf(false) }
     var sleepTimerRemainingMs by remember(sleepTimerEndsAtMs) {
         mutableStateOf(sleepTimerEndsAtMs?.let { it - System.currentTimeMillis() })
     }
@@ -981,6 +986,152 @@ fun PlayerControlsOverlay(
                     }
                 }
 
+                // Subtitle / audio-language picker — only when the stream offers a choice.
+                if (playbackState.subtitles.isNotEmpty() || playbackState.audioLanguages.size > 1) {
+                    DisposableEffect(Unit) {
+                        onDispose { unregisterProtectedBounds("control_tracks_button") }
+                    }
+                    Box {
+                        val trackDescription = stringResource(R.string.tracks_menu)
+                        Surface(
+                            onClick = {
+                                keepControlsAlive()
+                                isTrackMenuOpen = true
+                            },
+                            color = Color.Black.copy(alpha = 0.4f),
+                            shape = RoundedCornerShape(6.dp),
+                            modifier = Modifier
+                                .testTag("control_tracks_button")
+                                .onGloballyPositioned { coords ->
+                                    registerProtectedBounds("control_tracks_button", coords)
+                                }
+                                .semantics {
+                                    role = Role.Button
+                                    contentDescription = trackDescription
+                                }
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Subtitles,
+                                contentDescription = null,
+                                tint = if (playbackState.subtitlesEnabled &&
+                                    playbackState.selectedSubtitleLanguage != null
+                                ) {
+                                    MaterialTheme.colorScheme.primary
+                                } else {
+                                    Color.White
+                                },
+                                modifier = Modifier
+                                    .padding(horizontal = 10.dp, vertical = 6.dp)
+                                    .size(20.dp)
+                            )
+                        }
+                        DropdownMenu(
+                            expanded = isTrackMenuOpen,
+                            onDismissRequest = { isTrackMenuOpen = false },
+                            modifier = Modifier.testTag("tracks_menu")
+                        ) {
+                            if (playbackState.subtitles.isNotEmpty()) {
+                                val offSelected = !playbackState.subtitlesEnabled
+                                DropdownMenuItem(
+                                    text = {
+                                        Text(
+                                            text = stringResource(R.string.subtitles_off),
+                                            fontWeight = if (offSelected) FontWeight.Bold else FontWeight.Normal
+                                        )
+                                    },
+                                    onClick = {
+                                        onSubtitleSelected(null)
+                                        isTrackMenuOpen = false
+                                        keepControlsAlive()
+                                    },
+                                    modifier = Modifier
+                                        .testTag("subtitle_option_off")
+                                        .semantics {
+                                            role = Role.RadioButton
+                                            selected = offSelected
+                                        }
+                                )
+                                playbackState.subtitles.forEach { subtitle ->
+                                    val isSelected = playbackState.subtitlesEnabled &&
+                                        playbackState.selectedSubtitleLanguage == subtitle.language
+                                    val baseLabel = languageLabel(subtitle.language)
+                                    val label = if (subtitle.isAutoGenerated) {
+                                        stringResource(R.string.subtitle_auto_generated, baseLabel)
+                                    } else {
+                                        baseLabel
+                                    }
+                                    DropdownMenuItem(
+                                        text = {
+                                            Text(
+                                                text = label,
+                                                fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal
+                                            )
+                                        },
+                                        onClick = {
+                                            onSubtitleSelected(subtitle.language)
+                                            isTrackMenuOpen = false
+                                            keepControlsAlive()
+                                        },
+                                        modifier = Modifier
+                                            .testTag("subtitle_option_${subtitle.language}")
+                                            .semantics {
+                                                role = Role.RadioButton
+                                                selected = isSelected
+                                            }
+                                    )
+                                }
+                            }
+                            if (playbackState.audioLanguages.size > 1) {
+                                if (playbackState.subtitles.isNotEmpty()) {
+                                    HorizontalDivider()
+                                }
+                                val defaultAudioSelected = playbackState.selectedAudioLanguage == null
+                                DropdownMenuItem(
+                                    text = {
+                                        Text(
+                                            text = stringResource(R.string.audio_language_default),
+                                            fontWeight = if (defaultAudioSelected) FontWeight.Bold else FontWeight.Normal
+                                        )
+                                    },
+                                    onClick = {
+                                        onAudioLanguageSelected(null)
+                                        isTrackMenuOpen = false
+                                        keepControlsAlive()
+                                    },
+                                    modifier = Modifier
+                                        .testTag("audio_option_default")
+                                        .semantics {
+                                            role = Role.RadioButton
+                                            selected = defaultAudioSelected
+                                        }
+                                )
+                                playbackState.audioLanguages.forEach { language ->
+                                    val isSelected = playbackState.selectedAudioLanguage == language
+                                    DropdownMenuItem(
+                                        text = {
+                                            Text(
+                                                text = languageLabel(language),
+                                                fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal
+                                            )
+                                        },
+                                        onClick = {
+                                            onAudioLanguageSelected(language)
+                                            isTrackMenuOpen = false
+                                            keepControlsAlive()
+                                        },
+                                        modifier = Modifier
+                                            .testTag("audio_option_$language")
+                                            .semantics {
+                                                role = Role.RadioButton
+                                                selected = isSelected
+                                            }
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+
                 // Play queue — badge with item count when non-empty.
                 DisposableEffect(Unit) {
                     onDispose { unregisterProtectedBounds("control_queue_button") }
@@ -1280,3 +1431,8 @@ private fun formatTime(ms: Long): String {
         "%d:%02d".format(minutes, seconds)
     }
 }
+
+private fun languageLabel(tag: String): String =
+    runCatching {
+        java.util.Locale.forLanguageTag(tag).getDisplayLanguage(java.util.Locale.getDefault())
+    }.getOrNull()?.takeIf { it.isNotBlank() } ?: tag

@@ -37,10 +37,10 @@ internal object YouTubeDashManifestFactory {
         val video = indexedVideo.filter { it.format == MediaFormat.MPEG_4 && it.codec.orEmpty().startsWith("avc1") }
             .ifEmpty { indexedVideo.filter { it.format == MediaFormat.WEBM && it.codec.orEmpty().startsWith("vp") } }
             .distinctBy { it.itag }
-        val audio = selectAudio(audioStreams)
+        val audio = selectAudioGroups(audioStreams)
         if (video.isEmpty() || audio.isEmpty()) return null
 
-        val durationMs = (video + audio).maxOf { it.itagItem?.approxDurationMs ?: 0L }
+        val durationMs = (video + audio.flatMap { it.second }).maxOf { it.itagItem?.approxDurationMs ?: 0L }
             .takeIf { it > 0 } ?: (durationSecondsFallback * 1000).takeIf { it > 0 } ?: return null
 
         return buildString {
@@ -59,29 +59,49 @@ internal object YouTubeDashManifestFactory {
             }
             append("</AdaptationSet>")
 
-            val audioMime = audio.first().format!!.mimeType
-            append("""<AdaptationSet id="1" contentType="audio" mimeType="$audioMime" subsegmentAlignment="true">""")
-            for (stream in audio.sortedBy { it.bitrate }) {
-                append("""<Representation id="${stream.itag}" bandwidth="${bandwidth(stream)}" codecs="${xml(stream.codec)}"""")
-                stream.itagItem?.sampleRate?.takeIf { it > 0 }?.let { append(""" audioSamplingRate="$it"""") }
+            audio.forEachIndexed { index, group ->
+                val groupStreams = group.second
+                val audioMime = groupStreams.first().format!!.mimeType
+                append("""<AdaptationSet id="${index + 1}" contentType="audio" mimeType="$audioMime" subsegmentAlignment="true"""")
+                groupStreams.first().audioLocale?.language?.let { append(""" lang="${xml(it)}"""") }
                 append(">")
-                stream.itagItem?.audioChannels?.takeIf { it > 0 }?.let {
-                    append("""<AudioChannelConfiguration schemeIdUri="urn:mpeg:dash:23003:3:audio_channel_configuration:2011" value="$it"/>""")
+                if (group.first == null) {
+                    append("""<Role schemeIdUri="urn:mpeg:dash:role:2011" value="main"/>""")
                 }
-                appendSegmentBase(stream)
-                append("</Representation>")
+                for (stream in groupStreams.sortedBy { it.bitrate }) {
+                    append("""<Representation id="${stream.itag}" bandwidth="${bandwidth(stream)}" codecs="${xml(stream.codec)}"""")
+                    stream.itagItem?.sampleRate?.takeIf { it > 0 }?.let { append(""" audioSamplingRate="$it"""") }
+                    append(">")
+                    stream.itagItem?.audioChannels?.takeIf { it > 0 }?.let {
+                        append("""<AudioChannelConfiguration schemeIdUri="urn:mpeg:dash:23003:3:audio_channel_configuration:2011" value="$it"/>""")
+                    }
+                    appendSegmentBase(stream)
+                    append("</Representation>")
+                }
+                append("</AdaptationSet>")
             }
-            append("</AdaptationSet></Period></MPD>")
+            append("</Period></MPD>")
         }
     }
 
-    private fun selectAudio(streams: List<AudioStream>): List<AudioStream> {
+    // Groups audio tracks by audioTrackId so multi-language videos emit one AdaptationSet per
+    // language; null key is the original/default track and always leads.
+    private fun selectAudioGroups(streams: List<AudioStream>): List<Pair<String?, List<AudioStream>>> {
         val indexed = streams.filter { it.isIndexed() && it.itagItem?.isDrc != true }
-        val original = indexed.filter { it.audioTrackType == AudioTrackType.ORIGINAL || it.audioTrackId == null }
-            .ifEmpty { indexed.filter { it.audioTrackId == indexed.firstOrNull()?.audioTrackId } }
-        return original.filter { it.format == MediaFormat.M4A }
-            .ifEmpty { original.filter { it.format == MediaFormat.WEBMA_OPUS || it.format == MediaFormat.WEBMA } }
-            .distinctBy { it.itag }
+        val groups = LinkedHashMap<String?, MutableList<AudioStream>>()
+        for (stream in indexed) {
+            val key = if (stream.audioTrackType == AudioTrackType.ORIGINAL) null else stream.audioTrackId
+            groups.getOrPut(key) { mutableListOf() }.add(stream)
+        }
+        val ordered = LinkedHashMap<String?, MutableList<AudioStream>>()
+        groups.remove(null)?.let { ordered[null] = it }
+        ordered.putAll(groups)
+        if (ordered.isEmpty()) return emptyList()
+        return ordered.map { (trackId, group) ->
+            trackId to group.filter { it.format == MediaFormat.M4A }
+                .ifEmpty { group.filter { it.format == MediaFormat.WEBMA_OPUS || it.format == MediaFormat.WEBMA } }
+                .distinctBy { it.itag }
+        }.filter { it.second.isNotEmpty() }
     }
 
     private fun Stream.isIndexed(): Boolean {

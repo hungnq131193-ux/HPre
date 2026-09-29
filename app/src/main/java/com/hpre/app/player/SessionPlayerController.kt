@@ -112,6 +112,33 @@ internal fun restoreConnectedPlaybackState(
     playbackSpeed = playbackSpeed.takeIf { it > 0f } ?: current.playbackSpeed
 )
 
+internal data class ResolvedTrackSelections(
+    val subtitleLanguage: String?,
+    val audioLanguages: List<String>,
+    val audioLanguage: String?
+)
+
+internal fun resolveTrackSelections(
+    streamInfo: StreamInfo?,
+    streamType: PlaybackStreamType?,
+    previousSubtitleLanguage: String?,
+    previousAudioLanguage: String?
+): ResolvedTrackSelections {
+    val subtitleLanguage = previousSubtitleLanguage
+        ?.takeIf { prev -> streamInfo?.subtitles.orEmpty().any { it.language == prev } }
+        ?: streamInfo?.subtitles?.firstOrNull()?.language
+    val audioLanguages = if (streamType == PlaybackStreamType.DASH || streamType == PlaybackStreamType.HLS) {
+        streamInfo?.audioStreams.orEmpty().mapNotNull { it.language }.distinct()
+    } else {
+        emptyList()
+    }
+    return ResolvedTrackSelections(
+        subtitleLanguage = subtitleLanguage,
+        audioLanguages = audioLanguages,
+        audioLanguage = previousAudioLanguage?.takeIf { it in audioLanguages }
+    )
+}
+
 internal fun readQualityOption(args: Bundle): QualityOption? {
     if (!args.containsKey(HPrePlaybackService.EXTRA_QUALITY_HEIGHT)) return null
     val isProgressive = args.getBoolean(HPrePlaybackService.EXTRA_QUALITY_IS_PROGRESSIVE, true)
@@ -634,6 +661,13 @@ class SessionPlayerController internal constructor(
                             val available = acceptedTransition.streamInfo
                                 ?.let(StreamSelector::getAvailableQualities)
                                 .orEmpty()
+                            val previous = _state.value
+                            val tracks = resolveTrackSelections(
+                                streamInfo = acceptedTransition.streamInfo,
+                                streamType = acceptedTransition.initialQuality?.streamType,
+                                previousSubtitleLanguage = previous.selectedSubtitleLanguage,
+                                previousAudioLanguage = previous.selectedAudioLanguage
+                            )
                             _state.value = PlaybackState(
                                 key = acceptedTransition.nextKey,
                                 title = acceptedTransition.nextTitle,
@@ -645,7 +679,12 @@ class SessionPlayerController internal constructor(
                                 availableQualities = available,
                                 streamType = acceptedTransition.initialQuality?.streamType,
                                 autoplayTransitionGeneration = acceptedTransition.nextSessionGeneration,
-                                sleepTimerEndsAtMs = _state.value.sleepTimerEndsAtMs
+                                sleepTimerEndsAtMs = previous.sleepTimerEndsAtMs,
+                                subtitlesEnabled = previous.subtitlesEnabled,
+                                subtitles = acceptedTransition.streamInfo?.subtitles.orEmpty(),
+                                selectedSubtitleLanguage = tracks.subtitleLanguage,
+                                audioLanguages = tracks.audioLanguages,
+                                selectedAudioLanguage = tracks.audioLanguage
                             )
                         }
                         return Futures.immediateFuture(
@@ -1027,6 +1066,34 @@ class SessionPlayerController internal constructor(
         }
     }
 
+    override fun selectSubtitle(language: String?) {
+        if (isReleased) return
+        _state.update {
+            it.copy(
+                subtitlesEnabled = language != null,
+                selectedSubtitleLanguage = language ?: it.subtitles.firstOrNull()?.language
+            )
+        }
+        scope.launch(mainDispatcher) {
+            val controller = mediaController ?: return@launch
+            controller.trackSelectionParameters = controller.trackSelectionParameters.buildUpon()
+                .setTrackTypeDisabled(C.TRACK_TYPE_TEXT, language == null)
+                .setPreferredTextLanguage(language.orEmpty())
+                .build()
+        }
+    }
+
+    override fun selectAudioLanguage(language: String?) {
+        if (isReleased) return
+        _state.update { it.copy(selectedAudioLanguage = language) }
+        scope.launch(mainDispatcher) {
+            val controller = mediaController ?: return@launch
+            controller.trackSelectionParameters = controller.trackSelectionParameters.buildUpon()
+                .setPreferredAudioLanguage(language.orEmpty())
+                .build()
+        }
+    }
+
     private fun applyVideoTrackPolicy(
         controller: MediaController? = mediaController,
         isChangingConfigurations: Boolean = false
@@ -1109,8 +1176,14 @@ class SessionPlayerController internal constructor(
         }
         val initialStreamType = (initialSelection as? AppResult.Success)?.value?.streamType
         val clampedSpeed = playbackSpeed.takeIf { it.isFinite() }?.coerceIn(0.25f, 3.0f) ?: 1.0f
-        _state.update {
-            it.copy(
+        _state.update { previous ->
+            val tracks = resolveTrackSelections(
+                streamInfo = streamInfo,
+                streamType = initialStreamType,
+                previousSubtitleLanguage = previous.selectedSubtitleLanguage,
+                previousAudioLanguage = previous.selectedAudioLanguage
+            )
+            previous.copy(
                 key = key,
                 title = streamInfo.title,
                 isLoading = true,
@@ -1126,7 +1199,11 @@ class SessionPlayerController internal constructor(
                 currentPositionMs = effectiveStartPositionMs,
                 playWhenReady = playWhenReady,
                 playbackSpeed = clampedSpeed,
-                autoplayTransitionGeneration = 0L
+                autoplayTransitionGeneration = 0L,
+                subtitles = streamInfo.subtitles,
+                selectedSubtitleLanguage = tracks.subtitleLanguage,
+                audioLanguages = tracks.audioLanguages,
+                selectedAudioLanguage = tracks.audioLanguage
             )
         }
 
@@ -1452,7 +1529,10 @@ class SessionPlayerController internal constructor(
         _state.value = PlaybackState(
             playbackSpeed = previous.playbackSpeed,
             qualityPolicy = previous.qualityPolicy as? UserQualityPolicy.Auto ?: UserQualityPolicy.Auto(),
-            sleepTimerEndsAtMs = previous.sleepTimerEndsAtMs
+            sleepTimerEndsAtMs = previous.sleepTimerEndsAtMs,
+            subtitlesEnabled = previous.subtitlesEnabled,
+            selectedSubtitleLanguage = previous.selectedSubtitleLanguage,
+            selectedAudioLanguage = previous.selectedAudioLanguage
         )
         // Commands use the same main-thread queue as prepare, so an already dispatched prepare is
         // invalidated by the service before the next video is delivered. Keep controller/surface.
@@ -1482,7 +1562,12 @@ class SessionPlayerController internal constructor(
         pendingCommands.clearPrepare()
         currentKey = null
         currentStreamInfo = null
-        _state.value = PlaybackState(sleepTimerEndsAtMs = _state.value.sleepTimerEndsAtMs)
+        _state.value = PlaybackState(
+            sleepTimerEndsAtMs = _state.value.sleepTimerEndsAtMs,
+            subtitlesEnabled = _state.value.subtitlesEnabled,
+            selectedSubtitleLanguage = _state.value.selectedSubtitleLanguage,
+            selectedAudioLanguage = _state.value.selectedAudioLanguage
+        )
 
         val surfaceView = currentSurfaceView
         currentSurfaceView = null
