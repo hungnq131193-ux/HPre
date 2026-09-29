@@ -17,6 +17,7 @@ interface SettingsRepository : PlaybackPreferences {
     suspend fun setMobileQuality(quality: QualityPreferenceSetting)
     suspend fun setDefaultPlaybackSpeed(speed: Float)
     suspend fun setAutoplay(enabled: Boolean)
+    suspend fun setSponsorBlockEnabled(enabled: Boolean)
 }
 
 class DataStoreSettingsRepository(
@@ -33,12 +34,14 @@ class DataStoreSettingsRepository(
         val KEY_MOBILE_QUALITY = stringPreferencesKey("mobile_quality")
         val KEY_DEFAULT_SPEED = floatPreferencesKey("default_speed")
         val KEY_AUTOPLAY = booleanPreferencesKey("autoplay")
+        val KEY_SPONSOR_BLOCK = booleanPreferencesKey("sponsor_block")
 
         const val DEFAULT_BACKGROUND_PLAYBACK = DataStorePlaybackPreferences.DEFAULT_BACKGROUND_PLAYBACK
         const val DEFAULT_PIP_ENABLED = DataStorePlaybackPreferences.DEFAULT_PIP_ENABLED
         const val DEFAULT_HISTORY_ENABLED = DataStorePlaybackPreferences.DEFAULT_HISTORY_ENABLED
         const val DEFAULT_SPEED = 1.0f
         const val DEFAULT_AUTOPLAY = true
+        const val DEFAULT_SPONSOR_BLOCK = true
         val DEFAULT_THEME = AppTheme.DARK
         val DEFAULT_LANGUAGE = AppLanguage.VIETNAMESE
     }
@@ -89,7 +92,8 @@ class DataStoreSettingsRepository(
             wifiQuality = wifiQuality,
             mobileQuality = mobileQuality,
             defaultPlaybackSpeed = preferences[KEY_DEFAULT_SPEED] ?: DEFAULT_SPEED,
-            autoplay = preferences[KEY_AUTOPLAY] ?: DEFAULT_AUTOPLAY
+            autoplay = preferences[KEY_AUTOPLAY] ?: DEFAULT_AUTOPLAY,
+            sponsorBlockEnabled = preferences[KEY_SPONSOR_BLOCK] ?: DEFAULT_SPONSOR_BLOCK
         )
     }
 
@@ -156,6 +160,12 @@ class DataStoreSettingsRepository(
     override suspend fun setAutoplay(enabled: Boolean) {
         dataStore.edit { preferences ->
             preferences[KEY_AUTOPLAY] = enabled
+        }
+    }
+
+    override suspend fun setSponsorBlockEnabled(enabled: Boolean) {
+        dataStore.edit { preferences ->
+            preferences[KEY_SPONSOR_BLOCK] = enabled
         }
     }
 }

@@ -170,6 +170,16 @@ class HPrePlaybackService : MediaSessionService() {
     private var snapshotStore: PlaybackSnapshotStore? = null
     private var settingsSnapshot: AppSettingsSnapshot? = null
 
+    private val sponsorSkip = com.hpre.app.sponsorblock.SponsorSkipController()
+    private val sponsorClient by lazy {
+        com.hpre.app.sponsorblock.SponsorBlockClient(
+            (application as? HPreApplication)?.container?.okHttpClient
+                ?: okhttp3.OkHttpClient()
+        )
+    }
+    private var sponsorFetchJob: Job? = null
+    private var sponsorPollJob: Job? = null
+
     private var currentKey: ContentKey? = null
     private var currentStreamInfo: StreamInfo? = null
     private var currentSelectedQuality: QualityOption? = null
@@ -419,6 +429,14 @@ class HPrePlaybackService : MediaSessionService() {
     }
 
     private val playerListener = object : Player.Listener {
+        override fun onPositionDiscontinuity(
+            oldPosition: Player.PositionInfo,
+            newPosition: Player.PositionInfo,
+            reason: Int
+        ) {
+            sponsorSkip.onSeekTo(newPosition.positionMs)
+        }
+
         override fun onPlayerError(error: PlaybackException) {
             if (isReleased) return
             autoplayReadyAction = null
@@ -683,6 +701,41 @@ class HPrePlaybackService : MediaSessionService() {
         autoplayJob = null
     }
 
+    // SponsorBlock: only YouTube (serviceId 0) videos have segments on sponsor.ajay.app.
+    private fun startSponsorTracking(key: ContentKey) {
+        sponsorSkip.reset()
+        sponsorFetchJob?.cancel()
+        sponsorPollJob?.cancel()
+        if (key.serviceId != 0) return
+        sponsorFetchJob = serviceScope.launch(Dispatchers.IO) {
+            val segments = sponsorClient.fetchSegments(key.nativeId)
+            withContext(Dispatchers.Main) {
+                if (isReleased || currentKey != key || segments.isEmpty()) return@withContext
+                sponsorSkip.setSegments(segments)
+                sponsorPollJob = serviceScope.launch(Dispatchers.Main) {
+                    while (true) {
+                        val player = exoPlayer
+                        if (player != null && player.isPlaying && currentKey == key &&
+                            settingsSnapshot?.value?.sponsorBlockEnabled == true
+                        ) {
+                            sponsorSkip.skipTargetFor(player.currentPosition)
+                                ?.let { player.seekTo(it) }
+                        }
+                        kotlinx.coroutines.delay(500L)
+                    }
+                }
+            }
+        }
+    }
+
+    private fun stopSponsorTracking() {
+        sponsorSkip.reset()
+        sponsorFetchJob?.cancel()
+        sponsorFetchJob = null
+        sponsorPollJob?.cancel()
+        sponsorPollJob = null
+    }
+
     private fun checkBufferingWatchdog() {
         val player = exoPlayer
         val playbackState = player?.playbackState ?: Player.STATE_IDLE
@@ -909,6 +962,7 @@ class HPrePlaybackService : MediaSessionService() {
         currentStreamInfo = streamInfo
         userRequestedPlay = playWhenReady
         lastReportedAppError = null
+        startSponsorTracking(key)
         if (!preserveSourceAttempts && !preserveRecoverySession) {
             currentQualityPolicy = qualityPolicy
         }
@@ -1224,6 +1278,7 @@ class HPrePlaybackService : MediaSessionService() {
     private fun clearMediaInternal(releaseResources: Boolean = true) {
         historyScheduler.stop()
         cancelAutoplay()
+        stopSponsorTracking()
         autoplayQueue.clear()
         broadcastQueueState()
 

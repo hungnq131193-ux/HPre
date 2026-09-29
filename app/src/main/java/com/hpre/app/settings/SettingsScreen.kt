@@ -152,6 +152,14 @@ fun SettingsScreen(
                 onCheckedChange = { viewModel.setAutoplay(it) }
             )
 
+            SettingsSwitchItem(
+                title = stringResource(R.string.settings_sponsorblock),
+                subtitle = stringResource(R.string.settings_sponsorblock_summary),
+                checked = settings.sponsorBlockEnabled,
+                tag = "setting_sponsorblock_switch",
+                onCheckedChange = { viewModel.setSponsorBlock(it) }
+            )
+
             HorizontalDivider()
 
             // Quality Section

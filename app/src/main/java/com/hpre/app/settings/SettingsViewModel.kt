@@ -130,6 +130,12 @@ class SettingsViewModel(
         }
     }
 
+    fun setSponsorBlock(enabled: Boolean) {
+        viewModelScope.launch {
+            settingsRepository.setSponsorBlockEnabled(enabled)
+        }
+    }
+
     private val _backupState = MutableStateFlow<BackupUiState>(BackupUiState.Idle)
     val backupState: StateFlow<BackupUiState> = _backupState.asStateFlow()
 

@@ -141,6 +141,8 @@
     <string name="settings_backup_exported">Backup exported</string>
     <string name="settings_backup_imported">Imported: %1$d history, %2$d playlists, %3$d channels</string>
     <string name="settings_backup_error">Backup/import failed — invalid file</string>
+    <string name="settings_sponsorblock">Skip sponsors</string>
+    <string name="settings_sponsorblock_summary">Automatically skip sponsor segments (SponsorBlock)</string>
     <string name="quality_auto">Auto</string>
     <string name="watch_save">Save</string>
     <string name="watch_share">Share</string>

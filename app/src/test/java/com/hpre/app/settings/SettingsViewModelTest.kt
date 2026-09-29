@@ -81,6 +81,7 @@ class SettingsViewModelTest {
         override suspend fun setAutoplay(enabled: Boolean) {
             settingsFlow.value = settingsFlow.value.copy(autoplay = enabled)
         }
+            override suspend fun setSponsorBlockEnabled(enabled: Boolean) {}
 
         override suspend fun setBackgroundPlaybackEnabled(enabled: Boolean) {
             bgFlow.value = enabled

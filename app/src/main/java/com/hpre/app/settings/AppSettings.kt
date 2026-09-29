@@ -27,5 +27,6 @@ data class AppSettings(
     val wifiQuality: QualityPreferenceSetting = QualityPreferenceSetting.AUTO,
     val mobileQuality: QualityPreferenceSetting = QualityPreferenceSetting.AUTO,
     val defaultPlaybackSpeed: Float = 1.0f,
-    val autoplay: Boolean = true
+    val autoplay: Boolean = true,
+    val sponsorBlockEnabled: Boolean = true
 )

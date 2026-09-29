@@ -97,6 +97,7 @@ class NavigationFlowTest {
             override suspend fun setAutoplay(enabled: Boolean) {
                 _settingsFlow.value = _settingsFlow.value.copy(autoplay = enabled)
             }
+            override suspend fun setSponsorBlockEnabled(enabled: Boolean) {}
             override suspend fun setBackgroundPlaybackEnabled(enabled: Boolean) {
                 _flow.value = enabled
                 _settingsFlow.value = _settingsFlow.value.copy(backgroundPlaybackEnabled = enabled)
