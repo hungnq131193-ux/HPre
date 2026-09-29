@@ -6,6 +6,7 @@ plugins {
     alias(libs.plugins.kotlin.android)
     alias(libs.plugins.compose.compiler)
     alias(libs.plugins.ksp)
+    alias(libs.plugins.baselineprofile)
 }
 
 fun signingValue(propertyName: String, environmentName: String): Provider<String> =
@@ -35,6 +36,7 @@ android {
         versionName = "1.0.43"
 
         testInstrumentationRunner = "com.hpre.app.testing.HPreTestRunner"
+        manifestPlaceholders["applicationClass"] = "com.hpre.app.HPreApplication"
         vectorDrawables {
             useSupportLibrary = true
         }
@@ -72,6 +74,14 @@ android {
         debug {
             isMinifyEnabled = false
             applicationIdSuffix = ""
+        }
+        create("benchmarkRelease") {
+            signingConfig = signingConfigs.getByName("debug")
+            manifestPlaceholders["applicationClass"] = "com.hpre.app.benchmark.BenchmarkHPreApplication"
+        }
+        create("nonMinifiedRelease") {
+            signingConfig = signingConfigs.getByName("debug")
+            manifestPlaceholders["applicationClass"] = "com.hpre.app.benchmark.BenchmarkHPreApplication"
         }
     }
 
@@ -162,9 +172,11 @@ dependencies {
     implementation(libs.coil.compose)
     implementation(libs.kotlinx.coroutines.android)
     implementation(libs.moshi)
+    implementation(libs.androidx.profileinstaller)
 
     // Extractor (Only accessed via extractor adapter in Task 3)
     implementation(libs.newpipe.extractor)
+    baselineProfile(project(":baselineprofile"))
 
     // Unit Testing
     testImplementation(libs.junit)

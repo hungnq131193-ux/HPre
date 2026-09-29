@@ -28,3 +28,4 @@ dependencyResolutionManagement {
 
 rootProject.name = "HPre"
 include(":app")
+include(":baselineprofile")
