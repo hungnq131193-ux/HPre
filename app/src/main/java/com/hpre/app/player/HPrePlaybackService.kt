@@ -176,6 +176,9 @@ class HPrePlaybackService : MediaLibraryService() {
     }
 
     private var mediaSourceFactory: MediaSourceCreator? = null
+
+    private val downloadTracker: com.hpre.app.download.DownloadTracker?
+        get() = (application as? HPreApplication)?.container?.downloadTracker
     private var recoveryCoordinator: StreamRecoveryCoordinator? = null
     private var snapshotStore: PlaybackSnapshotStore? = null
     private var settingsSnapshot: AppSettingsSnapshot? = null
@@ -336,9 +339,7 @@ class HPrePlaybackService : MediaLibraryService() {
                     }
 
                     val effectivePlayWhenReady = if (authoritativeBackgroundAllowed != true) false else snapshot.playWhenReady
-                    val streamResult = withContext(Dispatchers.IO) {
-                        app.container.videoService.streamInfo(snapshot.key)
-                    }
+                    val streamResult = resolveStreamInfo(snapshot.key)
 
                     if (streamResult !is AppResult.Success) {
                         if (!isReleased && restoreRequest == prepareRequestGeneration) snapshotStore?.clear()
@@ -601,9 +602,7 @@ class HPrePlaybackService : MediaLibraryService() {
         val transportRequest = transportGeneration
         autoplayJob?.cancel()
         autoplayJob = serviceScope.launch(Dispatchers.Main) {
-            val streamResult = withContext(Dispatchers.IO) {
-                app.container.videoService.streamInfo(nextKey)
-            }
+            val streamResult = resolveStreamInfo(nextKey)
             if (streamResult !is AppResult.Success) return@launch
             val latestSettings = settingsSnapshot?.value ?: return@launch
             if (isReleased || exoPlayer?.playbackState != Player.STATE_ENDED || !userRequestedPlay || !canCommitAutoplay(
@@ -915,6 +914,19 @@ class HPrePlaybackService : MediaLibraryService() {
         }
     }
 
+    /**
+     * Resolve stream info, falling back to a synthesized entry for fully-downloaded content so
+     * playback still works with no network.
+     */
+    private suspend fun resolveStreamInfo(key: ContentKey): AppResult<StreamInfo> {
+        val result = withContext(Dispatchers.IO) {
+            (application as? HPreApplication)?.container?.videoService?.streamInfo(key)
+                ?: AppResult.Failure(AppError.Unknown)
+        }
+        if (result is AppResult.Success) return result
+        return downloadTracker?.offlineInfoFor(key)?.let { AppResult.Success(it) } ?: result
+    }
+
     private fun prepareInternal(
         key: ContentKey,
         streamInfo: StreamInfo,
@@ -991,6 +1003,18 @@ class HPrePlaybackService : MediaLibraryService() {
             }
 
             val selectionAndSource = withContext(Dispatchers.IO) {
+                val offlineSource = downloadTracker?.buildOfflineMediaSource(key)
+                if (offlineSource != null) {
+                    return@withContext AppResult.Success(Pair(
+                        SelectedStreams(
+                            key = key,
+                            title = streamInfo.title,
+                            streamType = PlaybackStreamType.PROGRESSIVE,
+                            isLive = false
+                        ),
+                        offlineSource
+                    ))
+                }
                 val selectionResult = if (explicitPreference != null) {
                     StreamSelector.selectStream(streamInfo, explicitPreference)
                 } else {
@@ -1463,9 +1487,7 @@ class HPrePlaybackService : MediaLibraryService() {
             val requestGeneration = ++prepareRequestGeneration
             serviceScope.launch(Dispatchers.Main) {
                 val app = application as? HPreApplication
-                val streamResult = withContext(Dispatchers.IO) {
-                    app?.container?.videoService?.streamInfo(key)
-                }
+                val streamResult = resolveStreamInfo(key)
                 if (isReleased || requestGeneration != prepareRequestGeneration ||
                     streamResult !is AppResult.Success
                 ) {
@@ -1652,9 +1674,7 @@ class HPrePlaybackService : MediaLibraryService() {
                                 start = kotlinx.coroutines.CoroutineStart.LAZY
                             ) {
                                 try {
-                                    val streamResult = withContext(Dispatchers.IO) {
-                                        videoService.streamInfo(key)
-                                    }
+                                    val streamResult = resolveStreamInfo(key)
                                     if (isReleased || requestGeneration != prepareRequestGeneration) {
                                         completion.set(SessionResult(SessionError.ERROR_INVALID_STATE))
                                     } else if (streamResult is AppResult.Success) {

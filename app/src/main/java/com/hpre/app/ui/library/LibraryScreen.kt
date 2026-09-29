@@ -82,6 +82,7 @@ fun LibraryScreen(
     onNavigateToHistory: () -> Unit,
     onNavigateToSubscriptions: () -> Unit,
     onNavigateToPlaylists: () -> Unit,
+    onNavigateToDownloads: () -> Unit = {},
     onPlaylistClick: (Long) -> Unit,
     onVideoClick: (ContentKey) -> Unit,
     onChannelClick: (ContentKey) -> Unit,
@@ -199,6 +200,16 @@ fun LibraryScreen(
                 }
             }
         }
+
+        Spacer(modifier = Modifier.height(16.dp))
+
+        // Section: Downloads
+        LibrarySectionHeader(
+            title = stringResource(R.string.screen_downloads),
+            count = 0,
+            onSeeAllClick = onNavigateToDownloads,
+            tag = "library_downloads_header"
+        )
 
         Spacer(modifier = Modifier.height(16.dp))
 

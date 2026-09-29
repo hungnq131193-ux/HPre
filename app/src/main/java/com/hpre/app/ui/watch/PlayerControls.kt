@@ -24,6 +24,9 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.AspectRatio
+import androidx.compose.material.icons.filled.Download
+import com.hpre.app.download.DownloadUiState
+import androidx.compose.material.icons.filled.DownloadDone
 import androidx.compose.material.icons.filled.Brightness6
 import androidx.compose.material.icons.filled.Forward10
 import androidx.compose.material.icons.filled.Fullscreen
@@ -165,6 +168,11 @@ fun PlayerControlsOverlay(
     onQueueItemRemove: (Int) -> Unit = {},
     onSubtitleSelected: (String?) -> Unit = {},
     onAudioLanguageSelected: (String?) -> Unit = {},
+    downloadState: DownloadUiState = DownloadUiState.NONE,
+    downloadProgressPercent: Int = 0,
+    onDownloadVideo: () -> Unit = {},
+    onDownloadAudio: () -> Unit = {},
+    onDownloadRemove: () -> Unit = {},
     onToggleFullscreen: () -> Unit,
     modifier: Modifier = Modifier,
     readProgress: suspend () -> PlaybackProgress = { playbackState.toProgress() },
@@ -181,6 +189,7 @@ fun PlayerControlsOverlay(
     var isTimerMenuOpen by remember { mutableStateOf(false) }
     var isQueueOpen by remember { mutableStateOf(false) }
     var isTrackMenuOpen by remember { mutableStateOf(false) }
+    var isDownloadMenuOpen by remember { mutableStateOf(false) }
     var sleepTimerRemainingMs by remember(sleepTimerEndsAtMs) {
         mutableStateOf(sleepTimerEndsAtMs?.let { it - System.currentTimeMillis() })
     }
@@ -253,7 +262,7 @@ fun PlayerControlsOverlay(
         }
     }
 
-    val isMenuOpen = isSpeedMenuOpen || isQualityMenuOpen || isTimerMenuOpen || isResizeMenuOpen || isQueueOpen
+    val isMenuOpen = isSpeedMenuOpen || isQualityMenuOpen || isTimerMenuOpen || isResizeMenuOpen || isQueueOpen || isTrackMenuOpen || isDownloadMenuOpen
     val keepControlsAlive: () -> Unit = {
         controlsVisible = true
         interactionNonce++
@@ -1269,6 +1278,74 @@ fun PlayerControlsOverlay(
                             )
                         }
                     }
+
+                    val downloadDescription = stringResource(R.string.download_video)
+                    Surface(
+                        onClick = {
+                            keepControlsAlive()
+                            isDownloadMenuOpen = true
+                        },
+                        color = Color.Black.copy(alpha = 0.4f),
+                        shape = RoundedCornerShape(6.dp),
+                        modifier = Modifier
+                            .testTag("control_download_button")
+                            .onGloballyPositioned { coords ->
+                                registerProtectedBounds("control_download_button", coords)
+                            }
+                            .semantics {
+                                role = Role.Button
+                                contentDescription = downloadDescription
+                            }
+                    ) {
+                        Icon(
+                            imageVector = when (downloadState) {
+                                DownloadUiState.COMPLETED -> Icons.Default.DownloadDone
+                                else -> Icons.Default.Download
+                            },
+                            contentDescription = null,
+                            tint = when (downloadState) {
+                                DownloadUiState.COMPLETED -> MaterialTheme.colorScheme.primary
+                                DownloadUiState.FAILED -> MaterialTheme.colorScheme.error
+                                else -> Color.White
+                            },
+                            modifier = Modifier
+                                .padding(horizontal = 10.dp, vertical = 6.dp)
+                                .size(20.dp)
+                        )
+                    }
+                    DropdownMenu(
+                        expanded = isDownloadMenuOpen,
+                        onDismissRequest = { isDownloadMenuOpen = false },
+                        modifier = Modifier.testTag("download_menu")
+                    ) {
+                        if (downloadState == DownloadUiState.COMPLETED) {
+                            DropdownMenuItem(
+                                text = { Text(stringResource(R.string.download_remove)) },
+                                onClick = {
+                                    onDownloadRemove()
+                                    isDownloadMenuOpen = false
+                                    keepControlsAlive()
+                                }
+                            )
+                        } else {
+                            DropdownMenuItem(
+                                text = { Text(stringResource(R.string.download_video)) },
+                                onClick = {
+                                    onDownloadVideo()
+                                    isDownloadMenuOpen = false
+                                    keepControlsAlive()
+                                }
+                            )
+                            DropdownMenuItem(
+                                text = { Text(stringResource(R.string.download_audio_only)) },
+                                onClick = {
+                                    onDownloadAudio()
+                                    isDownloadMenuOpen = false
+                                    keepControlsAlive()
+                                }
+                            )
+                        }
+                    }
                 }
             }
 
@@ -1563,3 +1640,4 @@ private fun languageLabel(tag: String): String =
     runCatching {
         java.util.Locale.forLanguageTag(tag).getDisplayLanguage(java.util.Locale.getDefault())
     }.getOrNull()?.takeIf { it.isNotBlank() } ?: tag
+

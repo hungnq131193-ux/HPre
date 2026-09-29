@@ -86,6 +86,10 @@ interface AppContainer {
     val watchStateCache: WatchStateCache
     val playbackSnapshotStore: PlaybackSnapshotStore?
         get() = null
+    /** Media3 download tracker; null in test containers that do not exercise downloads. */
+    val downloadTracker: com.hpre.app.download.DownloadTracker?
+        @androidx.annotation.OptIn(androidx.media3.common.util.UnstableApi::class)
+        get() = null
     val appUpdateChecker: AppUpdateChecker
         get() = AppUpdateChecker {
             UpdateCheckResult.Unavailable(UpdateUnavailableReason.NETWORK)
@@ -277,6 +281,16 @@ class DefaultAppContainer(
 
     override val playbackSnapshotStore: PlaybackSnapshotStore by lazy {
         PlaybackSnapshotStore(appContext)
+    }
+
+    @androidx.annotation.OptIn(androidx.media3.common.util.UnstableApi::class)
+    override val downloadTracker: com.hpre.app.download.DownloadTracker by lazy {
+        com.hpre.app.download.DownloadTracker(
+            context = appContext,
+            okHttpClient = okHttpClient,
+            videoService = videoService,
+            scope = applicationScope
+        )
     }
 
     override val appUpdateChecker: AppUpdateChecker by lazy {

@@ -14,6 +14,16 @@
     <string name="player_next">Tiếp</string>
     <string name="widget_idle_title">Không phát</string>
     <string name="widget_description">Điều khiển phát nhạc HPre</string>
+    <string name="download_channel_name">Tải xuống</string>
+    <string name="download_video">Tải video</string>
+    <string name="download_audio_only">Chỉ tải âm thanh</string>
+    <string name="download_remove">Xóa bản tải</string>
+    <string name="download_state_downloaded">Đã tải</string>
+    <string name="download_state_downloading">Đang tải %d%%</string>
+    <string name="download_state_failed">Tải lỗi</string>
+    <string name="download_state_queued">Chờ tải</string>
+    <string name="screen_downloads">Tải xuống</string>
+    <string name="downloads_empty">Chưa có nội dung tải xuống</string>
     <string name="action_pause">Tạm dừng</string>
     <string name="action_cancel">Hủy</string>
     <string name="action_create">Tạo</string>

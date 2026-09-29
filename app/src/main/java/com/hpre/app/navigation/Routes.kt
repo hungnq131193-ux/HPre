@@ -77,6 +77,7 @@ sealed class Screen(val route: String) {
     data object Search : Screen("search")
     data object Subscriptions : Screen("subscriptions")
     data object Library : Screen("library")
+    data object Downloads : Screen("downloads")
     data object History : Screen("history")
     data object Playlists : Screen("playlists")
     data object PlaylistDetail : Screen("playlist_detail/{playlistId}") {

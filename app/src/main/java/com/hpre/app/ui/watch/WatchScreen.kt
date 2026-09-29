@@ -320,6 +320,7 @@ fun WatchScreen(
     val playbackState by viewModel.structuralPlaybackState.collectAsStateWithLifecycle()
     val relatedState by viewModel.relatedState.collectAsStateWithLifecycle()
     val commentsState by viewModel.commentsState.collectAsStateWithLifecycle()
+    val downloadUiState by viewModel.downloadUiState.collectAsStateWithLifecycle()
     val commentsPagination by viewModel.commentsPagination.collectAsStateWithLifecycle()
     val context = LocalContext.current
     val isFullscreen = uiState.isFullscreen
@@ -444,6 +445,11 @@ fun WatchScreen(
                 onQueueItemRemove = { index -> viewModel.removeFromQueue(index) },
                 onSubtitleSelected = { lang -> viewModel.selectSubtitle(lang) },
                 onAudioLanguageSelected = { lang -> viewModel.selectAudioLanguage(lang) },
+                downloadState = downloadUiState.first,
+                downloadProgressPercent = downloadUiState.second,
+                onDownloadVideo = { viewModel.downloadCurrent(audioOnly = false) },
+                onDownloadAudio = { viewModel.downloadCurrent(audioOnly = true) },
+                onDownloadRemove = { viewModel.removeCurrentDownload() },
                 onToggleFullscreen = { viewModel.setFullscreen(false) },
                 onMinimizeToHome = onMinimizeToHome,
                 minimizeEnabled = false,
@@ -506,6 +512,11 @@ fun WatchScreen(
                         onQueueItemRemove = { index -> viewModel.removeFromQueue(index) },
                         onSubtitleSelected = { lang -> viewModel.selectSubtitle(lang) },
                         onAudioLanguageSelected = { lang -> viewModel.selectAudioLanguage(lang) },
+                        downloadState = downloadUiState.first,
+                        downloadProgressPercent = downloadUiState.second,
+                        onDownloadVideo = { viewModel.downloadCurrent(audioOnly = false) },
+                        onDownloadAudio = { viewModel.downloadCurrent(audioOnly = true) },
+                        onDownloadRemove = { viewModel.removeCurrentDownload() },
                         onToggleFullscreen = { viewModel.setFullscreen(true) },
                         onMinimizeToHome = onMinimizeToHome,
                         minimizeEnabled = isPortrait,
@@ -588,6 +599,11 @@ private fun WatchPlayerControls(
     onQueueItemRemove: (Int) -> Unit = {},
     onSubtitleSelected: (String?) -> Unit = {},
     onAudioLanguageSelected: (String?) -> Unit = {},
+    downloadState: com.hpre.app.download.DownloadUiState = com.hpre.app.download.DownloadUiState.NONE,
+    downloadProgressPercent: Int = 0,
+    onDownloadVideo: () -> Unit = {},
+    onDownloadAudio: () -> Unit = {},
+    onDownloadRemove: () -> Unit = {},
     onToggleFullscreen: () -> Unit,
     onMinimizeToHome: () -> Unit,
     minimizeEnabled: Boolean,
@@ -612,6 +628,11 @@ private fun WatchPlayerControls(
         onQueueItemRemove = onQueueItemRemove,
         onSubtitleSelected = onSubtitleSelected,
         onAudioLanguageSelected = onAudioLanguageSelected,
+        downloadState = downloadState,
+        downloadProgressPercent = downloadProgressPercent,
+        onDownloadVideo = onDownloadVideo,
+        onDownloadAudio = onDownloadAudio,
+        onDownloadRemove = onDownloadRemove,
         onToggleFullscreen = onToggleFullscreen,
         readProgress = readProgress,
         onMinimizeToHome = onMinimizeToHome,

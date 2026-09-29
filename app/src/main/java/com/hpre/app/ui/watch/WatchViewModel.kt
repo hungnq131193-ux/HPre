@@ -27,6 +27,7 @@ import com.hpre.app.repository.CatalogRepository
 import com.hpre.app.repository.HistoryRepository
 import com.hpre.app.repository.RecommendationRequest
 import com.hpre.app.repository.VideoService
+import com.hpre.app.download.toUiState
 import com.hpre.app.repository.WatchRecommendationSource
 import com.hpre.app.repository.WatchStateCache
 import com.hpre.app.repository.WatchStateSnapshot
@@ -149,6 +150,7 @@ data class CommentsPaginationState(
     val earlierCommentsDropped: Boolean = false
 )
 
+@androidx.annotation.OptIn(androidx.media3.common.util.UnstableApi::class)
 class WatchViewModel(
     private val videoService: VideoService,
     val playerController: PlayerController,
@@ -159,6 +161,7 @@ class WatchViewModel(
     private val playlistRepository: com.hpre.app.repository.PlaylistRepository? = null,
     private val watchRecommendationSource: WatchRecommendationSource? = null,
     private val watchStateCache: WatchStateCache? = null,
+    private val downloadTracker: com.hpre.app.download.DownloadTracker? = null,
     private val ioDispatcher: CoroutineDispatcher = Dispatchers.IO,
     private val videoOpenMetrics: VideoOpenMetrics = VideoOpenMetrics.Default
 ) : ViewModel() {
@@ -183,6 +186,7 @@ class WatchViewModel(
             playlistRepository: com.hpre.app.repository.PlaylistRepository? = null,
             watchRecommendationSource: WatchRecommendationSource? = null,
             watchStateCache: WatchStateCache? = null,
+            downloadTracker: com.hpre.app.download.DownloadTracker? = null,
             ioDispatcher: CoroutineDispatcher = Dispatchers.IO
         ): ViewModelProvider.Factory = object : ViewModelProvider.Factory {
             @Suppress("UNCHECKED_CAST")
@@ -198,6 +202,7 @@ class WatchViewModel(
                     playlistRepository = playlistRepository,
                     watchRecommendationSource = watchRecommendationSource,
                     watchStateCache = watchStateCache,
+                    downloadTracker = downloadTracker,
                     ioDispatcher = ioDispatcher
                 ) as T
             }
@@ -214,6 +219,7 @@ class WatchViewModel(
                     playlistRepository = playlistRepository,
                     watchRecommendationSource = watchRecommendationSource,
                     watchStateCache = watchStateCache,
+                    downloadTracker = downloadTracker,
                     ioDispatcher = ioDispatcher
                 ) as T
             }
@@ -228,6 +234,7 @@ class WatchViewModel(
             playlistRepository: com.hpre.app.repository.PlaylistRepository? = null,
             watchRecommendationSource: WatchRecommendationSource? = null,
             watchStateCache: WatchStateCache? = null,
+            downloadTracker: com.hpre.app.download.DownloadTracker? = null,
             ioDispatcher: CoroutineDispatcher = Dispatchers.IO
         ): ViewModelProvider.Factory = provideFactory(
             videoService = videoService,
@@ -238,6 +245,7 @@ class WatchViewModel(
             playlistRepository = playlistRepository,
             watchRecommendationSource = watchRecommendationSource,
             watchStateCache = watchStateCache,
+            downloadTracker = downloadTracker,
             ioDispatcher = ioDispatcher
         )
     }
@@ -1124,6 +1132,36 @@ class WatchViewModel(
 
     fun selectAudioLanguage(language: String?) {
         playerController.selectAudioLanguage(language)
+    }
+
+    /** Download state of the currently loaded video, mapped from the tracker entry list. */
+    val downloadUiState: StateFlow<Pair<com.hpre.app.download.DownloadUiState, Int>> =
+        kotlinx.coroutines.flow.combine(
+            playerController.state,
+            downloadTracker?.downloads
+                ?: kotlinx.coroutines.flow.MutableStateFlow(emptyList<com.hpre.app.download.DownloadTracker.Entry>())
+        ) { state: com.hpre.app.player.PlaybackState, entries: List<com.hpre.app.download.DownloadTracker.Entry> ->
+            val key = state.key
+            val entry = entries.firstOrNull { it.key == key }
+            if (key == null || entry == null) {
+                com.hpre.app.download.DownloadUiState.NONE to 0
+            } else {
+                entry.toUiState() to entry.percent.toInt()
+            }
+        }.stateIn(
+            viewModelScope,
+            kotlinx.coroutines.flow.SharingStarted.WhileSubscribed(5_000L),
+            com.hpre.app.download.DownloadUiState.NONE to 0
+        )
+
+    fun downloadCurrent(audioOnly: Boolean) {
+        val key = playerController.state.value.key ?: return
+        downloadTracker?.enqueue(key, audioOnly)
+    }
+
+    fun removeCurrentDownload() {
+        val key = playerController.state.value.key ?: return
+        downloadTracker?.remove(key)
     }
 
     override fun onCleared() {
