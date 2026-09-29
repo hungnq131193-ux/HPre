@@ -57,7 +57,7 @@ class StreamSelectorTest {
     )
 
     @Test
-    fun auto_prefers_hls_then_dash_before_progressive() {
+    fun auto_prefers_dash_for_vod_and_hls_for_live_before_progressive() {
         val progressive = videoStream(url = "https://video.mp4")
         val both = StreamInfo(
             key = testKey,
@@ -67,8 +67,16 @@ class StreamSelectorTest {
             dashManifestUrl = "https://video.test/manifest.mpd"
         )
         assertEquals(
-            PlaybackStreamType.HLS,
+            PlaybackStreamType.DASH,
             (StreamSelector.selectStream(both, QualityPreference.Auto) as AppResult.Success).value.streamType
+        )
+        assertEquals(
+            PlaybackStreamType.HLS,
+            (StreamSelector.selectStream(both.copy(isLive = true), QualityPreference.Auto) as AppResult.Success).value.streamType
+        )
+        assertEquals(
+            PlaybackStreamType.HLS,
+            (StreamSelector.selectStream(both.copy(dashManifestUrl = null), QualityPreference.Auto) as AppResult.Success).value.streamType
         )
 
         val dashOnly = both.copy(hlsManifestUrl = null)

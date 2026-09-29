@@ -563,6 +563,9 @@ object NewPipeMappers {
         val isLive = streamInfo.streamType == StreamType.LIVE_STREAM || streamInfo.streamType == StreamType.AUDIO_LIVE_STREAM
         val hlsUrl = streamInfo.hlsUrl?.takeIf { isValidHttpUrl(it) }
         val dashUrl = streamInfo.dashMpdUrl?.takeIf { isValidHttpUrl(it) }
+            ?: if (isLive) null else localDashManifest(
+                streamInfo.videoOnlyStreams.orEmpty(), streamInfo.audioStreams.orEmpty(), streamInfo.duration
+            )
 
         if (videoStreams.isEmpty() && audioStreams.isEmpty() && hlsUrl == null && dashUrl == null) {
             return null
@@ -593,11 +596,15 @@ object NewPipeMappers {
         val audioStreams = extractor.audioStreams.orEmpty().mapNotNull(::mapAudioStream)
         val subtitles = extractor.subtitlesDefault.orEmpty().mapNotNull(::mapSubtitleStream)
         val hlsUrl = extractor.hlsUrl?.takeIf(::isValidHttpUrl)
+        val streamType = extractor.streamType
+        val isLive = streamType == StreamType.LIVE_STREAM || streamType == StreamType.AUDIO_LIVE_STREAM
         val dashUrl = extractor.dashMpdUrl?.takeIf(::isValidHttpUrl)
+            ?: if (isLive) null else localDashManifest(
+                extractor.videoOnlyStreams.orEmpty(), extractor.audioStreams.orEmpty(), runCatching { extractor.length }.getOrDefault(0L)
+            )
         if (videoStreams.isEmpty() && audioStreams.isEmpty() && hlsUrl == null && dashUrl == null) {
             return null
         }
-        val streamType = extractor.streamType
         return DomainStreamInfo(
             key = ContentKey(serviceId, key.nativeId),
             title = extractor.name.orEmpty(),
@@ -606,8 +613,18 @@ object NewPipeMappers {
             subtitles = subtitles,
             hlsManifestUrl = hlsUrl,
             dashManifestUrl = dashUrl,
-            isLive = streamType == StreamType.LIVE_STREAM || streamType == StreamType.AUDIO_LIVE_STREAM
+            isLive = isLive
         )
+    }
+
+    private fun localDashManifest(
+        videoOnly: List<VideoStream>,
+        audio: List<AudioStream>,
+        durationSeconds: Long
+    ): String? = try {
+        YouTubeDashManifestFactory.buildDataUri(videoOnly, audio, durationSeconds)
+    } catch (_: Exception) {
+        null
     }
 
     fun mapChannelDetails(

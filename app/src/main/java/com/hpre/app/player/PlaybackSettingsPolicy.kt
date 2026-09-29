@@ -52,6 +52,8 @@ internal object PlaybackSettingsPolicy {
             return available.firstOrNull { it.streamType == PlaybackStreamType.HLS }
                 ?: available.firstOrNull { it.streamType == PlaybackStreamType.DASH }
         }
+        // The Auto(maxHeight) policy caps adaptive DASH at the user's ceiling.
+        available.firstOrNull { it.streamType == PlaybackStreamType.DASH }?.let { return it }
         for (type in listOf(PlaybackStreamType.PROGRESSIVE, PlaybackStreamType.MERGED_AV)) {
             val options = available.filter { it.streamType == type && it.height > 0 }
             if (options.isNotEmpty()) {

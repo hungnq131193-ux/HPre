@@ -9,9 +9,9 @@ object StartupStreamSelector {
     /**
      * Picks the stream to prepare first when opening a video.
      *
-     * VOD starts from a progressive stream with audio when possible, avoiding manifest parsing and a
-     * second media request. Live playback keeps adaptive manifests first. Manual quality selection can
-     * still switch to merged A/V, HLS, or DASH after startup.
+     * VOD starts from the on-device adaptive DASH manifest when available, otherwise from a
+     * progressive stream with audio. Live playback keeps remote adaptive manifests first. Manual
+     * quality selection can still switch to progressive, merged A/V, or HLS after startup.
      */
     fun select(
         info: StreamInfo,
@@ -26,8 +26,20 @@ object StartupStreamSelector {
             lowestStartupStream(info)?.let { return it }
         }
 
+        adaptiveStream(info)?.let { return it }
         preferredProgressiveStream(info, maxHeight)?.let { return it }
         return StreamSelector.selectStream(info, QualityPreference.ExactOrBelow(maxHeight))
+    }
+
+    /**
+     * Adaptive DASH: starts under the startup height ceiling, then Media3 raises or lowers quality
+     * as measured bandwidth allows.
+     */
+    private fun adaptiveStream(info: StreamInfo): AppResult<SelectedStreams>? {
+        val dash = StreamSelector.getAvailableQualities(info)
+            .firstOrNull { it.streamType == PlaybackStreamType.DASH } ?: return null
+        return StreamSelector.selectStream(info, QualityPreference.SpecificOption(dash))
+            .takeIf { it is AppResult.Success }
     }
 
     private fun preferredProgressiveStream(

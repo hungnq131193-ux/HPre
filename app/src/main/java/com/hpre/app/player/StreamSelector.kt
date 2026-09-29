@@ -177,6 +177,10 @@ object StreamSelector {
         }
     }
 
+    /** Remote MPD, or the on-device manifest describing YouTube's indexed VOD renditions. */
+    private fun isValidDashManifest(url: String?): Boolean =
+        isValidUrl(url) || url?.startsWith("data:application/dash+xml;base64,") == true
+
     private fun isValidUrl(url: String?): Boolean {
         if (url.isNullOrBlank()) return false
         val lower = url.lowercase()
@@ -223,7 +227,7 @@ object StreamSelector {
                     }
                 } else if (opt.streamType == PlaybackStreamType.DASH) {
                     val canonicalDash = getAvailableQualities(info).firstOrNull { it.streamType == PlaybackStreamType.DASH }
-                    if (canonicalDash != null && canonicalDash == opt && isValidUrl(info.dashManifestUrl)) {
+                    if (canonicalDash != null && canonicalDash == opt && isValidDashManifest(info.dashManifestUrl)) {
                         return AppResult.Success(
                             SelectedStreams(
                                 key = info.key,
@@ -299,6 +303,18 @@ object StreamSelector {
         // Auto is genuinely adaptive only when Media3 receives a manifest. Fixed quality
         // preferences keep the existing deterministic progressive/merged selection below.
         if (preference is QualityPreference.Auto) {
+            // For VOD the DASH manifest is built on-device, so it starts without a manifest round-trip.
+            if (!info.isLive && isValidDashManifest(info.dashManifestUrl)) {
+                return AppResult.Success(
+                    SelectedStreams(
+                        key = info.key,
+                        streamType = PlaybackStreamType.DASH,
+                        manifestUrl = info.dashManifestUrl,
+                        subtitles = info.subtitles,
+                        isLive = false
+                    )
+                )
+            }
             if (isValidUrl(info.hlsManifestUrl)) {
                 return AppResult.Success(
                     SelectedStreams(
@@ -310,7 +326,7 @@ object StreamSelector {
                     )
                 )
             }
-            if (isValidUrl(info.dashManifestUrl)) {
+            if (isValidDashManifest(info.dashManifestUrl)) {
                 return AppResult.Success(
                     SelectedStreams(
                         key = info.key,
@@ -385,7 +401,7 @@ object StreamSelector {
         }
 
         // 4. Fallback to DASH manifest if available
-        if (isValidUrl(info.dashManifestUrl)) {
+        if (isValidDashManifest(info.dashManifestUrl)) {
             return AppResult.Success(
                 SelectedStreams(
                     key = info.key,
@@ -432,7 +448,7 @@ object StreamSelector {
                 )
             )
         }
-        if (isValidUrl(info.dashManifestUrl)) {
+        if (isValidDashManifest(info.dashManifestUrl)) {
             manifestQualities.add(
                 QualityOption(
                     height = 0,

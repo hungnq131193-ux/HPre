@@ -39,7 +39,7 @@ class StartupStreamSelectorTest {
     )
 
     @Test
-    fun vod_startup_prefers_progressive_before_adaptive_manifests() {
+    fun vod_startup_prefers_adaptive_dash_before_progressive() {
         val result = StartupStreamSelector.select(
             StreamInfo(
                 key,
@@ -50,8 +50,34 @@ class StartupStreamSelectorTest {
             )
         ) as AppResult.Success<SelectedStreams>
 
+        assertEquals(PlaybackStreamType.DASH, result.value.streamType)
+        assertEquals("https://example.test/manifest.mpd", result.value.manifestUrl)
+    }
+
+    @Test
+    fun vod_startup_without_dash_prefers_progressive_before_hls() {
+        val result = StartupStreamSelector.select(
+            StreamInfo(
+                key,
+                "Test",
+                videoStreams = listOf(progressive(720), progressive(360)),
+                hlsManifestUrl = "https://example.test/master.m3u8"
+            )
+        ) as AppResult.Success<SelectedStreams>
+
         assertEquals(PlaybackStreamType.PROGRESSIVE, result.value.streamType)
         assertEquals(720, result.value.videoStream?.height)
+    }
+
+    @Test
+    fun vod_startup_accepts_on_device_dash_manifest() {
+        val manifest = "data:application/dash+xml;base64,PE1QRC8+"
+        val result = StartupStreamSelector.select(
+            StreamInfo(key, "Test", videoStreams = listOf(progressive(360)), dashManifestUrl = manifest)
+        ) as AppResult.Success<SelectedStreams>
+
+        assertEquals(PlaybackStreamType.DASH, result.value.streamType)
+        assertEquals(manifest, result.value.manifestUrl)
     }
 
     @Test
@@ -101,14 +127,13 @@ class StartupStreamSelectorTest {
     }
 
     @Test
-    fun vod_startup_prefers_compatible_merged_av_before_dash_when_progressive_is_absent() {
+    fun vod_startup_prefers_compatible_merged_av_when_progressive_and_dash_are_absent() {
         val result = StartupStreamSelector.select(
             StreamInfo(
                 key,
                 "Test",
                 videoStreams = listOf(adaptive(720), adaptive(360)),
-                audioStreams = listOf(audio()),
-                dashManifestUrl = "https://example.test/manifest.mpd"
+                audioStreams = listOf(audio())
             )
         ) as AppResult.Success<SelectedStreams>
 
@@ -144,7 +169,7 @@ class StartupStreamSelectorTest {
     }
 
     @Test
-    fun vod_startup_prefers_progressive_with_audio_over_video_only_plus_audio_hls_and_dash() {
+    fun vod_startup_prefers_progressive_with_audio_over_video_only_plus_audio_and_hls() {
         val prog360 = progressive(360)
         val vid720 = adaptive(720)
         val aud = audio()
@@ -153,8 +178,7 @@ class StartupStreamSelectorTest {
             title = "Ordinary VOD",
             videoStreams = listOf(prog360, vid720),
             audioStreams = listOf(aud),
-            hlsManifestUrl = "https://example.test/master.m3u8",
-            dashManifestUrl = "https://example.test/manifest.mpd"
+            hlsManifestUrl = "https://example.test/master.m3u8"
         )
 
         val result = StartupStreamSelector.select(info) as AppResult.Success<SelectedStreams>
