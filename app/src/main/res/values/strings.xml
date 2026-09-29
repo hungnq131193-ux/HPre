@@ -178,6 +178,13 @@
     <string name="settings_open_release">Xem bản phát hành</string>
     <string name="settings_update_error">Không thể kiểm tra cập nhật. Hãy thử lại.</string>
     <string name="settings_open_release_error">Không thể mở trang phát hành.</string>
+    <string name="update_prompt_title">Có bản cập nhật mới</string>
+    <string name="update_prompt_message">HPre %1$s đã sẵn sàng. Tải về và cài đặt ngay trong ứng dụng, không cần vào GitHub.</string>
+    <string name="update_action_download_install">Tải và cài đặt</string>
+    <string name="update_action_install_now">Cài đặt ngay</string>
+    <string name="update_action_later">Để sau</string>
+    <string name="update_downloading">Đang tải bản cập nhật… %1$d%%</string>
+    <string name="update_download_failed">Không tải được bản cập nhật. Hãy thử lại hoặc mở trang phát hành.</string>
     <string name="settings_choose_speed">Chọn tốc độ phát mặc định</string>
     <string name="quality_high">1080p (Cao)</string>
     <string name="quality_medium">720p (Trung bình)</string>

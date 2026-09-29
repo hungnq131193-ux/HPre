@@ -79,6 +79,42 @@ class GitHubReleaseUpdateCheckerTest {
     }
 
     @Test
+    fun official_apk_asset_with_digest_is_installable_in_app() = runTest {
+        val digest = "AB".repeat(32)
+        val url = "https://github.com/hungnq131193-ux/HPre/releases/download/v1.0.1/HPre-v1.0.1-release.apk"
+        server.enqueue(
+            MockResponse().setResponseCode(200).setBody(
+                """
+                {
+                  "tag_name": "v1.0.1",
+                  "html_url": "https://github.com/hungnq131193-ux/HPre/releases/tag/v1.0.1",
+                  "draft": false,
+                  "prerelease": false,
+                  "assets": [
+                    {"name": "HPre-v1.0.1-release.apk.sha256", "size": 91},
+                    {"name": "HPre-v1.0.1-release.apk", "size": 3864234,
+                     "digest": "sha256:$digest", "browser_download_url": "$url"}
+                  ]
+                }
+                """.trimIndent()
+            )
+        )
+
+        val result = checker().check("1.0.0") as UpdateCheckResult.UpdateAvailable
+
+        assertEquals(ReleaseApk(url, 3864234, digest.lowercase()), result.apk)
+    }
+
+    @Test
+    fun foreign_download_url_is_not_installable_in_app() {
+        assertEquals(null, ReleaseApk.parse("https://evil.example/HPre-v1.0.1-release.apk", 10, null))
+        assertEquals(
+            null,
+            ReleaseApk.parse("https://github.com/other/HPre/releases/download/v1.0.1/HPre.apk", 10, null)
+        )
+    }
+
+    @Test
     fun equal_or_older_release_returns_up_to_date() = runTest {
         server.enqueue(MockResponse().setResponseCode(200).setBody(releaseJson("v1.0.0")))
         assertEquals(

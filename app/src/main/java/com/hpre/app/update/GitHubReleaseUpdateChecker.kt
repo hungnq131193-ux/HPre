@@ -72,13 +72,13 @@ class GitHubReleaseUpdateChecker(
             ?: return unavailable(UpdateUnavailableReason.INVALID_RESPONSE)
         val page = release.htmlUrl?.let(OfficialReleasePage::parse)
             ?: return unavailable(UpdateUnavailableReason.INVALID_RESPONSE)
-        val hasApk = release.assetNames.any {
-            it.startsWith("HPre-", ignoreCase = true) && it.endsWith(".apk", ignoreCase = true)
-        }
-        if (!hasApk) return unavailable(UpdateUnavailableReason.INVALID_RESPONSE)
+        val apkAsset = release.assets.firstOrNull {
+            it.name.startsWith("HPre-", ignoreCase = true) && it.name.endsWith(".apk", ignoreCase = true)
+        } ?: return unavailable(UpdateUnavailableReason.INVALID_RESPONSE)
 
         return if (latest > installed) {
-            UpdateCheckResult.UpdateAvailable(installed, latest, page)
+            val apk = ReleaseApk.parse(apkAsset.downloadUrl, apkAsset.size, apkAsset.digest)
+            UpdateCheckResult.UpdateAvailable(installed, latest, page, apk)
         } else {
             UpdateCheckResult.UpToDate(installed)
         }
@@ -89,7 +89,7 @@ class GitHubReleaseUpdateChecker(
         var htmlUrl: String? = null
         var draft: Boolean? = null
         var prerelease: Boolean? = null
-        val assetNames = mutableListOf<String>()
+        val assets = mutableListOf<ParsedAsset>()
 
         reader.beginObject()
         while (reader.hasNext()) {
@@ -98,31 +98,40 @@ class GitHubReleaseUpdateChecker(
                 "html_url" -> htmlUrl = reader.nextNullableString()
                 "draft" -> draft = reader.nextNullableBoolean()
                 "prerelease" -> prerelease = reader.nextNullableBoolean()
-                "assets" -> readAssetNames(reader, assetNames)
+                "assets" -> readAssets(reader, assets)
                 else -> reader.skipValue()
             }
         }
         reader.endObject()
 
-        return ParsedRelease(tagName, htmlUrl, draft, prerelease, assetNames)
+        return ParsedRelease(tagName, htmlUrl, draft, prerelease, assets)
     }
 
-    private fun readAssetNames(reader: JsonReader, names: MutableList<String>) {
+    private fun readAssets(reader: JsonReader, assets: MutableList<ParsedAsset>) {
         if (reader.peek() == JsonReader.Token.NULL) {
             reader.nextNull<Unit>()
             return
         }
         reader.beginArray()
         while (reader.hasNext()) {
+            var name: String? = null
+            var downloadUrl: String? = null
+            var size: Long? = null
+            var digest: String? = null
             reader.beginObject()
             while (reader.hasNext()) {
-                if (reader.nextName() == "name") {
-                    reader.nextNullableString()?.let(names::add)
-                } else {
-                    reader.skipValue()
+                when (reader.nextName()) {
+                    "name" -> name = reader.nextNullableString()
+                    "browser_download_url" -> downloadUrl = reader.nextNullableString()
+                    "size" -> size = if (reader.peek() == JsonReader.Token.NUMBER) reader.nextLong() else {
+                        reader.skipValue(); null
+                    }
+                    "digest" -> digest = reader.nextNullableString()
+                    else -> reader.skipValue()
                 }
             }
             reader.endObject()
+            name?.let { assets += ParsedAsset(it, downloadUrl, size, digest) }
         }
         reader.endArray()
     }
@@ -141,7 +150,14 @@ class GitHubReleaseUpdateChecker(
         val htmlUrl: String?,
         val draft: Boolean?,
         val prerelease: Boolean?,
-        val assetNames: List<String>
+        val assets: List<ParsedAsset>
+    )
+
+    private data class ParsedAsset(
+        val name: String,
+        val downloadUrl: String?,
+        val size: Long?,
+        val digest: String?
     )
 
     companion object {

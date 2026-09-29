@@ -11,8 +11,9 @@ import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import com.hpre.app.player.cache.MediaCacheManager
 import com.hpre.app.update.AppUpdateChecker
+import com.hpre.app.update.AppUpdateManager
 import com.hpre.app.update.OfficialReleasePage
-import com.hpre.app.update.UpdateCheckResult
+import com.hpre.app.update.ReleaseApk
 import com.hpre.app.update.UpdateUnavailableReason
 
 sealed interface UpdateUiState {
@@ -23,9 +24,19 @@ sealed interface UpdateUiState {
         val installedVersion: String,
         val latestVersion: String,
         val releasePage: OfficialReleasePage,
-        val openError: Boolean = false
+        val openError: Boolean = false,
+        /** Null when the release cannot be installed in-app; the release page stays available. */
+        val apk: ReleaseApk? = null,
+        val download: ApkDownloadState = ApkDownloadState.Idle
     ) : UpdateUiState
     data class Error(val reason: UpdateUnavailableReason) : UpdateUiState
+}
+
+sealed interface ApkDownloadState {
+    data object Idle : ApkDownloadState
+    data class Downloading(val progress: Float) : ApkDownloadState
+    data object Failed : ApkDownloadState
+    data object ReadyToInstall : ApkDownloadState
 }
 
 sealed interface VideoCacheClearUiState {
@@ -40,11 +51,12 @@ class SettingsViewModel(
     private val appUpdateChecker: AppUpdateChecker,
     val installedVersion: String,
     private val mediaCacheManager: MediaCacheManager? = null,
-    settingsSnapshot: AppSettingsSnapshot? = null
+    settingsSnapshot: AppSettingsSnapshot? = null,
+    updateManager: AppUpdateManager? = null
 ) : ViewModel() {
 
-    private val _updateState = MutableStateFlow<UpdateUiState>(UpdateUiState.Idle)
-    val updateState: StateFlow<UpdateUiState> = _updateState.asStateFlow()
+    private val updates = updateManager ?: AppUpdateManager(appUpdateChecker, installedVersion, viewModelScope)
+    val updateState: StateFlow<UpdateUiState> = updates.state
     private val _videoCacheClearState = MutableStateFlow<VideoCacheClearUiState>(VideoCacheClearUiState.Idle)
     val videoCacheClearState: StateFlow<VideoCacheClearUiState> = _videoCacheClearState.asStateFlow()
 
@@ -128,29 +140,14 @@ class SettingsViewModel(
         }
     }
 
-    fun checkForUpdates() {
-        if (_updateState.value == UpdateUiState.Checking) return
-        _updateState.value = UpdateUiState.Checking
-        viewModelScope.launch {
-            _updateState.value = when (val result = appUpdateChecker.check(installedVersion)) {
-                is UpdateCheckResult.UpToDate -> UpdateUiState.UpToDate(result.installedVersion.toString())
-                is UpdateCheckResult.UpdateAvailable -> UpdateUiState.UpdateAvailable(
-                    installedVersion = result.installedVersion.toString(),
-                    latestVersion = result.latestVersion.toString(),
-                    releasePage = result.releasePage
-                )
-                is UpdateCheckResult.Unavailable -> UpdateUiState.Error(result.reason)
-            }
-        }
-    }
+    fun checkForUpdates() = updates.check()
+
+    fun downloadAndInstallUpdate() = updates.downloadAndInstall()
 
     fun releasePageToOpen(): OfficialReleasePage? =
-        (_updateState.value as? UpdateUiState.UpdateAvailable)?.releasePage
+        (updateState.value as? UpdateUiState.UpdateAvailable)?.releasePage
 
-    fun reportReleasePageOpenFailure() {
-        val current = _updateState.value as? UpdateUiState.UpdateAvailable ?: return
-        _updateState.value = current.copy(openError = true)
-    }
+    fun reportReleasePageOpenFailure() = updates.reportReleasePageOpenFailure()
 
     companion object {
         fun provideFactory(
@@ -158,7 +155,8 @@ class SettingsViewModel(
             appUpdateChecker: AppUpdateChecker,
             installedVersion: String,
             mediaCacheManager: MediaCacheManager? = null,
-            settingsSnapshot: AppSettingsSnapshot? = null
+            settingsSnapshot: AppSettingsSnapshot? = null,
+            updateManager: AppUpdateManager? = null
         ): ViewModelProvider.Factory =
             object : ViewModelProvider.Factory {
                 @Suppress("UNCHECKED_CAST")
@@ -168,7 +166,8 @@ class SettingsViewModel(
                         appUpdateChecker,
                         installedVersion,
                         mediaCacheManager,
-                        settingsSnapshot
+                        settingsSnapshot,
+                        updateManager
                     ) as T
                 }
             }

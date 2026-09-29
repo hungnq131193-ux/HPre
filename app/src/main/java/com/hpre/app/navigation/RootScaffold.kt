@@ -148,6 +148,14 @@ fun RootScaffold(
         )
     }
 
+    container.appUpdateManager?.let { updateManager ->
+        androidx.compose.runtime.LaunchedEffect(updateManager) { updateManager.checkOnLaunch() }
+        // Never interrupt a video; the prompt waits until the user leaves the watch screen.
+        if (!isWatchScreen) {
+            com.hpre.app.settings.AppUpdatePrompt(updateManager)
+        }
+    }
+
     val chromeBrush = hpreChromeBrush()
 
     Scaffold(

@@ -260,7 +260,8 @@ fun HPreNavHost(
                     appUpdateChecker = container.appUpdateChecker,
                     installedVersion = com.hpre.app.BuildConfig.VERSION_NAME,
                     mediaCacheManager = container.mediaCacheManager,
-                    settingsSnapshot = container.settingsSnapshot
+                    settingsSnapshot = container.settingsSnapshot,
+                    updateManager = container.appUpdateManager
                 )
             )
             com.hpre.app.settings.SettingsScreen(

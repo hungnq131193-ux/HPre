@@ -90,6 +90,8 @@ interface AppContainer {
         get() = AppUpdateChecker {
             UpdateCheckResult.Unavailable(UpdateUnavailableReason.NETWORK)
         }
+    val appUpdateManager: com.hpre.app.update.AppUpdateManager?
+        get() = null
     fun createPlayerController(): PlayerController
 
     fun prewarmPlaybackInfrastructure(): Unit = Unit
@@ -279,6 +281,15 @@ class DefaultAppContainer(
 
     override val appUpdateChecker: AppUpdateChecker by lazy {
         GitHubReleaseUpdateChecker(okHttpClient)
+    }
+
+    override val appUpdateManager: com.hpre.app.update.AppUpdateManager by lazy {
+        com.hpre.app.update.AppUpdateManager(
+            checker = appUpdateChecker,
+            installedVersion = com.hpre.app.BuildConfig.VERSION_NAME,
+            scope = applicationScope,
+            installer = com.hpre.app.update.ApkUpdateInstaller(appContext, okHttpClient, ioDispatcher)
+        )
     }
 
     private val prewarmed = AtomicBoolean(false)

@@ -14,9 +14,14 @@ import androidx.annotation.RequiresApi
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveableStateHolder
+import androidx.compose.runtime.setValue
 import androidx.compose.runtime.SideEffect
 import androidx.compose.ui.Modifier
+import androidx.lifecycle.Lifecycle
+import androidx.navigation.compose.rememberNavController
 import com.hpre.app.core.designsystem.HPreTheme
 import com.hpre.app.model.ContentKey
 import com.hpre.app.navigation.RootScaffold
@@ -46,6 +51,8 @@ open class MainActivity : ComponentActivity() {
      */
     private val activePlayerController: PlayerController?
         get() = app.container.peekPlayerController()
+
+    private var pipDismissals by mutableIntStateOf(0)
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -149,6 +156,18 @@ open class MainActivity : ComponentActivity() {
                     ) {
                         updateAutoPipEligibility()
                     }
+                    // The scaffold leaves composition while PiP shows the bare surface, so the nav
+                    // back stack and saveable UI state must live above the branch; otherwise
+                    // returning from PiP rebuilds the app at the Home route.
+                    val navController = rememberNavController()
+                    val rootStateHolder = rememberSaveableStateHolder()
+                    androidx.compose.runtime.LaunchedEffect(pipDismissals) {
+                        if (pipDismissals > 0 &&
+                            navController.currentDestination?.route?.startsWith("watch/") == true
+                        ) {
+                            navController.popBackStack()
+                        }
+                    }
                     // Being in PiP implies playback already started, so the controller exists. The
                     // null check is a guard rather than an expected path; falling back to the
                     // scaffold is better than constructing a player to render an empty surface.
@@ -161,7 +180,9 @@ open class MainActivity : ComponentActivity() {
                             modifier = Modifier.fillMaxSize()
                         )
                     } else {
-                        RootScaffold(container = app.container)
+                        rootStateHolder.SaveableStateProvider("root") {
+                            RootScaffold(container = app.container, navController = navController)
+                        }
                     }
                 }
             }
@@ -308,6 +329,16 @@ open class MainActivity : ComponentActivity() {
         newConfig: Configuration
     ) {
         super.onPictureInPictureModeChanged(isInPictureInPictureMode, newConfig)
+        // Closing the PiP window stops the activity before this callback, while expanding it
+        // leaves the activity started.
+        val dismissed = !isInPictureInPictureMode && lifecycle.currentState == Lifecycle.State.CREATED
+        if (dismissed) {
+            activePlayerController?.let { controller ->
+                controller.pause()
+                if (controller is com.hpre.app.player.SessionPlayerController) controller.clearMedia()
+            }
+            pipDismissals++
+        }
         app.playbackUiCoordinator.setInPip(isInPictureInPictureMode)
         val uiState = app.playbackUiCoordinator.state.value
         app.container.updatePlayerLifecyclePolicy(

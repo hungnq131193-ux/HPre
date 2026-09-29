@@ -178,6 +178,13 @@
     <string name="settings_open_release">View release</string>
     <string name="settings_update_error">Could not check for updates. Please try again.</string>
     <string name="settings_open_release_error">Could not open the release page.</string>
+    <string name="update_prompt_title">Update available</string>
+    <string name="update_prompt_message">HPre %1$s is ready. Download and install it right here, no GitHub visit needed.</string>
+    <string name="update_action_download_install">Download and install</string>
+    <string name="update_action_install_now">Install now</string>
+    <string name="update_action_later">Later</string>
+    <string name="update_downloading">Downloading update… %1$d%%</string>
+    <string name="update_download_failed">Could not download the update. Try again or open the release page.</string>
     <string name="settings_choose_speed">Choose default playback speed</string>
     <string name="quality_high">1080p (High)</string>
     <string name="quality_medium">720p (Medium)</string>

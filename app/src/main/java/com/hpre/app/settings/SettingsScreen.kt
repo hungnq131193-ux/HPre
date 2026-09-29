@@ -253,6 +253,10 @@ fun SettingsScreen(
                         style = MaterialTheme.typography.bodyMedium,
                         color = MaterialTheme.colorScheme.primary
                     )
+                    UpdateDownloadControls(
+                        state = state,
+                        onInstall = viewModel::downloadAndInstallUpdate
+                    )
                     TextButton(
                         onClick = { onOpenReleasePage(state.releasePage) },
                         modifier = Modifier.testTag("settings_open_release_button")
