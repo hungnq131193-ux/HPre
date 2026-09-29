@@ -54,9 +54,15 @@ jobs:
           arch: x86_64
           disable-animations: true
           script: >-
+            test_status=0;
             ./gradlew connectedDebugAndroidTest
             '-Pandroid.testInstrumentationRunnerArguments.class=com.hpre.app.ui.common.ErrorPaneTest,com.hpre.app.ui.search.SearchScreenTest#raw_network_failure_shows_retry_and_recovers,com.hpre.app.ui.search.SearchScreenTest#pagination_failure_shows_inline_footer_and_retry_recovers,com.hpre.app.ui.library.LibraryScreenTest#create_playlist_failure_keeps_dialog_open_with_error,com.hpre.app.ui.library.LibraryScreenTest#settings_screen_toggles_and_choices_persist_state,com.hpre.app.ui.watch.WatchScreenTest#watch_screen_shows_error_pane_and_retries_on_stream_failure,com.hpre.app.ui.watch.WatchScreenTest#watch_screen_controls_dispatch_play_pause_and_seek,com.hpre.app.ui.watch.WatchScreenTest#comments_section_and_long_comment_can_expand_and_collapse,com.hpre.app.navigation.NavigationFlowTest#replacing_related_watch_releases_old_entry_and_keeps_source_destination'
-            --no-daemon --max-workers=2
+            --no-daemon --max-workers=2 || test_status=$?;
+            if [ "$test_status" -ne 0 ]; then
+            mkdir -p app/build/reports/ui-failures;
+            adb pull /sdcard/Download/hpre-watch-controls-failure.png app/build/reports/ui-failures/ || true;
+            fi;
+            exit "$test_status"
 
       - name: Upload verification reports
         if: always()
@@ -67,6 +73,7 @@ jobs:
             app/build/reports/tests/
             app/build/reports/androidTests/
             app/build/reports/lint-results-debug.*
+            app/build/reports/ui-failures/
             app/build/outputs/androidTest-results/
           if-no-files-found: ignore
 

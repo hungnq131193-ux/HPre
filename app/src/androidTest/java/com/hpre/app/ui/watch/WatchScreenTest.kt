@@ -21,7 +21,9 @@ import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
+import androidx.compose.ui.test.onRoot
 import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.printToLog
 import androidx.compose.ui.test.performSemanticsAction
 import androidx.compose.ui.test.performTouchInput
 import androidx.compose.ui.test.performScrollToNode
@@ -388,83 +390,95 @@ class WatchScreenTest {
 
     @Test
     fun watch_screen_controls_dispatch_play_pause_and_seek() {
-        val fakeService = FakeVideoService(
-            videoHandler = { AppResult.Success(testDetails(it)) },
-            streamInfoHandler = { AppResult.Success(StreamInfo(it, "Title", hlsManifestUrl = "https://manifest.m3u8")) }
-        )
-        val fakePlayer = FakePlayerController(preparedPlaying = false)
-        val viewModel = WatchViewModel(
-            videoService = fakeService,
-            playerController = fakePlayer,
-            savedStateHandle = androidx.lifecycle.SavedStateHandle()
-        )
+        try {
+            val fakeService = FakeVideoService(
+                videoHandler = { AppResult.Success(testDetails(it)) },
+                streamInfoHandler = { AppResult.Success(StreamInfo(it, "Title", hlsManifestUrl = "https://manifest.m3u8")) }
+            )
+            val fakePlayer = FakePlayerController(preparedPlaying = false)
+            val viewModel = WatchViewModel(
+                videoService = fakeService,
+                playerController = fakePlayer,
+                savedStateHandle = androidx.lifecycle.SavedStateHandle()
+            )
 
-        composeTestRule.setContent {
-            HPreTheme {
-                WatchScreen(
-                    contentKey = testKey,
-                    viewModel = viewModel,
-                    onNavigateBack = {}
-                )
+            composeTestRule.setContent {
+                HPreTheme {
+                    WatchScreen(
+                        contentKey = testKey,
+                        viewModel = viewModel,
+                        onNavigateBack = {}
+                    )
+                }
             }
-        }
 
-        // Wait for the asynchronous prepare to publish the controls. The paused
-        // fixture keeps them visible without racing the production auto-hide.
-        composeTestRule.waitUntil(5000) {
-            fakePlayer.state.value.key == testKey &&
-                composeTestRule.onAllNodes(androidx.compose.ui.test.hasTestTag("control_play_pause"))
-                .fetchSemanticsNodes().isNotEmpty()
-        }
+            // Wait for the asynchronous prepare to publish the controls. The paused
+            // fixture keeps them visible without racing the production auto-hide.
+            composeTestRule.waitUntil(5000) {
+                fakePlayer.state.value.key == testKey &&
+                    composeTestRule.onAllNodes(androidx.compose.ui.test.hasTestTag("control_play_pause"))
+                    .fetchSemanticsNodes().isNotEmpty()
+            }
 
-        // Controls expose localized accessibility descriptions.
-        val context = ApplicationProvider.getApplicationContext<Context>()
-        composeTestRule.onNodeWithContentDescription(context.getString(com.hpre.app.R.string.action_play)).assertExists()
-        composeTestRule.onNodeWithContentDescription(context.getString(com.hpre.app.R.string.action_rewind_10)).assertExists()
-        composeTestRule.onNodeWithContentDescription(context.getString(com.hpre.app.R.string.action_forward_10)).assertExists()
+            // Controls expose localized accessibility descriptions.
+            val context = ApplicationProvider.getApplicationContext<Context>()
+            composeTestRule.onNodeWithContentDescription(context.getString(com.hpre.app.R.string.action_play)).assertExists()
+            composeTestRule.onNodeWithContentDescription(context.getString(com.hpre.app.R.string.action_rewind_10)).assertExists()
+            composeTestRule.onNodeWithContentDescription(context.getString(com.hpre.app.R.string.action_forward_10)).assertExists()
 
-        // Test play/pause toggle dispatch
-        composeTestRule.onNodeWithTag("control_play_pause").assertExists()
-        composeTestRule.onNodeWithTag("control_play_pause").performClick()
-        composeTestRule.runOnIdle {
-            assertTrue("playPause should be dispatched to controller", fakePlayer.playPauseCalled)
-            assertTrue("Play should start the paused fixture", fakePlayer.state.value.isPlaying)
-        }
-        composeTestRule.onNodeWithTag("control_play_pause").performClick()
-        composeTestRule.runOnIdle {
-            org.junit.Assert.assertFalse("Pause should stop the playing fixture", fakePlayer.state.value.isPlaying)
-        }
+            // Test play/pause toggle dispatch
+            composeTestRule.onNodeWithTag("control_play_pause").assertExists()
+            composeTestRule.onRoot(useUnmergedTree = true).printToLog("HPreWatchBeforeTap")
+            composeTestRule.onNodeWithTag("control_play_pause").performClick()
+            composeTestRule.runOnIdle {
+                assertTrue("playPause should be dispatched to controller", fakePlayer.playPauseCalled)
+                assertTrue("Play should start the paused fixture", fakePlayer.state.value.isPlaying)
+            }
+            composeTestRule.onNodeWithTag("control_play_pause").performClick()
+            composeTestRule.runOnIdle {
+                org.junit.Assert.assertFalse("Pause should stop the playing fixture", fakePlayer.state.value.isPlaying)
+            }
 
-        // Test rewind 10s dispatch
-        composeTestRule.onNodeWithTag("control_rewind_10").assertExists()
-        composeTestRule.onNodeWithTag("control_rewind_10").performClick()
-        composeTestRule.runOnIdle {
-            assertEquals(-10_000L, fakePlayer.seekDeltaCalled)
-        }
+            // Test rewind 10s dispatch
+            composeTestRule.onNodeWithTag("control_rewind_10").assertExists()
+            composeTestRule.onNodeWithTag("control_rewind_10").performClick()
+            composeTestRule.runOnIdle {
+                assertEquals(-10_000L, fakePlayer.seekDeltaCalled)
+            }
 
-        // Test fast forward 10s dispatch
-        composeTestRule.onNodeWithTag("control_forward_10").assertExists()
-        composeTestRule.onNodeWithTag("control_forward_10").performClick()
-        composeTestRule.runOnIdle {
-            assertEquals(10_000L, fakePlayer.seekDeltaCalled)
-        }
+            // Test fast forward 10s dispatch
+            composeTestRule.onNodeWithTag("control_forward_10").assertExists()
+            composeTestRule.onNodeWithTag("control_forward_10").performClick()
+            composeTestRule.runOnIdle {
+                assertEquals(10_000L, fakePlayer.seekDeltaCalled)
+            }
 
-        // Test speed menu selection dispatch
-        composeTestRule.onNodeWithTag("control_speed_button").assertExists()
-        composeTestRule.onNodeWithTag("control_speed_button").performClick()
-        composeTestRule.onNodeWithTag("speed_option_1.5").assertExists()
-        composeTestRule.onNodeWithTag("speed_option_1.5").performClick()
-        composeTestRule.runOnIdle {
-            assertEquals(1.5f, fakePlayer.speedSelected ?: 0f, 0.01f)
-        }
+            // Test speed menu selection dispatch
+            composeTestRule.onNodeWithTag("control_speed_button").assertExists()
+            composeTestRule.onNodeWithTag("control_speed_button").performClick()
+            composeTestRule.onNodeWithTag("speed_option_1.5").assertExists()
+            composeTestRule.onNodeWithTag("speed_option_1.5").performClick()
+            composeTestRule.runOnIdle {
+                assertEquals(1.5f, fakePlayer.speedSelected ?: 0f, 0.01f)
+            }
 
-        // Test quality menu selection dispatch
-        composeTestRule.onNodeWithTag("control_quality_button").assertExists()
-        composeTestRule.onNodeWithTag("control_quality_button").performClick()
-        composeTestRule.onNodeWithTag("quality_option_720").assertExists()
-        composeTestRule.onNodeWithTag("quality_option_720").performClick()
-        composeTestRule.runOnIdle {
-            assertEquals(720, fakePlayer.qualitySelected?.height)
+            // Test quality menu selection dispatch
+            composeTestRule.onNodeWithTag("control_quality_button").assertExists()
+            composeTestRule.onNodeWithTag("control_quality_button").performClick()
+            composeTestRule.onNodeWithTag("quality_option_720").assertExists()
+            composeTestRule.onNodeWithTag("quality_option_720").performClick()
+            composeTestRule.runOnIdle {
+                assertEquals(720, fakePlayer.qualitySelected?.height)
+            }
+        } catch (failure: Throwable) {
+            runCatching {
+                composeTestRule.onRoot(useUnmergedTree = true).printToLog("HPreWatchFailure")
+                val automation = androidx.test.platform.app.InstrumentationRegistry.getInstrumentation().uiAutomation
+                android.os.ParcelFileDescriptor.AutoCloseInputStream(
+                    automation.executeShellCommand("screencap -p /sdcard/Download/hpre-watch-controls-failure.png")
+                ).use { it.readBytes() }
+            }.onFailure { failure.addSuppressed(it) }
+            throw failure
         }
     }
 

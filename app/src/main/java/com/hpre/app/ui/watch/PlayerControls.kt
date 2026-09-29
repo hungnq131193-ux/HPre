@@ -300,6 +300,10 @@ fun PlayerControlsOverlay(
                         downPosition.y,
                         protectedControlBounds.values
                     ))
+                    if (com.hpre.app.BuildConfig.DEBUG) android.util.Log.d(
+                        "HPreGestureDebug",
+                        "down=$downPosition consumed=${down.isConsumed} protected=$startedInProtected visible=${currentControlsVisible.value} bounds=$protectedControlBounds"
+                    )
 
                     if (startedInProtected) {
                         // Reset double-tap chain and wait for pointer release without acting
@@ -422,6 +426,7 @@ fun PlayerControlsOverlay(
                                 }
                             }
                         } else {
+                            if (com.hpre.app.BuildConfig.DEBUG) android.util.Log.d("HPreGestureDebug", "surface_tap visible=${currentControlsVisible.value}")
                             // Record confirmed UP position and uptime
                             lastUpUptime = confirmedUpChange.uptimeMillis
                             lastUpPosition = confirmedUpChange.position
@@ -441,6 +446,7 @@ fun PlayerControlsOverlay(
             .testTag("player_controls_overlay")
             .semantics {
                 onClick {
+                    if (com.hpre.app.BuildConfig.DEBUG) android.util.Log.d("HPreGestureDebug", "overlay_semantics_click")
                     keepControlsAlive()
                     true
                 }
@@ -612,6 +618,7 @@ fun PlayerControlsOverlay(
 
                 IconButton(
                     onClick = {
+                        if (com.hpre.app.BuildConfig.DEBUG) android.util.Log.d("HPreGestureDebug", "play_button_click")
                         keepControlsAlive()
                         onPlayPause()
                     },
