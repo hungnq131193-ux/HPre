@@ -412,7 +412,8 @@ class WatchScreenTest {
         // Wait for the asynchronous prepare to publish the controls. The paused
         // fixture keeps them visible without racing the production auto-hide.
         composeTestRule.waitUntil(5000) {
-            composeTestRule.onAllNodes(androidx.compose.ui.test.hasTestTag("control_play_pause"))
+            fakePlayer.state.value.key == testKey &&
+                composeTestRule.onAllNodes(androidx.compose.ui.test.hasTestTag("control_play_pause"))
                 .fetchSemanticsNodes().isNotEmpty()
         }
 
@@ -425,31 +426,46 @@ class WatchScreenTest {
         // Test play/pause toggle dispatch
         composeTestRule.onNodeWithTag("control_play_pause").assertExists()
         composeTestRule.onNodeWithTag("control_play_pause").performClick()
-        assertTrue("playPause should be dispatched to controller", fakePlayer.playPauseCalled)
+        composeTestRule.runOnIdle {
+            assertTrue("playPause should be dispatched to controller", fakePlayer.playPauseCalled)
+            assertTrue("Play should start the paused fixture", fakePlayer.state.value.isPlaying)
+        }
+        composeTestRule.onNodeWithTag("control_play_pause").performClick()
+        composeTestRule.runOnIdle {
+            org.junit.Assert.assertFalse("Pause should stop the playing fixture", fakePlayer.state.value.isPlaying)
+        }
 
         // Test rewind 10s dispatch
         composeTestRule.onNodeWithTag("control_rewind_10").assertExists()
         composeTestRule.onNodeWithTag("control_rewind_10").performClick()
-        assertEquals(-10_000L, fakePlayer.seekDeltaCalled)
+        composeTestRule.runOnIdle {
+            assertEquals(-10_000L, fakePlayer.seekDeltaCalled)
+        }
 
         // Test fast forward 10s dispatch
         composeTestRule.onNodeWithTag("control_forward_10").assertExists()
         composeTestRule.onNodeWithTag("control_forward_10").performClick()
-        assertEquals(10_000L, fakePlayer.seekDeltaCalled)
+        composeTestRule.runOnIdle {
+            assertEquals(10_000L, fakePlayer.seekDeltaCalled)
+        }
 
         // Test speed menu selection dispatch
         composeTestRule.onNodeWithTag("control_speed_button").assertExists()
         composeTestRule.onNodeWithTag("control_speed_button").performClick()
         composeTestRule.onNodeWithTag("speed_option_1.5").assertExists()
         composeTestRule.onNodeWithTag("speed_option_1.5").performClick()
-        assertEquals(1.5f, fakePlayer.speedSelected ?: 0f, 0.01f)
+        composeTestRule.runOnIdle {
+            assertEquals(1.5f, fakePlayer.speedSelected ?: 0f, 0.01f)
+        }
 
         // Test quality menu selection dispatch
         composeTestRule.onNodeWithTag("control_quality_button").assertExists()
         composeTestRule.onNodeWithTag("control_quality_button").performClick()
         composeTestRule.onNodeWithTag("quality_option_720").assertExists()
         composeTestRule.onNodeWithTag("quality_option_720").performClick()
-        assertEquals(720, fakePlayer.qualitySelected?.height)
+        composeTestRule.runOnIdle {
+            assertEquals(720, fakePlayer.qualitySelected?.height)
+        }
     }
 
     @Test

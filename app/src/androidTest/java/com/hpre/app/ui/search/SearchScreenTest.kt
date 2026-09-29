@@ -626,26 +626,35 @@ class SearchScreenTest {
             }
         }
 
-        viewModel.onQuerySubmitted("q")
-        composeTestRule.waitForIdle()
-        viewModel.loadNextPage()
-
+        composeTestRule.runOnIdle { viewModel.onQuerySubmitted("q") }
         composeTestRule.waitUntil(5000) {
-            composeTestRule.onAllNodes(androidx.compose.ui.test.hasTestTag("search_pagination_error"))
-                .fetchSemanticsNodes().isNotEmpty()
+            (viewModel.uiState.value as? SearchUiState.Content)?.items == page1Items
+        }
+        composeTestRule.runOnIdle { viewModel.loadNextPage() }
+        composeTestRule.waitUntil(5000) {
+            (viewModel.uiState.value as? SearchUiState.Content)?.paginationError ==
+                com.hpre.app.core.error.AppError.NetworkError
         }
 
         // Page-1 items must still be visible while the footer error shows.
         composeTestRule.onNodeWithTag("video_card_p1_1").assertExists()
+        assertEquals(page1Items, (viewModel.uiState.value as SearchUiState.Content).items)
+        composeTestRule.onNodeWithTag("search_results_list")
+            .performScrollToNode(androidx.compose.ui.test.hasTestTag("search_pagination_error"))
+        composeTestRule.onNodeWithTag("search_pagination_error").assertIsDisplayed()
 
         // Retry via the inline footer button issues exactly one more request.
         val callsBefore = fakeService.searchCallCount
         composeTestRule.onNodeWithTag("search_pagination_error_retry").performClick()
-        composeTestRule.waitUntil(5000) { fakeService.searchCallCount == callsBefore + 1 }
         composeTestRule.waitUntil(5000) {
-            composeTestRule.onAllNodes(androidx.compose.ui.test.hasTestTag("search_pagination_error"))
-                .fetchSemanticsNodes().isEmpty()
+            val state = viewModel.uiState.value as? SearchUiState.Content
+            state?.items == page1Items + SearchResultItem.VideoItem(summary("p2_item")) &&
+                state.paginationError == null && !state.isLoadingNextPage
         }
+        composeTestRule.runOnIdle {
+            assertEquals(callsBefore + 1, fakeService.searchCallCount)
+        }
+        composeTestRule.onNodeWithTag("search_pagination_error").assertDoesNotExist()
         composeTestRule.onNodeWithTag("search_results_list")
             .performScrollToNode(androidx.compose.ui.test.hasTestTag("video_card_p2_item"))
         composeTestRule.onNodeWithTag("video_card_p2_item").assertIsDisplayed()
