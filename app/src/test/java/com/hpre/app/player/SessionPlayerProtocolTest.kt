@@ -75,6 +75,48 @@ class SessionPlayerProtocolTest {
     }
 
     @Test
+    fun sleep_timer_sets_deadline_then_clears_state_on_expiry_and_cancel() = kotlinx.coroutines.test.runTest {
+        val fakeContext = object : android.content.ContextWrapper(null) {
+            override fun getApplicationContext(): android.content.Context = this
+        }
+        val pendingFuture = com.google.common.util.concurrent.SettableFuture.create<androidx.media3.session.MediaController>()
+        val coordinator = object : SessionPlayerController.ConnectionLifecycleCoordinator {
+            override fun createControllerFuture(
+                context: android.content.Context,
+                listener: androidx.media3.session.MediaController.Listener,
+                isPrewarm: Boolean
+            ): com.google.common.util.concurrent.ListenableFuture<androidx.media3.session.MediaController> = pendingFuture
+        }
+        val dispatcher = kotlinx.coroutines.test.StandardTestDispatcher(testScheduler)
+        val controller = SessionPlayerController(
+            context = fakeContext,
+            connectionCoordinator = coordinator,
+            mainDispatcher = dispatcher,
+            ioDispatcher = dispatcher,
+            externalScope = this,
+            settingsProvider = { com.hpre.app.settings.AppSettings() },
+            wifiConnectionProvider = WifiConnectionProvider { true }
+        )
+
+        controller.setSleepTimer(15 * 60_000L)
+        testScheduler.runCurrent()
+        val deadline = controller.state.value.sleepTimerEndsAtMs
+        assertNotNull(deadline)
+
+        controller.setSleepTimer(null)
+        testScheduler.runCurrent()
+        assertNull(controller.state.value.sleepTimerEndsAtMs)
+
+        controller.setSleepTimer(30 * 60_000L)
+        testScheduler.runCurrent()
+        assertNotNull(controller.state.value.sleepTimerEndsAtMs)
+        testScheduler.advanceTimeBy(30 * 60_000L + 1_000L)
+        testScheduler.runCurrent()
+        assertNull(controller.state.value.sleepTimerEndsAtMs)
+        controller.release()
+    }
+
+    @Test
     fun autoplay_transition_accepts_only_the_active_key_and_generation() {
         val current = ContentKey(0, "current")
         val next = ContentKey(0, "next")
@@ -1379,7 +1421,7 @@ class SessionPlayerProtocolTest {
     fun sessionPlayerController_has_no_periodic_progress_job_or_tracker_methods() {
         // Strong allowlist invariant over all Job-typed declared fields in SessionPlayerController:
         // Reconnect/runtime operations are permitted, but no UI/progress polling Job is allowed.
-        val allowedJobFieldNames = setOf("reconnectJob", "recoveryJob")
+        val allowedJobFieldNames = setOf("reconnectJob", "recoveryJob", "sleepTimerJob")
         val jobFields = SessionPlayerController::class.java.declaredFields.filter {
             kotlinx.coroutines.Job::class.java.isAssignableFrom(it.type)
         }

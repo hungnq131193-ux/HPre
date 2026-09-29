@@ -432,6 +432,16 @@ fun WatchScreen(
                 onSeekTo = { pos -> viewModel.seekTo(pos) },
                 onSpeedSelected = { speed -> viewModel.setPlaybackSpeed(speed) },
                 onQualitySelected = { quality -> viewModel.selectQuality(quality) },
+                sleepTimerEndsAtMs = playbackState.sleepTimerEndsAtMs,
+                onSleepTimerSelected = { duration -> viewModel.setSleepTimer(duration) },
+                playQueue = playbackState.playQueue,
+                onQueueItemClick = { index ->
+                    playbackState.playQueue.getOrNull(index)?.let { item ->
+                        viewModel.skipQueueTo(index)
+                        onRelatedVideoClick(item.key)
+                    }
+                },
+                onQueueItemRemove = { index -> viewModel.removeFromQueue(index) },
                 onToggleFullscreen = { viewModel.setFullscreen(false) },
                 onMinimizeToHome = onMinimizeToHome,
                 minimizeEnabled = false,
@@ -482,6 +492,16 @@ fun WatchScreen(
                         onSeekTo = { pos -> viewModel.seekTo(pos) },
                         onSpeedSelected = { speed -> viewModel.setPlaybackSpeed(speed) },
                         onQualitySelected = { quality -> viewModel.selectQuality(quality) },
+                        sleepTimerEndsAtMs = playbackState.sleepTimerEndsAtMs,
+                        onSleepTimerSelected = { duration -> viewModel.setSleepTimer(duration) },
+                        playQueue = playbackState.playQueue,
+                        onQueueItemClick = { index ->
+                            playbackState.playQueue.getOrNull(index)?.let { item ->
+                                viewModel.skipQueueTo(index)
+                                onRelatedVideoClick(item.key)
+                            }
+                        },
+                        onQueueItemRemove = { index -> viewModel.removeFromQueue(index) },
                         onToggleFullscreen = { viewModel.setFullscreen(true) },
                         onMinimizeToHome = onMinimizeToHome,
                         minimizeEnabled = isPortrait,
@@ -531,6 +551,9 @@ fun WatchScreen(
                         onRetryComments = viewModel::retryComments,
                         onLoadMoreComments = viewModel::loadMoreComments,
                         onChannelClick = onChannelClick,
+                        onEnqueueVideo = { video, playNext ->
+                            viewModel.enqueue(com.hpre.app.player.QueuedItem(video.key, video.title), playNext)
+                        },
                         allowSheets = !isInPip,
                         modifier = Modifier
                             .fillMaxWidth()
@@ -554,6 +577,11 @@ private fun WatchPlayerControls(
     onSeekTo: (Long) -> Unit,
     onSpeedSelected: (Float) -> Unit,
     onQualitySelected: (com.hpre.app.player.QualityOption) -> Unit,
+    sleepTimerEndsAtMs: Long? = null,
+    onSleepTimerSelected: (Long?) -> Unit = {},
+    playQueue: List<com.hpre.app.player.QueuedItem> = emptyList(),
+    onQueueItemClick: (Int) -> Unit = {},
+    onQueueItemRemove: (Int) -> Unit = {},
     onToggleFullscreen: () -> Unit,
     onMinimizeToHome: () -> Unit,
     minimizeEnabled: Boolean,
@@ -571,6 +599,11 @@ private fun WatchPlayerControls(
         onSeekTo = onSeekTo,
         onSpeedSelected = onSpeedSelected,
         onQualitySelected = onQualitySelected,
+        sleepTimerEndsAtMs = sleepTimerEndsAtMs,
+        onSleepTimerSelected = onSleepTimerSelected,
+        playQueue = playQueue,
+        onQueueItemClick = onQueueItemClick,
+        onQueueItemRemove = onQueueItemRemove,
         onToggleFullscreen = onToggleFullscreen,
         readProgress = readProgress,
         onMinimizeToHome = onMinimizeToHome,
@@ -609,6 +642,7 @@ fun WatchMetadataContent(
     lazyListState: LazyListState? = null,
     onRelatedVideoSelected: ((VideoSummary) -> Unit)? = null,
     onChannelClick: ((ContentKey) -> Unit)? = null,
+    onEnqueueVideo: ((VideoSummary, Boolean) -> Unit)? = null,
     allowSheets: Boolean = true
 ) {
     val effectiveLazyListState = lazyListState ?: rememberLazyListState()
@@ -862,7 +896,8 @@ fun WatchMetadataContent(
             onRetry = onRetryRelated,
             onRefresh = onRefreshRelated,
             onVideoSelected = onRelatedVideoSelected,
-            onChannelClick = onChannelClick
+            onChannelClick = onChannelClick,
+            onEnqueueVideo = onEnqueueVideo
         )
 
         item(key = "section:watch_bottom_spacer") {

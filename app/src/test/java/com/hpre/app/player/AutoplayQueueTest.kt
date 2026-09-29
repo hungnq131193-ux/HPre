@@ -121,6 +121,64 @@ class AutoplayQueueTest {
     }
 
     @Test
+    fun manual_queue_advances_before_candidates_even_when_autoplay_disabled() {
+        val current = key("current")
+        val queued = key("queued")
+        val suggested = key("suggested")
+        val queue = AutoplayQueue()
+        queue.resetForManualStart(current)
+        queue.updateCandidates(current, listOf(suggested))
+
+        assertTrue(queue.enqueue(QueuedItem(queued, "Queued video"), playNext = false))
+        assertFalse(queue.enqueue(QueuedItem(current, "Same"), playNext = false))
+        assertEquals(listOf(queued), queue.manualSnapshot.map { it.key })
+
+        // Manual entries win over candidates and ignore the autoplay-off gate.
+        assertEquals(queued, queue.takeNext(current, sessionGeneration = 3L, allowAdvance = false))
+        assertTrue(queue.lastTakeWasManual)
+        assertTrue(queue.commit(current, queued))
+
+        assertEquals(suggested, queue.takeNext(queued, sessionGeneration = 4L, allowAdvance = true))
+        assertFalse(queue.lastTakeWasManual)
+        assertTrue(queue.commit(queued, suggested))
+    }
+
+    @Test
+    fun manual_queue_remove_and_skip_to_drop_entries() {
+        val current = key("current")
+        val first = key("first")
+        val second = key("second")
+        val third = key("third")
+        val queue = AutoplayQueue()
+        queue.resetForManualStart(current)
+        queue.enqueue(QueuedItem(first, "1"), playNext = false)
+        queue.enqueue(QueuedItem(third, "3"), playNext = false)
+        queue.enqueue(QueuedItem(second, "2"), playNext = true)
+        assertEquals(listOf(second, first, third), queue.manualSnapshot.map { it.key })
+
+        assertTrue(queue.removeManual(1))
+        assertEquals(listOf(second, third), queue.manualSnapshot.map { it.key })
+        assertFalse(queue.removeManual(5))
+
+        assertTrue(queue.dropManualThrough(0))
+        assertEquals(listOf(third), queue.manualSnapshot.map { it.key })
+        assertFalse(queue.dropManualThrough(3))
+    }
+
+    @Test
+    fun commit_rejects_keys_that_were_not_taken() {
+        val current = key("current")
+        val next = key("next")
+        val queue = AutoplayQueue()
+        queue.resetForManualStart(current)
+        queue.updateCandidates(current, listOf(next))
+        assertFalse(queue.commit(current, next))
+        assertEquals(next, queue.takeNext(current, 1L))
+        assertFalse(queue.commit(current, key("other")))
+        assertTrue(queue.commit(current, next))
+    }
+
+    @Test
     fun ended_callback_must_belong_to_the_current_media_item() {
         val old = key("old")
         val next = key("next")

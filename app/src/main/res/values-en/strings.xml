@@ -118,6 +118,15 @@
     <string name="resize_mode_fit">Fit</string>
     <string name="resize_mode_fill">Fill</string>
     <string name="resize_mode_zoom">Zoom</string>
+    <string name="sleep_timer">Sleep timer</string>
+    <string name="sleep_timer_active">Sleep timer (%1$s left)</string>
+    <string name="sleep_timer_minutes">%1$d minutes</string>
+    <string name="sleep_timer_off">Turn off timer</string>
+    <string name="queue_title">Queue</string>
+    <string name="queue_empty">Queue is empty</string>
+    <string name="queue_remove">Remove from queue</string>
+    <string name="queue_play_next">Play next</string>
+    <string name="queue_add">Add to queue</string>
     <string name="quality_auto">Auto</string>
     <string name="watch_save">Save</string>
     <string name="watch_share">Share</string>

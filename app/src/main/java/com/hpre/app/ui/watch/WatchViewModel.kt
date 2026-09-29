@@ -1102,6 +1102,22 @@ class WatchViewModel(
         playerController.selectQuality(quality)
     }
 
+    fun setSleepTimer(durationMs: Long?) {
+        playerController.setSleepTimer(durationMs)
+    }
+
+    fun enqueue(item: com.hpre.app.player.QueuedItem, playNext: Boolean = false) {
+        playerController.enqueue(item, playNext)
+    }
+
+    fun removeFromQueue(index: Int) {
+        playerController.removeFromQueue(index)
+    }
+
+    fun skipQueueTo(index: Int) {
+        playerController.skipQueueTo(index)
+    }
+
     override fun onCleared() {
         synchronized(sessionGuard) {
             currentMetricsSession?.let { videoOpenMetrics.cancel(it) }

@@ -93,6 +93,10 @@ class HPrePlaybackService : MediaSessionService() {
         const val CUSTOM_COMMAND_STOP_FOR_TRANSITION = "com.hpre.app.CUSTOM_COMMAND_STOP_FOR_TRANSITION"
         const val CUSTOM_COMMAND_SET_BACKGROUND_ENABLED = "com.hpre.app.CUSTOM_COMMAND_SET_BACKGROUND_ENABLED"
         const val CUSTOM_COMMAND_UPDATE_AUTOPLAY_CANDIDATES = "com.hpre.app.CUSTOM_COMMAND_UPDATE_AUTOPLAY_CANDIDATES"
+        const val CUSTOM_COMMAND_ENQUEUE = "com.hpre.app.CUSTOM_COMMAND_ENQUEUE"
+        const val CUSTOM_COMMAND_QUEUE_REMOVE = "com.hpre.app.CUSTOM_COMMAND_QUEUE_REMOVE"
+        const val CUSTOM_COMMAND_QUEUE_SKIP_TO = "com.hpre.app.CUSTOM_COMMAND_QUEUE_SKIP_TO"
+        const val CUSTOM_COMMAND_QUEUE_CHANGED = "com.hpre.app.CUSTOM_COMMAND_QUEUE_CHANGED"
         const val CUSTOM_COMMAND_AUTOPLAY_TRANSITION = "com.hpre.app.CUSTOM_COMMAND_AUTOPLAY_TRANSITION"
         const val CUSTOM_COMMAND_TERMINAL_ERROR = "com.hpre.app.CUSTOM_COMMAND_TERMINAL_ERROR"
         const val CUSTOM_COMMAND_RECOVERY_STARTED = "com.hpre.app.CUSTOM_COMMAND_RECOVERY_STARTED"
@@ -120,6 +124,10 @@ class HPrePlaybackService : MediaSessionService() {
         const val EXTRA_POLICY_MAX_BITRATE = "extra_policy_max_bitrate"
         const val EXTRA_CANDIDATE_SERVICE_IDS = "extra_candidate_service_ids"
         const val EXTRA_CANDIDATE_NATIVE_IDS = "extra_candidate_native_ids"
+        const val EXTRA_TITLE = "extra_title"
+        const val EXTRA_PLAY_NEXT = "extra_play_next"
+        const val EXTRA_QUEUE_INDEX = "extra_queue_index"
+        const val EXTRA_QUEUE_ITEMS = "extra_queue_items"
         const val EXTRA_PREVIOUS_SERVICE_ID = "extra_previous_service_id"
         const val EXTRA_PREVIOUS_NATIVE_ID = "extra_previous_native_id"
         const val EXTRA_PREVIOUS_SESSION_GENERATION = "extra_previous_session_generation"
@@ -558,6 +566,7 @@ class HPrePlaybackService : MediaSessionService() {
             sessionGeneration = previousSession,
             allowAdvance = allowAdvance
         ) ?: return
+        val wasManual = autoplayQueue.lastTakeWasManual
         val app = application as? HPreApplication ?: return
         val requestGeneration = prepareRequestGeneration
         val transportRequest = transportGeneration
@@ -575,7 +584,7 @@ class HPrePlaybackService : MediaSessionService() {
                     currentSessionGeneration = playbackSessionGeneration,
                     expectedRequestGeneration = requestGeneration,
                     currentRequestGeneration = prepareRequestGeneration,
-                    enabled = latestSettings.autoplay,
+                    enabled = latestSettings.autoplay || wasManual,
                     lifecycleStarted = isLifecycleStarted,
                     backgroundEnabled = latestSettings.backgroundPlaybackEnabled && backgroundPlaybackEnabled,
                     pipActive = isPipActiveOrEntering
@@ -599,12 +608,28 @@ class HPrePlaybackService : MediaSessionService() {
                     autoplayReadyAction = {
                         if (currentKey == nextKey && transportRequest == transportGeneration &&
                             autoplayQueue.commit(previousKey, nextKey)) {
+                            if (wasManual) broadcastQueueState()
                             broadcastAutoplayTransition(previousKey, previousSession, streamResult.value, defaults)
                         }
                     }
                 }
             )
         }
+    }
+
+    private fun broadcastQueueState() {
+        val items = ArrayList<Bundle>(autoplayQueue.manualSnapshot.size)
+        autoplayQueue.manualSnapshot.forEach { item ->
+            items += Bundle().apply {
+                putInt(EXTRA_SERVICE_ID, item.key.serviceId)
+                putString(EXTRA_NATIVE_ID, item.key.nativeId)
+                putString(EXTRA_TITLE, item.title)
+            }
+        }
+        mediaSession?.broadcastCustomCommand(
+            SessionCommand(CUSTOM_COMMAND_QUEUE_CHANGED, Bundle.EMPTY),
+            Bundle().apply { putParcelableArrayList(EXTRA_QUEUE_ITEMS, items) }
+        )
     }
 
     private fun broadcastAutoplayTransition(
@@ -1200,6 +1225,7 @@ class HPrePlaybackService : MediaSessionService() {
         historyScheduler.stop()
         cancelAutoplay()
         autoplayQueue.clear()
+        broadcastQueueState()
 
         currentKey = null
         currentStreamInfo = null
@@ -1277,6 +1303,9 @@ class HPrePlaybackService : MediaSessionService() {
                 .add(SessionCommand(CUSTOM_COMMAND_STOP_FOR_TRANSITION, Bundle.EMPTY))
                 .add(SessionCommand(CUSTOM_COMMAND_SET_BACKGROUND_ENABLED, Bundle.EMPTY))
                 .add(SessionCommand(CUSTOM_COMMAND_UPDATE_AUTOPLAY_CANDIDATES, Bundle.EMPTY))
+                .add(SessionCommand(CUSTOM_COMMAND_ENQUEUE, Bundle.EMPTY))
+                .add(SessionCommand(CUSTOM_COMMAND_QUEUE_REMOVE, Bundle.EMPTY))
+                .add(SessionCommand(CUSTOM_COMMAND_QUEUE_SKIP_TO, Bundle.EMPTY))
                 .build()
             return MediaSession.ConnectionResult.AcceptedResultBuilder(session)
                 .setAvailableSessionCommands(availableCommands)
@@ -1543,6 +1572,43 @@ class HPrePlaybackService : MediaSessionService() {
                     return Futures.immediateFuture(
                         SessionResult(
                             if (accepted) SessionResult.RESULT_SUCCESS else SessionError.ERROR_INVALID_STATE
+                        )
+                    )
+                }
+                CUSTOM_COMMAND_ENQUEUE -> {
+                    val nativeId = args.getString(EXTRA_NATIVE_ID).orEmpty()
+                    if (nativeId.isBlank()) {
+                        return Futures.immediateFuture(SessionResult(SessionError.ERROR_BAD_VALUE))
+                    }
+                    val accepted = autoplayQueue.enqueue(
+                        QueuedItem(
+                            key = ContentKey(args.getInt(EXTRA_SERVICE_ID, 0), nativeId),
+                            title = args.getString(EXTRA_TITLE).orEmpty()
+                        ),
+                        playNext = args.getBoolean(EXTRA_PLAY_NEXT, false)
+                    )
+                    if (accepted) broadcastQueueState()
+                    return Futures.immediateFuture(
+                        SessionResult(
+                            if (accepted) SessionResult.RESULT_SUCCESS else SessionError.ERROR_INVALID_STATE
+                        )
+                    )
+                }
+                CUSTOM_COMMAND_QUEUE_REMOVE -> {
+                    val removed = autoplayQueue.removeManual(args.getInt(EXTRA_QUEUE_INDEX, -1))
+                    if (removed) broadcastQueueState()
+                    return Futures.immediateFuture(
+                        SessionResult(
+                            if (removed) SessionResult.RESULT_SUCCESS else SessionError.ERROR_INVALID_STATE
+                        )
+                    )
+                }
+                CUSTOM_COMMAND_QUEUE_SKIP_TO -> {
+                    val dropped = autoplayQueue.dropManualThrough(args.getInt(EXTRA_QUEUE_INDEX, -1))
+                    if (dropped) broadcastQueueState()
+                    return Futures.immediateFuture(
+                        SessionResult(
+                            if (dropped) SessionResult.RESULT_SUCCESS else SessionError.ERROR_INVALID_STATE
                         )
                     )
                 }

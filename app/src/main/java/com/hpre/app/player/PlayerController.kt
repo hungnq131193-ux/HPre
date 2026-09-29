@@ -37,6 +37,13 @@ interface PlayerController {
     fun selectQuality(quality: QualityOption)
     fun setQualityPolicy(policy: UserQualityPolicy) = Unit
     fun updateAutoplayCandidates(sourceKey: ContentKey, candidates: List<ContentKey>) = Unit
+    /** Sets a wall-clock sleep timer; null or non-positive clears it. */
+    fun setSleepTimer(durationMs: Long?) = Unit
+    /** Appends to the user play queue; [playNext] inserts at the head instead. */
+    fun enqueue(item: QueuedItem, playNext: Boolean = false) = Unit
+    fun removeFromQueue(index: Int) = Unit
+    /** Drops queue entries 0..index inclusive — the caller is about to play that entry directly. */
+    fun skipQueueTo(index: Int) = Unit
     /** Invalidate the previous media without destroying the shared playback session. */
     fun stopForTransition() = pause()
     fun clearMedia() = Unit

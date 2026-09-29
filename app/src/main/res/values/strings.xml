@@ -118,6 +118,15 @@
     <string name="resize_mode_fit">Vừa màn hình (Fit)</string>
     <string name="resize_mode_fill">Lấp đầy (Fill)</string>
     <string name="resize_mode_zoom">Thu phóng (Zoom)</string>
+    <string name="sleep_timer">Hẹn giờ tắt</string>
+    <string name="sleep_timer_active">Hẹn giờ tắt (còn %1$s)</string>
+    <string name="sleep_timer_minutes">%1$d phút</string>
+    <string name="sleep_timer_off">Tắt hẹn giờ</string>
+    <string name="queue_title">Hàng đợi</string>
+    <string name="queue_empty">Hàng đợi trống</string>
+    <string name="queue_remove">Xóa khỏi hàng đợi</string>
+    <string name="queue_play_next">Phát tiếp theo</string>
+    <string name="queue_add">Thêm vào hàng đợi</string>
     <string name="quality_auto">Tự động</string>
     <string name="watch_save">Lưu</string>
     <string name="watch_share">Chia sẻ</string>

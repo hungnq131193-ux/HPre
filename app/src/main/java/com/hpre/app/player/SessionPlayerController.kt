@@ -322,6 +322,7 @@ class SessionPlayerController internal constructor(
     private var autoplayCandidates: List<ContentKey> = emptyList()
     private val pendingCommands = PendingSessionCommands()
     private var recoveryJob: Job? = null
+    private var sleepTimerJob: Job? = null
 
     private fun acceptsCurrentPlaybackCallback(): Boolean = !isReleased && acceptsPlaybackCallback(
         currentKey, PlaybackMediaMetadata.from(mediaController?.currentMediaItem)?.key, transitioning
@@ -556,6 +557,22 @@ class SessionPlayerController internal constructor(
                     if (handled) {
                         return Futures.immediateFuture(SessionResult(SessionResult.RESULT_SUCCESS))
                     }
+                    if (command.customAction == HPrePlaybackService.CUSTOM_COMMAND_QUEUE_CHANGED) {
+                        val items = androidx.core.os.BundleCompat.getParcelableArrayList(
+                            args,
+                            HPrePlaybackService.EXTRA_QUEUE_ITEMS,
+                            Bundle::class.java
+                        ).orEmpty().mapNotNull { item ->
+                            val nativeId = item.getString(HPrePlaybackService.EXTRA_NATIVE_ID)
+                                ?: return@mapNotNull null
+                            QueuedItem(
+                                key = ContentKey(item.getInt(HPrePlaybackService.EXTRA_SERVICE_ID), nativeId),
+                                title = item.getString(HPrePlaybackService.EXTRA_TITLE).orEmpty()
+                            )
+                        }
+                        _state.update { it.copy(playQueue = items) }
+                        return Futures.immediateFuture(SessionResult(SessionResult.RESULT_SUCCESS))
+                    }
                     if (command.customAction == HPrePlaybackService.CUSTOM_COMMAND_AUTOPLAY_TRANSITION) {
                         val previousNativeId = args.getString(HPrePlaybackService.EXTRA_PREVIOUS_NATIVE_ID)
                         val nextNativeId = args.getString(HPrePlaybackService.EXTRA_NATIVE_ID)
@@ -627,7 +644,8 @@ class SessionPlayerController internal constructor(
                                 qualityPolicy = acceptedTransition.qualityPolicy,
                                 availableQualities = available,
                                 streamType = acceptedTransition.initialQuality?.streamType,
-                                autoplayTransitionGeneration = acceptedTransition.nextSessionGeneration
+                                autoplayTransitionGeneration = acceptedTransition.nextSessionGeneration,
+                                sleepTimerEndsAtMs = _state.value.sleepTimerEndsAtMs
                             )
                         }
                         return Futures.immediateFuture(
@@ -974,6 +992,41 @@ class SessionPlayerController internal constructor(
         )
     }
 
+    override fun enqueue(item: QueuedItem, playNext: Boolean) {
+        if (isReleased) return
+        scope.launch(mainDispatcher) {
+            mediaController?.sendCustomCommand(
+                SessionCommand(HPrePlaybackService.CUSTOM_COMMAND_ENQUEUE, Bundle.EMPTY),
+                Bundle().apply {
+                    putInt(HPrePlaybackService.EXTRA_SERVICE_ID, item.key.serviceId)
+                    putString(HPrePlaybackService.EXTRA_NATIVE_ID, item.key.nativeId)
+                    putString(HPrePlaybackService.EXTRA_TITLE, item.title)
+                    putBoolean(HPrePlaybackService.EXTRA_PLAY_NEXT, playNext)
+                }
+            )
+        }
+    }
+
+    override fun removeFromQueue(index: Int) {
+        if (isReleased) return
+        scope.launch(mainDispatcher) {
+            mediaController?.sendCustomCommand(
+                SessionCommand(HPrePlaybackService.CUSTOM_COMMAND_QUEUE_REMOVE, Bundle.EMPTY),
+                Bundle().apply { putInt(HPrePlaybackService.EXTRA_QUEUE_INDEX, index) }
+            )
+        }
+    }
+
+    override fun skipQueueTo(index: Int) {
+        if (isReleased) return
+        scope.launch(mainDispatcher) {
+            mediaController?.sendCustomCommand(
+                SessionCommand(HPrePlaybackService.CUSTOM_COMMAND_QUEUE_SKIP_TO, Bundle.EMPTY),
+                Bundle().apply { putInt(HPrePlaybackService.EXTRA_QUEUE_INDEX, index) }
+            )
+        }
+    }
+
     private fun applyVideoTrackPolicy(
         controller: MediaController? = mediaController,
         isChangingConfigurations: Boolean = false
@@ -1203,6 +1256,23 @@ class SessionPlayerController internal constructor(
         }
     }
 
+    override fun setSleepTimer(durationMs: Long?) {
+        if (isReleased) return
+        sleepTimerJob?.cancel()
+        sleepTimerJob = null
+        if (durationMs == null || durationMs <= 0L) {
+            _state.update { it.copy(sleepTimerEndsAtMs = null) }
+            return
+        }
+        _state.update { it.copy(sleepTimerEndsAtMs = System.currentTimeMillis() + durationMs) }
+        sleepTimerJob = scope.launch(mainDispatcher) {
+            delay(durationMs)
+            mediaController?.pause()
+            _state.update { it.copy(sleepTimerEndsAtMs = null) }
+            sleepTimerJob = null
+        }
+    }
+
     override fun playPause() {
         if (isReleased) return
         scope.launch(mainDispatcher) {
@@ -1381,7 +1451,8 @@ class SessionPlayerController internal constructor(
         val previous = _state.value
         _state.value = PlaybackState(
             playbackSpeed = previous.playbackSpeed,
-            qualityPolicy = previous.qualityPolicy as? UserQualityPolicy.Auto ?: UserQualityPolicy.Auto()
+            qualityPolicy = previous.qualityPolicy as? UserQualityPolicy.Auto ?: UserQualityPolicy.Auto(),
+            sleepTimerEndsAtMs = previous.sleepTimerEndsAtMs
         )
         // Commands use the same main-thread queue as prepare, so an already dispatched prepare is
         // invalidated by the service before the next video is delivered. Keep controller/surface.
@@ -1411,7 +1482,7 @@ class SessionPlayerController internal constructor(
         pendingCommands.clearPrepare()
         currentKey = null
         currentStreamInfo = null
-        _state.value = PlaybackState()
+        _state.value = PlaybackState(sleepTimerEndsAtMs = _state.value.sleepTimerEndsAtMs)
 
         val surfaceView = currentSurfaceView
         currentSurfaceView = null
@@ -1448,6 +1519,8 @@ class SessionPlayerController internal constructor(
         isReleased = true
         recoveryJob?.cancel()
         recoveryJob = null
+        sleepTimerJob?.cancel()
+        sleepTimerJob = null
         reconnectJob?.cancel()
         reconnectJob = null
         isReconnecting = false
