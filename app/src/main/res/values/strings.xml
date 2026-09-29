@@ -10,6 +10,10 @@
     <string name="action_retry">Thử lại</string>
     <string name="action_refresh">Làm mới</string>
     <string name="action_play">Phát</string>
+    <string name="player_previous">Trước</string>
+    <string name="player_next">Tiếp</string>
+    <string name="widget_idle_title">Không phát</string>
+    <string name="widget_description">Điều khiển phát nhạc HPre</string>
     <string name="action_pause">Tạm dừng</string>
     <string name="action_cancel">Hủy</string>
     <string name="action_create">Tạo</string>
