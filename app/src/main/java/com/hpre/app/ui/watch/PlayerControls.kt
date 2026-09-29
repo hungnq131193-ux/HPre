@@ -5,7 +5,6 @@ import androidx.compose.ui.semantics.onClick
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.displayCutoutPadding
@@ -15,6 +14,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -300,10 +300,6 @@ fun PlayerControlsOverlay(
                         downPosition.y,
                         protectedControlBounds.values
                     ))
-                    if (com.hpre.app.BuildConfig.DEBUG) android.util.Log.d(
-                        "HPreGestureDebug",
-                        "down=$downPosition consumed=${down.isConsumed} protected=$startedInProtected visible=${currentControlsVisible.value} bounds=$protectedControlBounds"
-                    )
 
                     if (startedInProtected) {
                         // Reset double-tap chain and wait for pointer release without acting
@@ -426,7 +422,6 @@ fun PlayerControlsOverlay(
                                 }
                             }
                         } else {
-                            if (com.hpre.app.BuildConfig.DEBUG) android.util.Log.d("HPreGestureDebug", "surface_tap visible=${currentControlsVisible.value}")
                             // Record confirmed UP position and uptime
                             lastUpUptime = confirmedUpChange.uptimeMillis
                             lastUpPosition = confirmedUpChange.position
@@ -446,7 +441,6 @@ fun PlayerControlsOverlay(
             .testTag("player_controls_overlay")
             .semantics {
                 onClick {
-                    if (com.hpre.app.BuildConfig.DEBUG) android.util.Log.d("HPreGestureDebug", "overlay_semantics_click")
                     keepControlsAlive()
                     true
                 }
@@ -618,7 +612,6 @@ fun PlayerControlsOverlay(
 
                 IconButton(
                     onClick = {
-                        if (com.hpre.app.BuildConfig.DEBUG) android.util.Log.d("HPreGestureDebug", "play_button_click")
                         keepControlsAlive()
                         onPlayPause()
                     },
@@ -880,7 +873,7 @@ fun PlayerControlsOverlay(
                     unregisterProtectedBounds("control_fullscreen_toggle")
                 }
             }
-            Column(
+            Row(
                 modifier = Modifier
                     .align(Alignment.BottomCenter)
                     .fillMaxWidth()
@@ -890,7 +883,9 @@ fun PlayerControlsOverlay(
                     .padding(horizontal = 16.dp, vertical = 8.dp)
                     .onGloballyPositioned { coordinates ->
                         registerProtectedBounds("bottom_bar", coordinates)
-                    }
+                    },
+                horizontalArrangement = Arrangement.spacedBy(12.dp),
+                verticalAlignment = Alignment.CenterVertically
             ) {
                 // Seek slider: when structural playbackState.durationMs <= 0 force 0/disabled immediately;
                 // otherwise prefer localProgress.durationMs if > 0, fallback to structural duration.
@@ -908,6 +903,16 @@ fun PlayerControlsOverlay(
                 } else {
                     0f
                 }
+
+                val displayPosition = if (!isSeekEnabled) 0L else if (isDragging) dragPosition.toLong() else localProgress.positionMs
+                Text(
+                    text = "${formatTime(displayPosition)} / ${formatTime(effectiveDurationMs)}",
+                    color = Color.White,
+                    fontSize = 12.sp,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.widthIn(max = 128.dp).testTag("player_time_text")
+                )
 
                 Slider(
                     value = sliderValue.coerceIn(0f, if (isSeekEnabled) duration else 1f),
@@ -999,7 +1004,7 @@ fun PlayerControlsOverlay(
                         }
                     },
                     modifier = Modifier
-                        .fillMaxWidth()
+                        .weight(1f)
                         .height(48.dp)
                         .onGloballyPositioned { coords ->
                             registerProtectedBounds("player_progress_slider", coords)
@@ -1017,39 +1022,25 @@ fun PlayerControlsOverlay(
                         .testTag("player_progress_slider")
                 )
 
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
+                IconButton(
+                    onClick = {
+                        keepControlsAlive()
+                        onToggleFullscreen()
+                    },
+                    modifier = Modifier
+                        .testTag("control_fullscreen_toggle")
+                        .onGloballyPositioned { coords ->
+                            registerProtectedBounds("control_fullscreen_toggle", coords)
+                        }
                 ) {
-                    val displayPosition = if (!isSeekEnabled) 0L else if (isDragging) dragPosition.toLong() else localProgress.positionMs
-                    Text(
-                        text = "${formatTime(displayPosition)} / ${formatTime(effectiveDurationMs)}",
-                        color = Color.White,
-                        fontSize = 12.sp,
-                        modifier = Modifier.testTag("player_time_text")
+                    Icon(
+                        imageVector = if (isFullscreen) Icons.Default.FullscreenExit else Icons.Default.Fullscreen,
+                        contentDescription = stringResource(
+                            if (isFullscreen) R.string.action_exit_fullscreen
+                            else R.string.action_enter_fullscreen
+                        ),
+                        tint = Color.White
                     )
-
-                    IconButton(
-                        onClick = {
-                            keepControlsAlive()
-                            onToggleFullscreen()
-                        },
-                        modifier = Modifier
-                            .testTag("control_fullscreen_toggle")
-                            .onGloballyPositioned { coords ->
-                                registerProtectedBounds("control_fullscreen_toggle", coords)
-                            }
-                    ) {
-                        Icon(
-                            imageVector = if (isFullscreen) Icons.Default.FullscreenExit else Icons.Default.Fullscreen,
-                            contentDescription = stringResource(
-                                if (isFullscreen) R.string.action_exit_fullscreen
-                                else R.string.action_enter_fullscreen
-                            ),
-                            tint = Color.White
-                        )
-                    }
                 }
             }
         }

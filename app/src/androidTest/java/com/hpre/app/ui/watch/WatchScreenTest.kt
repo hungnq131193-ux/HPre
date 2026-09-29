@@ -404,11 +404,13 @@ class WatchScreenTest {
 
             composeTestRule.setContent {
                 HPreTheme {
-                    WatchScreen(
-                        contentKey = testKey,
-                        viewModel = viewModel,
-                        onNavigateBack = {}
-                    )
+                    Box(modifier = Modifier.width(320.dp)) {
+                        WatchScreen(
+                            contentKey = testKey,
+                            viewModel = viewModel,
+                            onNavigateBack = {}
+                        )
+                    }
                 }
             }
 
@@ -426,13 +428,27 @@ class WatchScreenTest {
             composeTestRule.onNodeWithContentDescription(context.getString(com.hpre.app.R.string.action_rewind_10)).assertExists()
             composeTestRule.onNodeWithContentDescription(context.getString(com.hpre.app.R.string.action_forward_10)).assertExists()
 
+            val sliderBounds = composeTestRule.onNodeWithTag("player_progress_slider")
+                .assertIsDisplayed()
+                .assertHeightIsAtLeast(48.dp)
+                .fetchSemanticsNode().boundsInRoot
+            listOf("control_rewind_10", "control_play_pause", "control_forward_10", "control_fullscreen_toggle").forEach { tag ->
+                val bounds = composeTestRule.onNodeWithTag(tag).assertIsDisplayed().fetchSemanticsNode().boundsInRoot
+                assertTrue(
+                    "$tag overlaps the seek target: $bounds and $sliderBounds",
+                    bounds.bottom <= sliderBounds.top || bounds.top >= sliderBounds.bottom ||
+                        bounds.right <= sliderBounds.left || bounds.left >= sliderBounds.right
+                )
+            }
+
             // Test play/pause toggle dispatch
             composeTestRule.onNodeWithTag("control_play_pause").assertExists()
-            composeTestRule.onRoot(useUnmergedTree = true).printToLog("HPreWatchBeforeTap")
             composeTestRule.onNodeWithTag("control_play_pause").performClick()
             composeTestRule.runOnIdle {
                 assertTrue("playPause should be dispatched to controller", fakePlayer.playPauseCalled)
                 assertTrue("Play should start the paused fixture", fakePlayer.state.value.isPlaying)
+                assertEquals("Play must not seek", null, fakePlayer.seekToPosition)
+                assertEquals("Play must not dispatch a seek delta", null, fakePlayer.seekDeltaCalled)
             }
             composeTestRule.onNodeWithTag("control_play_pause").performClick()
             composeTestRule.runOnIdle {
