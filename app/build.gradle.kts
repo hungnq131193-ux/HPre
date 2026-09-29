@@ -31,8 +31,8 @@ android {
         applicationId = "com.hpre.app"
         minSdk = 26
         targetSdk = 35
-        versionCode = 41
-        versionName = "1.0.40"
+        versionCode = 42
+        versionName = "1.0.41"
 
         testInstrumentationRunner = "com.hpre.app.testing.HPreTestRunner"
         vectorDrawables {
