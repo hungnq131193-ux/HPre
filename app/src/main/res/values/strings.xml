@@ -143,6 +143,7 @@
     <string name="settings_backup_error">Sao lưu/nhập thất bại — file không hợp lệ</string>
     <string name="settings_sponsorblock">Bỏ qua quảng cáo/tài trợ</string>
     <string name="settings_sponsorblock_summary">Tự động tua qua đoạn sponsor (SponsorBlock)</string>
+    <string name="auto_browse_history">Gần đây</string>
     <string name="quality_auto">Tự động</string>
     <string name="watch_save">Lưu</string>
     <string name="watch_share">Chia sẻ</string>
