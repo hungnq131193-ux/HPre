@@ -321,6 +321,10 @@ fun WatchScreen(
     val relatedState by viewModel.relatedState.collectAsStateWithLifecycle()
     val commentsState by viewModel.commentsState.collectAsStateWithLifecycle()
     val downloadUiState by viewModel.downloadUiState.collectAsStateWithLifecycle()
+    val castDevices by viewModel.castDevices.collectAsStateWithLifecycle()
+    val castActiveDevice by viewModel.castActiveDevice.collectAsStateWithLifecycle()
+    val castError by viewModel.castError.collectAsStateWithLifecycle()
+    var isCastSheetOpen by remember { mutableStateOf(false) }
     val commentsPagination by viewModel.commentsPagination.collectAsStateWithLifecycle()
     val context = LocalContext.current
     val isFullscreen = uiState.isFullscreen
@@ -450,6 +454,11 @@ fun WatchScreen(
                 onDownloadVideo = { viewModel.downloadCurrent(audioOnly = false) },
                 onDownloadAudio = { viewModel.downloadCurrent(audioOnly = true) },
                 onDownloadRemove = { viewModel.removeCurrentDownload() },
+                onCastClick = {
+                    viewModel.startCastDiscovery()
+                    isCastSheetOpen = true
+                },
+                isCasting = castActiveDevice != null,
                 onToggleFullscreen = { viewModel.setFullscreen(false) },
                 onMinimizeToHome = onMinimizeToHome,
                 minimizeEnabled = false,
@@ -517,6 +526,11 @@ fun WatchScreen(
                         onDownloadVideo = { viewModel.downloadCurrent(audioOnly = false) },
                         onDownloadAudio = { viewModel.downloadCurrent(audioOnly = true) },
                         onDownloadRemove = { viewModel.removeCurrentDownload() },
+                        onCastClick = {
+                            viewModel.startCastDiscovery()
+                            isCastSheetOpen = true
+                        },
+                        isCasting = castActiveDevice != null,
                         onToggleFullscreen = { viewModel.setFullscreen(true) },
                         onMinimizeToHome = onMinimizeToHome,
                         minimizeEnabled = isPortrait,
@@ -577,6 +591,24 @@ fun WatchScreen(
                 }
         }
     }
+
+    if (isCastSheetOpen) {
+        CastDeviceDialog(
+            devices = castDevices,
+            activeDevice = castActiveDevice,
+            error = castError,
+            isPlaying = playbackState.isPlaying,
+            onSelect = { device -> viewModel.castTo(device) },
+            onPause = { viewModel.castPause() },
+            onResume = { viewModel.castResume() },
+            onDisconnect = { viewModel.castDisconnect() },
+            onDismiss = {
+                isCastSheetOpen = false
+                viewModel.stopCastDiscovery()
+                viewModel.consumeCastError()
+            }
+        )
+    }
 }
 
 @Composable
@@ -604,6 +636,8 @@ private fun WatchPlayerControls(
     onDownloadVideo: () -> Unit = {},
     onDownloadAudio: () -> Unit = {},
     onDownloadRemove: () -> Unit = {},
+    onCastClick: () -> Unit = {},
+    isCasting: Boolean = false,
     onToggleFullscreen: () -> Unit,
     onMinimizeToHome: () -> Unit,
     minimizeEnabled: Boolean,
@@ -633,6 +667,8 @@ private fun WatchPlayerControls(
         onDownloadVideo = onDownloadVideo,
         onDownloadAudio = onDownloadAudio,
         onDownloadRemove = onDownloadRemove,
+        onCastClick = onCastClick,
+        isCasting = isCasting,
         onToggleFullscreen = onToggleFullscreen,
         readProgress = readProgress,
         onMinimizeToHome = onMinimizeToHome,
@@ -1117,4 +1153,85 @@ fun AddToPlaylistSheet(
             Spacer(modifier = Modifier.height(24.dp))
         }
     }
+}
+
+
+@Composable
+private fun CastDeviceDialog(
+    devices: List<com.hpre.app.cast.FCastDevice>,
+    activeDevice: com.hpre.app.cast.FCastDevice?,
+    error: String?,
+    isPlaying: Boolean,
+    onSelect: (com.hpre.app.cast.FCastDevice) -> Unit,
+    onPause: () -> Unit,
+    onResume: () -> Unit,
+    onDisconnect: () -> Unit,
+    onDismiss: () -> Unit
+) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        confirmButton = {},
+        dismissButton = {
+            TextButton(onClick = onDismiss) { Text(stringResource(R.string.action_close)) }
+        },
+        title = { Text(stringResource(R.string.cast_devices_title)) },
+        text = {
+            Column(modifier = Modifier.fillMaxWidth()) {
+                if (error != null) {
+                    Text(
+                        text = stringResource(
+                            when (error) {
+                                "cast_no_playable_stream" -> R.string.cast_error_no_stream
+                                else -> R.string.cast_error_connect
+                            }
+                        ),
+                        color = MaterialTheme.colorScheme.error,
+                        style = MaterialTheme.typography.bodySmall
+                    )
+                }
+                if (activeDevice != null) {
+                    Text(
+                        text = stringResource(R.string.cast_connected_to, activeDevice.name),
+                        style = MaterialTheme.typography.bodyMedium
+                    )
+                    Row(
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        modifier = Modifier.padding(top = 8.dp)
+                    ) {
+                        if (isPlaying) {
+                            TextButton(onClick = onPause, modifier = Modifier.testTag("cast_pause")) {
+                                Text(stringResource(R.string.action_pause))
+                            }
+                        } else {
+                            TextButton(onClick = onResume, modifier = Modifier.testTag("cast_resume")) {
+                                Text(stringResource(R.string.action_play))
+                            }
+                        }
+                        TextButton(onClick = onDisconnect, modifier = Modifier.testTag("cast_disconnect")) {
+                            Text(stringResource(R.string.cast_disconnect))
+                        }
+                    }
+                } else if (devices.isEmpty()) {
+                    Text(
+                        text = stringResource(R.string.cast_no_devices),
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.testTag("cast_empty")
+                    )
+                } else {
+                    devices.forEach { device ->
+                        Text(
+                            text = device.name,
+                            style = MaterialTheme.typography.bodyLarge,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clickable { onSelect(device) }
+                                .padding(vertical = 12.dp)
+                                .testTag("cast_device_${device.name}")
+                        )
+                    }
+                }
+            }
+        }
+    )
 }

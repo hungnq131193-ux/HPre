@@ -24,6 +24,14 @@
     <string name="download_state_queued">Queued</string>
     <string name="screen_downloads">Downloads</string>
     <string name="downloads_empty">Nothing downloaded yet</string>
+    <string name="cast_to_tv">Cast to TV</string>
+    <string name="cast_devices_title">Select device</string>
+    <string name="cast_no_devices">No FCast devices found. Install the FCast app on your TV and use the same Wi-Fi.</string>
+    <string name="cast_disconnect">Disconnect</string>
+    <string name="cast_connected_to">Playing on %s</string>
+    <string name="cast_error_no_stream">No single-stream format available to cast</string>
+    <string name="cast_error_connect">Could not connect to device</string>
+    <string name="action_close">Close</string>
     <string name="action_pause">Pause</string>
     <string name="action_cancel">Cancel</string>
     <string name="action_create">Create</string>

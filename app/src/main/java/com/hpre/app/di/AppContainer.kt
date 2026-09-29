@@ -86,6 +86,10 @@ interface AppContainer {
     val watchStateCache: WatchStateCache
     val playbackSnapshotStore: PlaybackSnapshotStore?
         get() = null
+    /** FCast sender/discovery; null in test containers. */
+    val castController: com.hpre.app.cast.CastController?
+        get() = null
+
     /** Media3 download tracker; null in test containers that do not exercise downloads. */
     val downloadTracker: com.hpre.app.download.DownloadTracker?
         @androidx.annotation.OptIn(androidx.media3.common.util.UnstableApi::class)
@@ -281,6 +285,14 @@ class DefaultAppContainer(
 
     override val playbackSnapshotStore: PlaybackSnapshotStore by lazy {
         PlaybackSnapshotStore(appContext)
+    }
+
+    override val castController: com.hpre.app.cast.CastController by lazy {
+        com.hpre.app.cast.CastController(
+            context = appContext,
+            videoService = videoService,
+            scope = applicationScope
+        )
     }
 
     @androidx.annotation.OptIn(androidx.media3.common.util.UnstableApi::class)

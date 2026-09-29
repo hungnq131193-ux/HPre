@@ -24,6 +24,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.AspectRatio
+import androidx.compose.material.icons.filled.Cast
 import androidx.compose.material.icons.filled.Download
 import com.hpre.app.download.DownloadUiState
 import androidx.compose.material.icons.filled.DownloadDone
@@ -168,6 +169,8 @@ fun PlayerControlsOverlay(
     onQueueItemRemove: (Int) -> Unit = {},
     onSubtitleSelected: (String?) -> Unit = {},
     onAudioLanguageSelected: (String?) -> Unit = {},
+    onCastClick: () -> Unit = {},
+    isCasting: Boolean = false,
     downloadState: DownloadUiState = DownloadUiState.NONE,
     downloadProgressPercent: Int = 0,
     onDownloadVideo: () -> Unit = {},
@@ -1277,6 +1280,34 @@ fun PlayerControlsOverlay(
                                     .size(20.dp)
                             )
                         }
+                    }
+
+                    val castDescription = stringResource(R.string.cast_to_tv)
+                    Surface(
+                        onClick = {
+                            keepControlsAlive()
+                            onCastClick()
+                        },
+                        color = Color.Black.copy(alpha = 0.4f),
+                        shape = RoundedCornerShape(6.dp),
+                        modifier = Modifier
+                            .testTag("control_cast_button")
+                            .onGloballyPositioned { coords ->
+                                registerProtectedBounds("control_cast_button", coords)
+                            }
+                            .semantics {
+                                role = Role.Button
+                                contentDescription = castDescription
+                            }
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Cast,
+                            contentDescription = null,
+                            tint = if (isCasting) MaterialTheme.colorScheme.primary else Color.White,
+                            modifier = Modifier
+                                .padding(horizontal = 10.dp, vertical = 6.dp)
+                                .size(20.dp)
+                        )
                     }
 
                     val downloadDescription = stringResource(R.string.download_video)

@@ -24,6 +24,14 @@
     <string name="download_state_queued">Chờ tải</string>
     <string name="screen_downloads">Tải xuống</string>
     <string name="downloads_empty">Chưa có nội dung tải xuống</string>
+    <string name="cast_to_tv">Truyền lên TV</string>
+    <string name="cast_devices_title">Chọn thiết bị</string>
+    <string name="cast_no_devices">Không thấy thiết bị FCast nào. Cài app FCast trên TV rồi bật cùng Wi-Fi.</string>
+    <string name="cast_disconnect">Ngắt kết nối</string>
+    <string name="cast_connected_to">Đang phát trên %s</string>
+    <string name="cast_error_no_stream">Video này không có stream phù hợp để truyền</string>
+    <string name="cast_error_connect">Không kết nối được thiết bị</string>
+    <string name="action_close">Đóng</string>
     <string name="action_pause">Tạm dừng</string>
     <string name="action_cancel">Hủy</string>
     <string name="action_create">Tạo</string>

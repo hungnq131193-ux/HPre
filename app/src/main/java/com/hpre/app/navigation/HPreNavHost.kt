@@ -387,7 +387,8 @@ fun HPreNavHost(
                         playlistRepository = container.playlistRepository,
                         watchRecommendationSource = container.recommendationRepository,
                         watchStateCache = container.watchStateCache,
-                        downloadTracker = container.downloadTracker
+                        downloadTracker = container.downloadTracker,
+                        castController = container.castController
                     )
                 )
                 androidx.compose.runtime.LaunchedEffect(watchViewModel, backStackEntry.id) {
