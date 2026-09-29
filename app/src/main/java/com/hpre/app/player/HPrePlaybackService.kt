@@ -177,8 +177,17 @@ class HPrePlaybackService : MediaLibraryService() {
 
     private var mediaSourceFactory: MediaSourceCreator? = null
 
+    /**
+     * Lazily resolved only once downloads exist on disk. Constructing the tracker eagerly would
+     * open a second SimpleCache + SQLite index on the first prepare — pure overhead for users who
+     * never download, so the getter short-circuits on a missing/empty downloads dir.
+     */
     private val downloadTracker: com.hpre.app.download.DownloadTracker?
-        get() = (application as? HPreApplication)?.container?.downloadTracker
+        get() {
+            val dir = java.io.File(application.filesDir, "downloads")
+            if (!dir.isDirectory || dir.listFiles()?.isEmpty() != false) return null
+            return (application as? HPreApplication)?.container?.downloadTracker
+        }
     private var recoveryCoordinator: StreamRecoveryCoordinator? = null
     private var snapshotStore: PlaybackSnapshotStore? = null
     private var settingsSnapshot: AppSettingsSnapshot? = null

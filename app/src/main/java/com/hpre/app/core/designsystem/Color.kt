@@ -3,11 +3,10 @@ package com.hpre.app.core.designsystem
 import androidx.compose.ui.graphics.Color
 
 // Brand mark — identity accent only, not a background for small text.
-val HPreRed = Color(0xFFE53935)
-
-// Brand gradient stops: coral → red → rose. Matches the launcher icon's warm ramp.
-val HPreBrandCoral = Color(0xFFFF6F60)
-val HPreBrandRose = Color(0xFFD6246E)
+// Indigo → violet → fuchsia ramp, matching the launcher icon.
+val HPreBrandIndigo = Color(0xFF6366F1)
+val HPreBrandViolet = Color(0xFF8B5CF6)
+val HPreBrandFuchsia = Color(0xFFEC4899)
 
 // LIVE badge — dedicated status token, kept separate from semantic error roles.
 val HPreLiveBadge = Color(0xFFD01F3C)

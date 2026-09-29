@@ -4,8 +4,6 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -21,7 +19,7 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 
-val HPreBrandBrush: Brush = Brush.linearGradient(listOf(HPreBrandCoral, HPreRed, HPreBrandRose))
+val HPreBrandBrush: Brush = Brush.linearGradient(listOf(HPreBrandIndigo, HPreBrandViolet, HPreBrandFuchsia))
 
 @Composable
 fun HPreBrandMark(modifier: Modifier = Modifier, size: Dp = 28.dp) {
@@ -32,7 +30,7 @@ fun HPreBrandMark(modifier: Modifier = Modifier, size: Dp = 28.dp) {
         contentAlignment = Alignment.Center
     ) {
         Icon(
-            imageVector = Icons.Filled.PlayArrow,
+            painter = androidx.compose.ui.res.painterResource(com.hpre.app.R.drawable.ic_hpre_mark),
             contentDescription = null,
             tint = Color.White,
             modifier = Modifier.size(size * 0.72f)

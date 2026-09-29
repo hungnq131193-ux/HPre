@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!--
-  Adaptive icon background: full-bleed diagonal red gradient.
-  Colours mirror HPreRedLight / HPreRed / HPreRedDark from the design system.
+  Adaptive icon background: full-bleed diagonal indigo-violet-fuchsia gradient.
+  Colours mirror HPreBrandIndigo / HPreBrandViolet / HPreBrandFuchsia from the design system.
 -->
 <vector xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:aapt="http://schemas.android.com/aapt"

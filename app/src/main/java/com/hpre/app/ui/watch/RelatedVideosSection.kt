@@ -23,6 +23,8 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.foundation.background
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
@@ -131,21 +133,18 @@ fun LazyListScope.relatedVideoItems(
                 key = { video -> videoListItemKey(video.key) },
                 contentType = { "video" }
             ) { video ->
-                Row(
-                    verticalAlignment = Alignment.Top,
-                    modifier = Modifier.fillMaxWidth()
-                ) {
-                    androidx.compose.foundation.layout.Box(modifier = Modifier.weight(1f)) {
-                        VideoCard(
-                            video = video,
-                            onClick = { if (onVideoSelected != null) onVideoSelected(video) else onVideoClick(it) },
-                            onChannelClick = onChannelClick,
-                            horizontalPadding = 0.dp
-                        )
-                    }
+                androidx.compose.foundation.layout.Box(modifier = Modifier.fillMaxWidth()) {
+                    VideoCard(
+                        video = video,
+                        onClick = { if (onVideoSelected != null) onVideoSelected(video) else onVideoClick(it) },
+                        onChannelClick = onChannelClick,
+                        horizontalPadding = 0.dp
+                    )
                     if (onEnqueueVideo != null) {
                         var menuOpen by remember(video.key) { mutableStateOf(false) }
-                        androidx.compose.foundation.layout.Box {
+                        androidx.compose.foundation.layout.Box(
+                            modifier = Modifier.align(Alignment.TopEnd)
+                        ) {
                             IconButton(
                                 onClick = { menuOpen = true },
                                 modifier = Modifier.testTag("related_enqueue_${'$'}{video.key.nativeId}")
@@ -153,7 +152,11 @@ fun LazyListScope.relatedVideoItems(
                                 Icon(
                                     imageVector = Icons.Default.MoreVert,
                                     contentDescription = stringResource(R.string.queue_add),
-                                    tint = MaterialTheme.colorScheme.onSurfaceVariant
+                                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    modifier = Modifier.background(
+                                        MaterialTheme.colorScheme.surface.copy(alpha = 0.6f),
+                                        CircleShape
+                                    )
                                 )
                             }
                             DropdownMenu(

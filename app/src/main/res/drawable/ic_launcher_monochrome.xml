@@ -1,7 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!--
-  Themed (monochrome) layer: same silhouette as the foreground, fully opaque
-  because the system supplies the tint and expects no baked-in alpha.
+  Themed (monochrome) layer: same "H" mark as the foreground.
 -->
 <vector xmlns:android="http://schemas.android.com/apk/res/android"
     android:width="108dp"
@@ -10,12 +9,16 @@
     android:viewportHeight="108">
 
     <path
-        android:pathData="M75.21,75.21 A30,30 0 1 1 75.21,32.79"
+        android:pathData="M40.25,36.125 L40.25,71.875"
         android:strokeColor="#FFFFFF"
-        android:strokeWidth="4.5"
+        android:strokeWidth="11.55"
         android:strokeLineCap="round" />
-
+    <path
+        android:pathData="M67.75,36.125 L67.75,71.875"
+        android:strokeColor="#FFFFFF"
+        android:strokeWidth="11.55"
+        android:strokeLineCap="round" />
     <path
         android:fillColor="#FFFFFF"
-        android:pathData="M43,43.5 L43,64.5 Q43,69 46.9,66.75 L65.1,56.25 Q69,54 65.1,51.75 L46.9,41.25 Q43,39 43,43.5 Z" />
+        android:pathData="M50.15,44.65 L65.55,54 L50.15,63.35 Z" />
 </vector>
