@@ -55,7 +55,7 @@ class UpstreamSmokeEvaluatorTest {
                 channelKey = ContentKey(0, "c1"),
                 channelName = "Channel 1",
                 channelAvatarUrl = null,
-                subscriberCountText = "1K",
+                subscriberCount = 1_000L,
                 thumbnailUrl = null,
                 durationSeconds = 100,
                 viewCount = 1000,

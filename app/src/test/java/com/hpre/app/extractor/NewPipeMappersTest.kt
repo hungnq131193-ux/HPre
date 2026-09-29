@@ -268,7 +268,7 @@ class NewPipeMappersTest {
         assertEquals(ContentKey(0, "UCuCKox3vgM_q8p1Ufx9kGqg"), channel.key)
         assertEquals("Channel 999", channel.name)
         assertEquals("https://img.HPre/avatar.jpg", channel.avatarUrl)
-        assertEquals("5000 subscribers", channel.subscriberCountText)
+        assertEquals(5000L, channel.subscriberCount)
         assertEquals("Channel description", channel.description)
     }
 
@@ -484,5 +484,30 @@ class NewPipeMappersTest {
             dashMpdUrl = "http://127.0.0.1/dash.mpd"
         }
         assertNull(NewPipeMappers.mapStreamInfo(allInvalid, fallbackServiceId = 0))
+    }
+
+    @Test
+    fun html_description_is_converted_to_plain_text() {
+        val html = "Line one<br>Line two &amp; three<br><br>" +
+            "<a href=\"https://www.youtube.com/watch?v=abc&amp;t=5\">00:05</a> tail &#39;quoted&#39;"
+        val desc = Description(html, Description.HTML)
+        assertEquals(
+            "Line one\nLine two & three\n\n00:05 tail 'quoted'",
+            NewPipeMappers.descriptionToPlainText(desc)
+        )
+    }
+
+    @Test
+    fun html_description_decodes_entities_once() {
+        // "&amp;lt;" must decode to "&lt;", never to "<" on a second pass.
+        val desc = Description("A &amp;lt; B &#x2019; C", Description.HTML)
+        assertEquals("A &lt; B ’ C", NewPipeMappers.descriptionToPlainText(desc))
+    }
+
+    @Test
+    fun plain_text_description_passes_through_unchanged() {
+        val desc = Description("raw text <kept> &amp; raw", Description.PLAIN_TEXT)
+        assertEquals("raw text <kept> &amp; raw", NewPipeMappers.descriptionToPlainText(desc))
+        assertNull(NewPipeMappers.descriptionToPlainText(null))
     }
 }

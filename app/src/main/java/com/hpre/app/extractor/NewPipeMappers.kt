@@ -386,7 +386,7 @@ object NewPipeMappers {
     fun mapChannelInfoItemToChannel(item: ChannelInfoItem, fallbackServiceId: Int): DomainChannel? {
         val serviceId = if (item.serviceId >= 0) item.serviceId else fallbackServiceId
         val channelId = extractNativeChannelId(item.url) ?: return null
-        val subCountText = if (item.subscriberCount >= 0) "${item.subscriberCount} subscribers" else null
+        val subscriberCount = if (item.subscriberCount >= 0) item.subscriberCount else null
 
         return DomainChannel(
             key = ContentKey(serviceId, channelId),
@@ -394,7 +394,7 @@ object NewPipeMappers {
             canonicalUrl = item.url ?: "",
             avatarUrl = selectPreferredImage(item.thumbnails, 160),
             bannerUrl = null,
-            subscriberCountText = subCountText,
+            subscriberCount = subscriberCount,
             description = item.description
         )
     }
@@ -438,7 +438,7 @@ object NewPipeMappers {
         val nativeId = streamInfo.id?.let { if (VIDEO_ID_REGEX.matches(it)) it else null } ?: extractNativeVideoId(streamInfo.url) ?: return null
         val channelId = streamInfo.uploaderUrl?.let { extractNativeChannelId(it) }
         val channelKey = if (!channelId.isNullOrBlank()) ContentKey(serviceId, channelId) else null
-        val subCount = if (streamInfo.uploaderSubscriberCount >= 0) "${streamInfo.uploaderSubscriberCount} subscribers" else null
+        val subscriberCount = if (streamInfo.uploaderSubscriberCount >= 0) streamInfo.uploaderSubscriberCount else null
         val duration = if (streamInfo.duration >= 0) streamInfo.duration else null
         val viewCount = if (streamInfo.viewCount >= 0) streamInfo.viewCount else null
         val likeCount = if (streamInfo.likeCount >= 0) streamInfo.likeCount else null
@@ -449,11 +449,11 @@ object NewPipeMappers {
             key = ContentKey(serviceId, nativeId),
             title = streamInfo.name ?: "",
             canonicalUrl = streamInfo.url ?: "",
-            description = streamInfo.description?.content,
+            description = descriptionToPlainText(streamInfo.description),
             channelKey = channelKey,
             channelName = streamInfo.uploaderName,
             channelAvatarUrl = selectPreferredImage(streamInfo.uploaderAvatars, 160),
-            subscriberCountText = subCount,
+            subscriberCount = subscriberCount,
             thumbnailUrl = selectPreferredImage(streamInfo.thumbnails, 960),
             durationSeconds = duration,
             viewCount = viewCount,
@@ -462,6 +462,64 @@ object NewPipeMappers {
             isLive = isLive,
             isShort = isShort
         )
+    }
+
+    private val HTML_BREAK_REGEX = Regex("""<br\s*/?>""", RegexOption.IGNORE_CASE)
+    private val HTML_BLOCK_CLOSE_REGEX = Regex(
+        """</(p|div|li|ul|ol|tr|td|h[1-6]|section|blockquote)\s*>""",
+        RegexOption.IGNORE_CASE
+    )
+    private val HTML_TAG_REGEX = Regex("""<[^>]*>""")
+    private val HTML_ENTITY_REGEX = Regex("""&(#x?[0-9a-fA-F]+|[a-zA-Z]+);""")
+    private val MULTI_NEWLINE_REGEX = Regex("""\n{3,}""")
+
+    private val HTML_NAMED_ENTITIES = mapOf(
+        "amp" to "&",
+        "lt" to "<",
+        "gt" to ">",
+        "quot" to "\"",
+        "apos" to "'",
+        "nbsp" to " "
+    )
+
+    /**
+     * YouTube returns descriptions as attributed HTML (type [Description.HTML]) whose markup
+     * (`<br>`, `<a href>`…) would be displayed literally. Converts it to plain text: breaks become
+     * newlines, anchors keep their inner text, entities are decoded in a single pass.
+     */
+    fun descriptionToPlainText(description: Description?): String? {
+        val content = description?.content ?: return null
+        return when (description.type) {
+            Description.HTML -> htmlToPlainText(content)
+            else -> content
+        }
+    }
+
+    private fun htmlToPlainText(html: String): String {
+        val withBreaks = html
+            .replace(HTML_BREAK_REGEX, "\n")
+            .replace(HTML_BLOCK_CLOSE_REGEX, "\n")
+        val noTags = HTML_TAG_REGEX.replace(withBreaks, "")
+        val decoded = HTML_ENTITY_REGEX.replace(noTags) { match ->
+            val body = match.groupValues[1]
+            val text = when {
+                body.startsWith("#x", ignoreCase = true) ->
+                    body.substring(2).toIntOrNull(16)?.let(::codePointToString)
+                body.startsWith("#") ->
+                    body.substring(1).toIntOrNull()?.let(::codePointToString)
+                else -> HTML_NAMED_ENTITIES[body.lowercase()]
+            }
+            text ?: match.value
+        }
+        return MULTI_NEWLINE_REGEX.replace(decoded, "\n\n").trim()
+    }
+
+    private fun codePointToString(codePoint: Int): String? {
+        return try {
+            String(Character.toChars(codePoint))
+        } catch (_: Throwable) {
+            null
+        }
     }
 
     private fun sanitizeStreamId(rawId: String?): String? {
@@ -634,7 +692,7 @@ object NewPipeMappers {
     ): DomainChannelDetails? {
         val serviceId = if (channelInfo.serviceId >= 0) channelInfo.serviceId else fallbackServiceId
         val channelId = channelInfo.id?.let { if (CHANNEL_ID_REGEX.matches(it)) it else null } ?: extractNativeChannelId(channelInfo.url) ?: return null
-        val subCountText = if (channelInfo.subscriberCount >= 0) "${channelInfo.subscriberCount} subscribers" else null
+        val subscriberCount = if (channelInfo.subscriberCount >= 0) channelInfo.subscriberCount else null
 
         val channel = DomainChannel(
             key = ContentKey(serviceId, channelId),
@@ -642,7 +700,7 @@ object NewPipeMappers {
             canonicalUrl = channelInfo.url ?: "",
             avatarUrl = selectPreferredImage(channelInfo.avatars, 320),
             bannerUrl = selectPreferredImage(channelInfo.banners, 1920),
-            subscriberCountText = subCountText,
+            subscriberCount = subscriberCount,
             description = channelInfo.description
         )
 
@@ -717,7 +775,7 @@ object NewPipeMappers {
             channelName = playlistInfo.uploaderName,
             channelAvatarUrl = selectPreferredImage(playlistInfo.uploaderAvatars, 160),
             thumbnailUrl = selectPreferredImage(playlistInfo.thumbnails, 960),
-            description = playlistInfo.description?.content,
+            description = descriptionToPlainText(playlistInfo.description),
             videoCount = streamCount,
             videos = videos,
             nextPageToken = nextToken

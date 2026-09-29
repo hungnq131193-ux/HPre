@@ -61,7 +61,7 @@ internal class BenchmarkVideoService : VideoService {
             channelKey = channelKey,
             channelName = "Benchmark channel",
             channelAvatarUrl = null,
-            subscriberCountText = "1K subscribers",
+            subscriberCount = 1_000L,
             thumbnailUrl = null,
             durationSeconds = 180L,
             viewCount = 1_000L,
@@ -123,7 +123,7 @@ internal class BenchmarkVideoService : VideoService {
             canonicalUrl = "https://hpre.test/channel/benchmark_channel",
             avatarUrl = null,
             bannerUrl = null,
-            subscriberCountText = "1K subscribers",
+            subscriberCount = 1_000L,
             description = "Deterministic benchmark channel."
         )
     }

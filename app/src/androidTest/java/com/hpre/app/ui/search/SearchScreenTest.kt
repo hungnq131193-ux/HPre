@@ -318,7 +318,7 @@ class SearchScreenTest {
                                 canonicalUrl = "https://example.com/channel/chan_42",
                                 avatarUrl = null,
                                 bannerUrl = null,
-                                subscriberCountText = "100k subscribers",
+                                subscriberCount = 100_000L,
                                 description = "Test channel"
                             )
                         ),

@@ -8,7 +8,7 @@ data class VideoDetails(
     val channelKey: ContentKey?,
     val channelName: String?,
     val channelAvatarUrl: String?,
-    val subscriberCountText: String?,
+    val subscriberCount: Long?,
     val thumbnailUrl: String?,
     val durationSeconds: Long?,
     val viewCount: Long?,

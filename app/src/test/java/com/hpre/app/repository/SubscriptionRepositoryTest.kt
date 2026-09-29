@@ -75,7 +75,7 @@ class SubscriptionRepositoryTest {
         canonicalUrl = "https://example.com/channel/chan1",
         avatarUrl = "https://example.com/avatar.jpg",
         bannerUrl = null,
-        subscriberCountText = "1M subscribers",
+        subscriberCount = 1_000_000L,
         description = "Channel description"
     )
 

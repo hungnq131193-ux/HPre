@@ -76,7 +76,7 @@ class SubscriptionFeedRepositoryTest {
         canonicalUrl = "https://example.test/${key.nativeId}",
         avatarUrl = null,
         bannerUrl = null,
-        subscriberCountText = null,
+        subscriberCount = null,
         description = null
     )
 

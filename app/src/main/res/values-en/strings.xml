@@ -187,6 +187,13 @@
         <item quantity="one">%d view</item>
         <item quantity="other">%d views</item>
     </plurals>
+    <plurals name="subscriber_count">
+        <item quantity="one">%s subscriber</item>
+        <item quantity="other">%s subscribers</item>
+    </plurals>
+    <string name="count_suffix_thousand">K</string>
+    <string name="count_suffix_million">M</string>
+    <string name="count_suffix_billion">B</string>
     <string name="settings_appearance">Appearance</string>
     <string name="settings_theme">Theme</string>
     <string name="settings_theme_system">System</string>

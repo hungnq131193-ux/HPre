@@ -155,9 +155,9 @@ private fun ChannelHeader(channel: com.hpre.app.model.Channel) {
                     style = MaterialTheme.typography.headlineSmall,
                     modifier = Modifier.testTag("channel_name")
                 )
-                channel.subscriberCountText?.let { subs ->
+                channel.subscriberCount?.let { subs ->
                     Text(
-                        text = subs,
+                        text = com.hpre.app.ui.common.subscriberCountLabel(subs),
                         style = MaterialTheme.typography.bodyMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         modifier = Modifier.testTag("channel_subscribers")

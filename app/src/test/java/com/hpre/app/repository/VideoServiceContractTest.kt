@@ -54,7 +54,7 @@ class VideoServiceContractTest {
                                 canonicalUrl = "https://example.com/c1",
                                 avatarUrl = null,
                                 bannerUrl = null,
-                                subscriberCountText = "10K",
+                                subscriberCount = 10_000L,
                                 description = "Desc"
                             )
                         ),
@@ -89,7 +89,7 @@ class VideoServiceContractTest {
                     channelKey = ContentKey(key.serviceId, "c1"),
                     channelName = "Channel 1",
                     channelAvatarUrl = null,
-                    subscriberCountText = "10K",
+                    subscriberCount = 10_000L,
                     thumbnailUrl = null,
                     durationSeconds = 300,
                     viewCount = 5000,
@@ -117,7 +117,7 @@ class VideoServiceContractTest {
                         canonicalUrl = "https://example.com/c/${key.nativeId}",
                         avatarUrl = null,
                         bannerUrl = null,
-                        subscriberCountText = "10K",
+                        subscriberCount = 10_000L,
                         description = "Channel Desc"
                     )
                 )

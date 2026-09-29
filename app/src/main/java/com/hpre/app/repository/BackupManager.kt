@@ -276,7 +276,7 @@ class BackupManager(
                             canonicalUrl = url,
                             avatarUrl = avatar,
                             bannerUrl = null,
-                            subscriberCountText = null,
+                            subscriberCount = null,
                             description = null
                         ),
                         subscribedTimestamp = subscribedAt

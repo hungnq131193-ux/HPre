@@ -6,7 +6,7 @@ data class Channel(
     val canonicalUrl: String,
     val avatarUrl: String?,
     val bannerUrl: String?,
-    val subscriberCountText: String?,
+    val subscriberCount: Long?,
     val description: String?
 )
 

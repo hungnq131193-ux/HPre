@@ -36,7 +36,7 @@ class MetadataCacheTest {
         channelKey = ContentKey(0, "c_$id"),
         channelName = "Channel $id",
         channelAvatarUrl = "https://example.com/avatar.jpg",
-        subscriberCountText = "1K",
+        subscriberCount = 1_000L,
         thumbnailUrl = "https://example.com/thumb.jpg",
         durationSeconds = 120,
         viewCount = 1000,

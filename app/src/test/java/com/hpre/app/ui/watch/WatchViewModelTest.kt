@@ -617,7 +617,7 @@ class WatchViewModelTest {
         channelKey = ContentKey(key.serviceId, "channel_1"),
         channelName = "Test Channel",
         channelAvatarUrl = null,
-        subscriberCountText = "10K",
+        subscriberCount = 10_000L,
         thumbnailUrl = "https://thumb.test/img.jpg",
         durationSeconds = 120,
         viewCount = 1000,

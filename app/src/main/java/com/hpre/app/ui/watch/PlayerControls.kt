@@ -181,7 +181,9 @@ fun PlayerControlsOverlay(
     readProgress: suspend () -> PlaybackProgress = { playbackState.toProgress() },
     onMinimizeToHome: () -> Unit = {},
     minimizeEnabled: Boolean = true,
-    isInPip: Boolean = false
+    isInPip: Boolean = false,
+    onMinimizeDragUpdate: (Float) -> Unit = {},
+    onMinimizeDragEnd: () -> Unit = {}
 ) {
     var controlsVisible by remember { mutableStateOf(true) }
     var localProgress by remember(playbackState.key, playbackState.durationMs) {
@@ -297,6 +299,8 @@ fun PlayerControlsOverlay(
     val currentOnPlayPause = rememberUpdatedState(onPlayPause)
     val currentOnSeekBy = rememberUpdatedState(onSeekBy)
     val currentOnMinimizeToHome = rememberUpdatedState(onMinimizeToHome)
+    val currentOnMinimizeDragUpdate = rememberUpdatedState(onMinimizeDragUpdate)
+    val currentOnMinimizeDragEnd = rememberUpdatedState(onMinimizeDragEnd)
 
     val isMinimizeAllowed = PlayerGesturePolicy.isMinimizeGestureAllowed(
         isFullscreen = isFullscreen,
@@ -448,6 +452,7 @@ fun PlayerControlsOverlay(
                         if (decision == PlayerDragDecision.VERTICAL_DOWN && isMinimizeAllowed) {
                             // Downward drag classified: consume event so parent scroll/views don't steal
                             change.consume()
+                            currentOnMinimizeDragUpdate.value(totalY)
                         }
 
                         val activeAdjust = adjustTarget
@@ -471,6 +476,9 @@ fun PlayerControlsOverlay(
 
                     if (isCancelled || confirmedUpChange == null) {
                         adjustFeedback = null
+                        if (decision == PlayerDragDecision.VERTICAL_DOWN && isMinimizeAllowed) {
+                            currentOnMinimizeDragEnd.value()
+                        }
                         return@awaitEachGesture
                     }
 
@@ -487,6 +495,8 @@ fun PlayerControlsOverlay(
                         )
                         if (shouldTrigger) {
                             currentOnMinimizeToHome.value()
+                        } else {
+                            currentOnMinimizeDragEnd.value()
                         }
                         // Drag completed, clear double-tap state
                         lastUpUptime = 0L

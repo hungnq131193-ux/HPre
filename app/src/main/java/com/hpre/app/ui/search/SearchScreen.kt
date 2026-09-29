@@ -662,10 +662,10 @@ private fun ChannelResultCard(
                 style = MaterialTheme.typography.titleSmall,
                 color = MaterialTheme.colorScheme.onSurface
             )
-            val subCount = channel.subscriberCountText
+            val subCount = channel.subscriberCount
             if (subCount != null) {
                 Text(
-                    text = subCount,
+                    text = com.hpre.app.ui.common.subscriberCountLabel(subCount),
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
