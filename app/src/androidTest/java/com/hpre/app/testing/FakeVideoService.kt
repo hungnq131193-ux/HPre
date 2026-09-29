@@ -69,7 +69,7 @@ class FakeVideoService(
                 channelKey = ContentKey(key.serviceId, "mock_channel"),
                 channelName = "Mock Channel",
                 channelAvatarUrl = null,
-                subscriberCountText = "10K",
+                subscriberCount = 10_000L,
                 thumbnailUrl = null,
                 durationSeconds = 120,
                 viewCount = 100,

@@ -11,6 +11,11 @@ import android.view.Window
 import androidx.activity.compose.BackHandler
 import androidx.annotation.VisibleForTesting
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.LinearOutSlowInEasing
+import androidx.compose.animation.core.Spring
+import androidx.compose.animation.core.animate
+import androidx.compose.animation.core.spring
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
@@ -64,18 +69,23 @@ import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.snapshotFlow
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.filter
+import kotlinx.coroutines.launch
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
 import android.content.res.Configuration
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.testTag
@@ -395,6 +405,15 @@ fun WatchScreen(
     val configuration = LocalConfiguration.current
     val isPortrait = configuration.orientation == Configuration.ORIENTATION_PORTRAIT
 
+    // Swipe-to-minimize follows the finger: the whole watch layout translates down while
+    // metadata fades, then either completes with a short slide-out or springs back.
+    var minimizeDragOffsetY by remember { mutableFloatStateOf(0f) }
+    var minimizeAnimJob by remember { mutableStateOf<kotlinx.coroutines.Job?>(null) }
+    val minimizeAnimScope = rememberCoroutineScope()
+    val density = LocalDensity.current
+    val minimizeExitTargetPx = with(density) { configuration.screenHeightDp.dp.toPx() }
+    val minimizeFadeRangePx = minimizeExitTargetPx * 0.35f
+
     if (uiState.isFullscreen) {
         // Fullscreen player view
         Box(
@@ -473,6 +492,7 @@ fun WatchScreen(
             modifier = modifier
                 .fillMaxSize()
                 .statusBarsPadding()
+                .graphicsLayer { translationY = minimizeDragOffsetY }
                 .testTag("watch_screen")
         ) {
                 // Video Player Container (16:9 aspect ratio)
@@ -532,14 +552,55 @@ fun WatchScreen(
                         },
                         isCasting = castActiveDevice != null,
                         onToggleFullscreen = { viewModel.setFullscreen(true) },
-                        onMinimizeToHome = onMinimizeToHome,
+                        onMinimizeToHome = {
+                            minimizeAnimJob = minimizeAnimScope.launch {
+                                animate(
+                                    initialValue = minimizeDragOffsetY,
+                                    targetValue = minimizeExitTargetPx,
+                                    animationSpec = tween(
+                                        durationMillis = 160,
+                                        easing = LinearOutSlowInEasing
+                                    )
+                                ) { value, _ -> minimizeDragOffsetY = value }
+                                onMinimizeToHome()
+                            }
+                        },
                         minimizeEnabled = isPortrait,
-                        isInPip = isInPip
+                        isInPip = isInPip,
+                        onMinimizeDragUpdate = { dy ->
+                            minimizeAnimJob?.cancel()
+                            minimizeAnimJob = null
+                            minimizeDragOffsetY = dy.coerceAtLeast(0f)
+                        },
+                        onMinimizeDragEnd = {
+                            minimizeAnimJob = minimizeAnimScope.launch {
+                                animate(
+                                    initialValue = minimizeDragOffsetY,
+                                    targetValue = 0f,
+                                    animationSpec = spring(
+                                        dampingRatio = Spring.DampingRatioNoBouncy,
+                                        stiffness = Spring.StiffnessMediumLow
+                                    )
+                                ) { value, _ -> minimizeDragOffsetY = value }
+                            }
+                        }
                     )
                 }
 
                 // Metadata, loading, or error content below player
                 val error = uiState.error ?: playbackState.error
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .weight(1f)
+                        .graphicsLayer {
+                            alpha = if (minimizeFadeRangePx > 0f) {
+                                (1f - minimizeDragOffsetY / minimizeFadeRangePx).coerceIn(0f, 1f)
+                            } else {
+                                1f
+                            }
+                        }
+                ) {
                 if (error != null) {
                     ErrorPane(
                         error = error,
@@ -584,10 +645,9 @@ fun WatchScreen(
                             viewModel.enqueue(com.hpre.app.player.QueuedItem(video.key, video.title), playNext)
                         },
                         allowSheets = !isInPip,
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .weight(1f)
+                        modifier = Modifier.fillMaxSize()
                     )
+                }
                 }
         }
     }
@@ -641,7 +701,9 @@ private fun WatchPlayerControls(
     onToggleFullscreen: () -> Unit,
     onMinimizeToHome: () -> Unit,
     minimizeEnabled: Boolean,
-    isInPip: Boolean
+    isInPip: Boolean,
+    onMinimizeDragUpdate: (Float) -> Unit = {},
+    onMinimizeDragEnd: () -> Unit = {}
 ) {
     PlayerControlsOverlay(
         playbackState = structuralState.copy(
@@ -673,7 +735,9 @@ private fun WatchPlayerControls(
         readProgress = readProgress,
         onMinimizeToHome = onMinimizeToHome,
         minimizeEnabled = minimizeEnabled,
-        isInPip = isInPip
+        isInPip = isInPip,
+        onMinimizeDragUpdate = onMinimizeDragUpdate,
+        onMinimizeDragEnd = onMinimizeDragEnd
     )
 }
 
@@ -811,9 +875,9 @@ fun WatchMetadataContent(
                                 overflow = TextOverflow.Ellipsis,
                                 modifier = Modifier.testTag("watch_channel_name")
                             )
-                            if (!details.subscriberCountText.isNullOrBlank()) {
+                            if (details.subscriberCount != null) {
                                 Text(
-                                    text = details.subscriberCountText ?: "",
+                                    text = com.hpre.app.ui.common.subscriberCountLabel(details.subscriberCount!!),
                                     style = MaterialTheme.typography.bodySmall,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant
                                 )

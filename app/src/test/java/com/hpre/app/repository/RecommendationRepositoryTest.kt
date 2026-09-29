@@ -599,7 +599,7 @@ class RecommendationRepositoryTest {
         val details = VideoDetails(
             key = current.key, title = current.title, canonicalUrl = current.canonicalUrl,
             description = null, channelKey = null, channelName = "Channel",
-            channelAvatarUrl = null, subscriberCountText = null, thumbnailUrl = null,
+            channelAvatarUrl = null, subscriberCount = null, thumbnailUrl = null,
             durationSeconds = 120, viewCount = null, likeCount = null, publishedTimestamp = null
         )
 
@@ -855,7 +855,7 @@ class RecommendationRepositoryTest {
         val details = VideoDetails(
             key = current.key, title = current.title, canonicalUrl = current.canonicalUrl,
             description = null, channelKey = null, channelName = "Current Channel",
-            channelAvatarUrl = null, subscriberCountText = null, thumbnailUrl = null,
+            channelAvatarUrl = null, subscriberCount = null, thumbnailUrl = null,
             durationSeconds = 120, viewCount = null, likeCount = null, publishedTimestamp = null
         )
 
@@ -878,7 +878,7 @@ class RecommendationRepositoryTest {
         val details = VideoDetails(
             key = current.key, title = "", canonicalUrl = current.canonicalUrl,
             description = null, channelKey = null, channelName = null,
-            channelAvatarUrl = null, subscriberCountText = null, thumbnailUrl = null,
+            channelAvatarUrl = null, subscriberCount = null, thumbnailUrl = null,
             durationSeconds = null, viewCount = null, likeCount = null, publishedTimestamp = null
         )
 
@@ -937,7 +937,7 @@ class RecommendationRepositoryTest {
         val details = VideoDetails(
             key = current.key, title = "", canonicalUrl = current.canonicalUrl,
             description = null, channelKey = null, channelName = null,
-            channelAvatarUrl = null, subscriberCountText = null, thumbnailUrl = null,
+            channelAvatarUrl = null, subscriberCount = null, thumbnailUrl = null,
             durationSeconds = null, viewCount = null, likeCount = null, publishedTimestamp = null
         )
         repository.recommendations(current.key, details, RecommendationRequest(forceRefresh = false))

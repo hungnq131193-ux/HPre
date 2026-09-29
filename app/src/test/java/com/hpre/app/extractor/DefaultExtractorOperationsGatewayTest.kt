@@ -92,7 +92,7 @@ class DefaultExtractorOperationsGatewayTest {
             channelKey = null,
             channelName = null,
             channelAvatarUrl = null,
-            subscriberCountText = null,
+            subscriberCount = null,
             thumbnailUrl = null,
             durationSeconds = 120,
             viewCount = null,

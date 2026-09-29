@@ -187,6 +187,12 @@
         <item quantity="one">%d lượt xem</item>
         <item quantity="other">%d lượt xem</item>
     </plurals>
+    <plurals name="subscriber_count">
+        <item quantity="other">%s người đăng ký</item>
+    </plurals>
+    <string name="count_suffix_thousand">" N"</string>
+    <string name="count_suffix_million">" Tr"</string>
+    <string name="count_suffix_billion">" T"</string>
     <string name="settings_appearance">Giao diện</string>
     <string name="settings_theme">Chủ đề</string>
     <string name="settings_theme_system">Theo hệ thống</string>

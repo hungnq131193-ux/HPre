@@ -193,7 +193,7 @@ class WatchScreenTest {
         channelKey = ContentKey(key.serviceId, "channel_1"),
         channelName = "HPre Creator",
         channelAvatarUrl = null,
-        subscriberCountText = "120K subscribers",
+        subscriberCount = 120_000L,
         thumbnailUrl = null,
         durationSeconds = 120,
         viewCount = 15000,

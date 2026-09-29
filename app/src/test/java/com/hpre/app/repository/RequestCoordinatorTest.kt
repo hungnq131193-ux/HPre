@@ -46,7 +46,7 @@ class RequestCoordinatorTest {
         channelKey = ContentKey(0, "c_$id"),
         channelName = "Channel $id",
         channelAvatarUrl = null,
-        subscriberCountText = "1K",
+        subscriberCount = 1_000L,
         thumbnailUrl = null,
         durationSeconds = 120,
         viewCount = 1000,

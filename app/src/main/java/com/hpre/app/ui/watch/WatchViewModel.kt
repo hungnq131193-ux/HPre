@@ -944,7 +944,7 @@ class WatchViewModel(
                     canonicalUrl = "https://hpre.test/channel/${channelKey.nativeId}",
                     avatarUrl = details.channelAvatarUrl,
                     bannerUrl = null,
-                    subscriberCountText = details.subscriberCountText,
+                    subscriberCount = details.subscriberCount,
                     description = null
                 )
                 subRepo.subscribe(channel)

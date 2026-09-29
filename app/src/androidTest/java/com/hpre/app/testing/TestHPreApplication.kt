@@ -271,7 +271,7 @@ class TestHPreApplication : HPreApplication() {
         channelKey = ContentKey(key.serviceId, "channel_1"),
         channelName = "Test Channel",
         channelAvatarUrl = null,
-        subscriberCountText = "10K",
+        subscriberCount = 10_000L,
         thumbnailUrl = null,
         durationSeconds = 60,
         viewCount = 1000,

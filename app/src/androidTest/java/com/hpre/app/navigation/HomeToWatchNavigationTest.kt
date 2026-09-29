@@ -55,7 +55,7 @@ class HomeToWatchNavigationTest {
         channelKey = ContentKey(0, "c_$id"),
         channelName = "Channel $id",
         channelAvatarUrl = null,
-        subscriberCountText = "10K",
+        subscriberCount = 10_000L,
         thumbnailUrl = null,
         durationSeconds = 120,
         viewCount = 500,
@@ -351,7 +351,7 @@ class HomeToWatchNavigationTest {
                             canonicalUrl = "https://example.test/channel/${key.nativeId}",
                             avatarUrl = null,
                             bannerUrl = null,
-                            subscriberCountText = "10K",
+                            subscriberCount = 10_000L,
                             description = "desc"
                         ),
                         videos = listOf(testVideo)
