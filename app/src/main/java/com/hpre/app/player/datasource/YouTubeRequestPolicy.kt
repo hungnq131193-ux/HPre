@@ -33,7 +33,18 @@ object YouTubeRequestPolicy {
         return query.split("&").any { it.substringBefore("=") == name }
     }
 
-    private fun replaceQueryParameter(url: String, name: String, value: String): String {
+    /** Total media size advertised by googlevideo's `clen` parameter, when present. */
+    fun contentLength(url: String): Long? = try {
+        URI(url).rawQuery
+    } catch (_: Throwable) {
+        null
+    }?.split("&")
+        ?.firstOrNull { it.substringBefore("=") == "clen" }
+        ?.substringAfter("=", "")
+        ?.toLongOrNull()
+        ?.takeIf { it > 0 }
+
+    internal fun replaceQueryParameter(url: String, name: String, value: String): String {
         val baseWithoutQuery = url.substringBefore("?")
         val rawQuery = url.substringAfter("?", "")
         if (rawQuery.isEmpty()) {

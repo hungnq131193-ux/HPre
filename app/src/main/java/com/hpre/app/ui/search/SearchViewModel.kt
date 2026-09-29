@@ -33,6 +33,7 @@ import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.sync.Mutex
 
 sealed interface SearchUiState {
@@ -293,6 +294,7 @@ class SearchViewModel(
                                 isSearching = false,
                                 earlierResultsDropped = deduplicatedItems.size > MAX_RETAINED_RESULTS
                             )
+                            prefetchTopVideos(deduplicatedItems)
                         }
                     }
                     is AppResult.Failure -> {
@@ -387,6 +389,24 @@ class SearchViewModel(
             if (state is SearchUiState.Content) {
                 state.copy(isSearching = false, isLoadingNextPage = false, paginationError = null)
             } else state
+        }
+    }
+
+    /** Warms extraction for the first results so tapping one starts playback without a cold fetch. */
+    private fun prefetchTopVideos(items: List<SearchResultItem>) {
+        val keys = items.asSequence()
+            .filterIsInstance<SearchResultItem.VideoItem>()
+            .map { it.summary.key }
+            .take(3)
+            .toList()
+        if (keys.isEmpty()) return
+        viewModelScope.launch {
+            try {
+                videoService.prefetch(keys)
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (_: Exception) {
+            }
         }
     }
 

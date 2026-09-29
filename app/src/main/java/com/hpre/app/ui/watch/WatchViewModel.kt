@@ -171,6 +171,8 @@ class WatchViewModel(
         internal const val COMMENTS_READY_FALLBACK_MS = 2_000L
         internal const val MAX_RETAINED_COMMENTS = 200
         internal const val MAX_CACHED_COMMENTS = 60
+        /** Leaves the current video's startup requests uncontended before warming Up Next. */
+        internal const val RELATED_PREFETCH_DELAY_MS = 3_000L
 
         fun provideFactory(
             videoService: VideoService,
@@ -298,6 +300,7 @@ class WatchViewModel(
     private val sessionGuard = Any()
     private var loadJob: Job? = null
     private var relatedJob: Job? = null
+    private var relatedPrefetchJob: Job? = null
     private var commentsJob: Job? = null
     private var commentsGateJob: Job? = null
     private var playbackReadyJob: Job? = null
@@ -636,6 +639,20 @@ class WatchViewModel(
         }
     }
 
+    private fun prefetchRelated(candidates: List<ContentKey>) {
+        relatedPrefetchJob?.cancel()
+        if (candidates.isEmpty()) return
+        relatedPrefetchJob = viewModelScope.launch(ioDispatcher) {
+            delay(RELATED_PREFETCH_DELAY_MS)
+            try {
+                videoService.prefetch(candidates.take(2))
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (_: Exception) {
+            }
+        }
+    }
+
     fun retryRelated() {
         val key = synchronized(sessionGuard) { currentKey } ?: return
         val hasExistingContent = _relatedState.value.value != null
@@ -713,10 +730,9 @@ class WatchViewModel(
                             when (result) {
                                 is AppResult.Success -> {
                                     _relatedState.value = RefreshableAsyncState.content(result.value)
-                                    playerController.updateAutoplayCandidates(
-                                        key,
-                                        result.value.map(VideoSummary::key).filter { it != key }.distinct()
-                                    )
+                                    val candidates = result.value.map(VideoSummary::key).filter { it != key }.distinct()
+                                    playerController.updateAutoplayCandidates(key, candidates)
+                                    prefetchRelated(candidates)
                                     _uiState.value.details?.let { details ->
                                         watchStateCache?.updateRelated(key, result.value)
                                     }
