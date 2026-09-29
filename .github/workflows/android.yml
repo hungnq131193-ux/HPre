@@ -110,22 +110,7 @@ jobs:
           api-level: 34
           arch: x86_64
           disable-animations: true
-          script: |
-            set -e
-            mkdir -p performance-artifacts
-            printf '%s\n' \
-              'Emulator-only performance run.' \
-              'API level: 34. Architecture: x86_64. Runner: GitHub hosted ubuntu-latest.' \
-              'Do not compare these timings with physical-device results.' \
-              > performance-artifacts/context.txt
-            ./gradlew :app:generateReleaseBaselineProfile --no-daemon --stacktrace
-            generated_dir=$(find app/src -type d -path '*/generated/baselineProfiles' -print -quit)
-            test -n "$generated_dir"
-            test -s "$generated_dir/baseline-prof.txt"
-            mkdir -p app/src/main/baselineProfiles
-            cp "$generated_dir"/*.txt app/src/main/baselineProfiles/
-            cp "$generated_dir"/*.txt performance-artifacts/
-            ./gradlew :baselineprofile:connectedBenchmarkReleaseAndroidTest --no-daemon --stacktrace
+          script: bash scripts/performance/run-ci-performance.sh
 
       - name: Upload performance artifacts
         if: always()
@@ -135,7 +120,6 @@ jobs:
           path: |
             performance-artifacts/
             app/src/**/generated/baselineProfiles/
-            app/src/main/baselineProfiles/
             baselineprofile/build/outputs/connected_android_test_additional_output/
             baselineprofile/build/outputs/androidTest-results/
             baselineprofile/build/reports/androidTests/
