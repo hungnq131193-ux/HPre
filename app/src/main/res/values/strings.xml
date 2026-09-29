@@ -133,6 +133,14 @@
     <string name="audio_language_default">Ngôn ngữ mặc định</string>
     <string name="gesture_brightness">Độ sáng</string>
     <string name="gesture_volume">Âm lượng</string>
+    <string name="settings_backup">Sao lưu &amp; khôi phục</string>
+    <string name="settings_export_backup">Xuất dữ liệu</string>
+    <string name="settings_export_backup_summary">Lịch sử, playlist và kênh theo dõi ra file JSON</string>
+    <string name="settings_import_backup">Nhập dữ liệu</string>
+    <string name="settings_import_backup_summary">Khôi phục từ file sao lưu JSON</string>
+    <string name="settings_backup_exported">Đã xuất bản sao lưu</string>
+    <string name="settings_backup_imported">Đã nhập: %1$d lịch sử, %2$d playlist, %3$d kênh</string>
+    <string name="settings_backup_error">Sao lưu/nhập thất bại — file không hợp lệ</string>
     <string name="quality_auto">Tự động</string>
     <string name="watch_save">Lưu</string>
     <string name="watch_share">Chia sẻ</string>

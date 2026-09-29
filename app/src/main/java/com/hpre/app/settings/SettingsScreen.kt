@@ -1,5 +1,7 @@
 package com.hpre.app.settings
 
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.selection.toggleable
@@ -36,6 +38,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.Role
@@ -196,6 +199,76 @@ fun SettingsScreen(
                 tag = "setting_history_switch",
                 onCheckedChange = { viewModel.setHistory(it) }
             )
+
+            HorizontalDivider()
+
+            // Backup & restore
+            SettingsSectionHeader(stringResource(R.string.settings_backup))
+
+            val context = LocalContext.current
+            val backupState by viewModel.backupState.collectAsStateWithLifecycle()
+            val exportLauncher = rememberLauncherForActivityResult(
+                ActivityResultContracts.CreateDocument("application/json")
+            ) { uri ->
+                uri?.let { viewModel.exportBackup(context.contentResolver, it) }
+            }
+            val importLauncher = rememberLauncherForActivityResult(
+                ActivityResultContracts.OpenDocument()
+            ) { uri ->
+                uri?.let { viewModel.importBackup(context.contentResolver, it) }
+            }
+
+            SettingsClickableItem(
+                title = stringResource(R.string.settings_export_backup),
+                subtitle = stringResource(R.string.settings_export_backup_summary),
+                tag = "setting_export_backup_item",
+                onClick = { exportLauncher.launch("hpre-backup.json") }
+            )
+
+            SettingsClickableItem(
+                title = stringResource(R.string.settings_import_backup),
+                subtitle = stringResource(R.string.settings_import_backup_summary),
+                tag = "setting_import_backup_item",
+                onClick = { importLauncher.launch(arrayOf("application/json", "text/*", "*/*")) }
+            )
+
+            when (val state = backupState) {
+                BackupUiState.Idle -> Unit
+                BackupUiState.Running -> CircularProgressIndicator(
+                    modifier = Modifier
+                        .padding(16.dp)
+                        .testTag("settings_backup_progress")
+                )
+                BackupUiState.Exported -> Text(
+                    text = stringResource(R.string.settings_backup_exported),
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier
+                        .padding(horizontal = 16.dp, vertical = 8.dp)
+                        .testTag("settings_backup_exported")
+                )
+                is BackupUiState.Imported -> Text(
+                    text = stringResource(
+                        R.string.settings_backup_imported,
+                        state.summary.historyCount,
+                        state.summary.playlistCount,
+                        state.summary.subscriptionCount
+                    ),
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier
+                        .padding(horizontal = 16.dp, vertical = 8.dp)
+                        .testTag("settings_backup_imported")
+                )
+                BackupUiState.Error -> Text(
+                    text = stringResource(R.string.settings_backup_error),
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.error,
+                    modifier = Modifier
+                        .padding(horizontal = 16.dp, vertical = 8.dp)
+                        .testTag("settings_backup_error")
+                )
+            }
 
             HorizontalDivider()
 

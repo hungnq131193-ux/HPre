@@ -133,6 +133,14 @@
     <string name="audio_language_default">Default audio language</string>
     <string name="gesture_brightness">Brightness</string>
     <string name="gesture_volume">Volume</string>
+    <string name="settings_backup">Backup &amp; restore</string>
+    <string name="settings_export_backup">Export data</string>
+    <string name="settings_export_backup_summary">History, playlists and subscriptions to a JSON file</string>
+    <string name="settings_import_backup">Import data</string>
+    <string name="settings_import_backup_summary">Restore from a JSON backup file</string>
+    <string name="settings_backup_exported">Backup exported</string>
+    <string name="settings_backup_imported">Imported: %1$d history, %2$d playlists, %3$d channels</string>
+    <string name="settings_backup_error">Backup/import failed — invalid file</string>
     <string name="quality_auto">Auto</string>
     <string name="watch_save">Save</string>
     <string name="watch_share">Share</string>
