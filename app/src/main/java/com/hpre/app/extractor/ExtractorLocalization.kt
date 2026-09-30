@@ -1,6 +1,7 @@
 package com.hpre.app.extractor
 
 import com.hpre.app.settings.AppLanguage
+import org.schabi.newpipe.extractor.Extractor
 import org.schabi.newpipe.extractor.NewPipe
 import org.schabi.newpipe.extractor.localization.ContentCountry
 import org.schabi.newpipe.extractor.localization.Localization
@@ -50,5 +51,15 @@ object ExtractorLocalization {
     fun apply(target: Localizable) {
         target.forceLocalization(localization)
         target.forceContentCountry(CONTENT_COUNTRY)
+    }
+
+    /**
+     * Forces the user's locale onto a concrete extractor. Required because upstream
+     * gates [NewPipe.setPreferredLocalization] by its supported-language list, which
+     * currently only contains en-GB — forced localization bypasses that gate.
+     */
+    fun apply(extractor: Extractor) {
+        extractor.forceLocalization(localization)
+        extractor.forceContentCountry(CONTENT_COUNTRY)
     }
 }

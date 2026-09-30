@@ -96,6 +96,7 @@ internal class DefaultExtractorOperations(
     override fun refreshStreamInfo(key: ContentKey): StreamInfo {
         val linkHandler = streamingService.streamLHFactory.fromId(key.nativeId)
         val streamExtractor = streamingService.getStreamExtractor(linkHandler)
+        ExtractorLocalization.apply(streamExtractor)
         streamExtractor.fetchPage()
         val streams = NewPipeMappers.mapStreamExtractor(streamExtractor, key, serviceId)
             ?: throw ContentNotSupportedException("No usable playback streams or manifests found")
@@ -114,6 +115,7 @@ internal class DefaultExtractorOperations(
         val linkHandler = service.streamLHFactory.fromId(key.nativeId)
         val streamExtractor = streamExtractorFactory?.invoke(service, key)
             ?: service.getStreamExtractor(linkHandler)
+        ExtractorLocalization.apply(streamExtractor)
         streamExtractor.fetchPage()
         val extractedKey = ContentKey(streamExtractor.serviceId, streamExtractor.id)
         if (extractedKey != key) {
