@@ -13,11 +13,11 @@ object ExtractorBootstrap {
         if (initialized.get()) return
         synchronized(lock) {
             if (!initialized.get()) {
-                // Request Vietnamese metadata and VN content region so provider-side
-                // feeds (trending kiosk, search) are localized for Vietnam.
+                // Localization follows the user's app language (ExtractorLocalization) so
+                // provider messages match the UI; content country stays VN for trending.
                 NewPipe.init(
                     downloader,
-                    ExtractorLocalization.LOCALIZATION,
+                    ExtractorLocalization.localization,
                     ExtractorLocalization.CONTENT_COUNTRY
                 )
                 initialized.set(true)

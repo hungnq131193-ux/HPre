@@ -1,5 +1,6 @@
 package com.hpre.app.extractor
 
+import com.hpre.app.settings.AppLanguage
 import org.junit.Assert.assertEquals
 import org.junit.Test
 import org.schabi.newpipe.extractor.localization.ContentCountry
@@ -14,13 +15,25 @@ class ExtractorLocalizationTest {
 
     @Test
     fun default_localization_is_vietnamese_in_vietnam() {
-        assertEquals("vi", ExtractorLocalization.LOCALIZATION.languageCode)
-        assertEquals("VN", ExtractorLocalization.LOCALIZATION.countryCode)
+        assertEquals("vi", ExtractorLocalization.localization.languageCode)
+        assertEquals("VN", ExtractorLocalization.localization.countryCode)
     }
 
     @Test
     fun localization_code_matches_newpipe_format() {
-        assertEquals("vi-VN", ExtractorLocalization.LOCALIZATION.localizationCode)
+        assertEquals("vi-VN", ExtractorLocalization.localization.localizationCode)
+    }
+
+    @Test
+    fun apply_language_tracks_app_language() {
+        try {
+            ExtractorLocalization.applyLanguage(AppLanguage.ENGLISH)
+            assertEquals("en", ExtractorLocalization.localization.languageCode)
+            assertEquals("US", ExtractorLocalization.localization.countryCode)
+            assertEquals("en-US", ExtractorLocalization.localization.localizationCode)
+        } finally {
+            ExtractorLocalization.applyLanguage(AppLanguage.VIETNAMESE)
+        }
     }
 
     @Test
@@ -29,7 +42,7 @@ class ExtractorLocalizationTest {
 
         ExtractorLocalization.apply(recorder)
 
-        assertEquals(listOf(ExtractorLocalization.LOCALIZATION), recorder.forcedLocalizations)
+        assertEquals(listOf(ExtractorLocalization.localization), recorder.forcedLocalizations)
         assertEquals(listOf(ExtractorLocalization.CONTENT_COUNTRY), recorder.forcedCountries)
     }
 
@@ -43,7 +56,7 @@ class ExtractorLocalizationTest {
         assertEquals(2, recorder.forcedLocalizations.size)
         assertEquals(2, recorder.forcedCountries.size)
         assertEquals(
-            setOf(ExtractorLocalization.LOCALIZATION),
+            setOf(ExtractorLocalization.localization),
             recorder.forcedLocalizations.toSet()
         )
         assertEquals(

@@ -12,6 +12,7 @@ import com.hpre.app.core.network.NetworkPolicy
 import com.hpre.app.di.AppContainer
 import com.hpre.app.di.DefaultAppContainer
 import com.hpre.app.extractor.ExtractorBootstrap
+import com.hpre.app.extractor.ExtractorLocalization
 import com.hpre.app.extractor.OkHttpDownloader
 import kotlinx.coroutines.launch
 import okhttp3.OkHttpClient
@@ -62,6 +63,7 @@ open class HPreApplication : Application(), ImageLoaderFactory {
         // One application-wide DataStore collector feeds every settings consumer.
         container.applicationScope.launch {
             container.settingsSnapshot.settings.collect { settings ->
+                ExtractorLocalization.applyLanguage(settings.language)
                 playbackUiCoordinator.setBackgroundPlaybackEnabled(settings.backgroundPlaybackEnabled)
                 playbackUiCoordinator.setPipEnabled(settings.pipEnabled)
                 container.updatePlayerLifecyclePolicy(
