@@ -162,7 +162,6 @@ class WatchViewModel(
     private val watchRecommendationSource: WatchRecommendationSource? = null,
     private val watchStateCache: WatchStateCache? = null,
     private val downloadTracker: com.hpre.app.download.DownloadTracker? = null,
-    private val castController: com.hpre.app.cast.CastController? = null,
     private val ioDispatcher: CoroutineDispatcher = Dispatchers.IO,
     private val videoOpenMetrics: VideoOpenMetrics = VideoOpenMetrics.Default
 ) : ViewModel() {
@@ -188,7 +187,6 @@ class WatchViewModel(
             watchRecommendationSource: WatchRecommendationSource? = null,
             watchStateCache: WatchStateCache? = null,
             downloadTracker: com.hpre.app.download.DownloadTracker? = null,
-            castController: com.hpre.app.cast.CastController? = null,
             ioDispatcher: CoroutineDispatcher = Dispatchers.IO
         ): ViewModelProvider.Factory = object : ViewModelProvider.Factory {
             @Suppress("UNCHECKED_CAST")
@@ -205,7 +203,6 @@ class WatchViewModel(
                     watchRecommendationSource = watchRecommendationSource,
                     watchStateCache = watchStateCache,
                     downloadTracker = downloadTracker,
-                    castController = castController,
                     ioDispatcher = ioDispatcher
                 ) as T
             }
@@ -223,7 +220,6 @@ class WatchViewModel(
                     watchRecommendationSource = watchRecommendationSource,
                     watchStateCache = watchStateCache,
                     downloadTracker = downloadTracker,
-                    castController = castController,
                     ioDispatcher = ioDispatcher
                 ) as T
             }
@@ -239,7 +235,6 @@ class WatchViewModel(
             watchRecommendationSource: WatchRecommendationSource? = null,
             watchStateCache: WatchStateCache? = null,
             downloadTracker: com.hpre.app.download.DownloadTracker? = null,
-            castController: com.hpre.app.cast.CastController? = null,
             ioDispatcher: CoroutineDispatcher = Dispatchers.IO
         ): ViewModelProvider.Factory = provideFactory(
             videoService = videoService,
@@ -251,7 +246,6 @@ class WatchViewModel(
             watchRecommendationSource = watchRecommendationSource,
             watchStateCache = watchStateCache,
             downloadTracker = downloadTracker,
-            castController = castController,
             ioDispatcher = ioDispatcher
         )
     }
@@ -1169,33 +1163,6 @@ class WatchViewModel(
         val key = playerController.state.value.key ?: return
         downloadTracker?.remove(key)
     }
-
-    val castDevices: StateFlow<List<com.hpre.app.cast.FCastDevice>> =
-        castController?.devices
-            ?: kotlinx.coroutines.flow.MutableStateFlow(emptyList())
-    val castActiveDevice: StateFlow<com.hpre.app.cast.FCastDevice?> =
-        castController?.activeDevice
-            ?: kotlinx.coroutines.flow.MutableStateFlow(null)
-    val castError: StateFlow<String?> =
-        castController?.error ?: kotlinx.coroutines.flow.MutableStateFlow(null)
-
-    fun startCastDiscovery() = castController?.startDiscovery()
-    fun stopCastDiscovery() = castController?.stopDiscovery()
-
-    fun castTo(device: com.hpre.app.cast.FCastDevice) {
-        val state = playerController.state.value
-        val key = state.key ?: return
-        castController?.playOn(
-            device = device,
-            key = key,
-            startSeconds = state.currentPositionMs / 1000.0
-        )
-    }
-
-    fun castPause() = castController?.pause()
-    fun castResume() = castController?.resume()
-    fun castDisconnect() = castController?.disconnect()
-    fun consumeCastError() = castController?.consumeError()
 
     override fun onCleared() {
         synchronized(sessionGuard) {
