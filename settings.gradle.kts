@@ -20,7 +20,7 @@ dependencyResolutionManagement {
         maven {
             url = java.net.URI("https://jitpack.io")
             content {
-                includeGroupByRegex("com\\.github\\.TeamNewPipe(\\..*)?")
+                includeGroupByRegex("com\\.github\\.(TeamNewPipe|hungnq131193-ux)(\\..*)?")
             }
         }
     }

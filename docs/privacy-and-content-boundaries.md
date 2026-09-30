@@ -1,7 +1,7 @@
 # HPre Privacy & Content Boundaries
 
 ## 1. Non-Official Extractor & Technical Scope
-- HPre V1 targets **NewPipeExtractor** (`com.github.TeamNewPipe:NewPipeExtractor:v0.26.5`) as a non-official client extractor library behind an isolated provider-neutral adapter.
+- HPre V1 targets **NewPipeExtractor** (`com.github.hungnq131193-ux:NewPipeExtractor:v0.26.5-hpre.1`, a fork of upstream `com.github.TeamNewPipe:NewPipeExtractor:v0.26.5`) as a non-official client extractor library behind an isolated provider-neutral adapter.
 - HPre is an independent client and is **not** endorsed by, affiliated with, or an official product of YouTube, Google LLC, or NewPipe.
 - Extraction only accesses content that is technically and lawfully viewable by the public without access restriction.
 

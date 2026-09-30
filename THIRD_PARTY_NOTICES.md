@@ -4,7 +4,7 @@ HPre sử dụng các dự án mã nguồn mở dưới đây. Danh sách này p
 
 | Thành phần | Phiên bản | Upstream | Giấy phép |
 |---|---:|---|---|
-| NewPipeExtractor | v0.26.5 | https://github.com/TeamNewPipe/NewPipeExtractor | GPL-3.0-or-later |
+| NewPipeExtractor | v0.26.5-hpre.1 (fork of v0.26.5) | https://github.com/hungnq131193-ux/NewPipeExtractor (upstream: https://github.com/TeamNewPipe/NewPipeExtractor) | GPL-3.0-or-later |
 | AndroidX / Jetpack Compose | BOM 2025.02.00 | https://developer.android.com/jetpack/androidx | Apache-2.0 |
 | AndroidX Media3 | 1.5.1 | https://github.com/androidx/media | Apache-2.0 |
 | AndroidX Room | 2.6.1 | https://developer.android.com/jetpack/androidx/releases/room | Apache-2.0 |
