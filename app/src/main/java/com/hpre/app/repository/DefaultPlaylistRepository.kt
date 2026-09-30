@@ -76,7 +76,7 @@ class DefaultPlaylistRepository(
                 return@withContext AppResult.Failure(AppError.Unknown)
             }
             val existing = playlistDao.getPlaylistById(playlistId)
-                ?: return@withContext AppResult.Failure(AppError.ContentUnavailable)
+                ?: return@withContext AppResult.Failure(AppError.ContentUnavailable())
             playlistDao.updatePlaylist(
                 existing.copy(
                     title = cleanTitle,

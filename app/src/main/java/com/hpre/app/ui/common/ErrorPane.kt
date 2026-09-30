@@ -197,10 +197,11 @@ fun InlineEmptyPane(
 fun appErrorMessage(error: AppError): String = when (error) {
     AppError.NetworkError -> stringResource(R.string.error_network)
     AppError.RateLimited -> stringResource(R.string.error_rate_limited)
-    AppError.ContentUnavailable -> stringResource(R.string.error_content_unavailable)
+    is AppError.ContentUnavailable -> error.reason ?: stringResource(R.string.error_content_unavailable)
     AppError.AgeRestricted -> stringResource(R.string.error_age_restricted)
     AppError.GeoRestricted -> stringResource(R.string.error_geo_restricted)
     AppError.LoginRequired -> stringResource(R.string.error_login_required)
+    AppError.PaidContent -> stringResource(R.string.error_paid_content)
     AppError.StreamExpired -> stringResource(R.string.error_stream_expired)
     AppError.UnsupportedFormat -> stringResource(R.string.error_unsupported_format)
     AppError.ExtractionFailed -> stringResource(R.string.error_extraction_failed)

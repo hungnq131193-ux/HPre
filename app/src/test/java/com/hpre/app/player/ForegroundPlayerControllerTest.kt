@@ -653,7 +653,7 @@ class ForegroundPlayerControllerTest {
         )
         testPlayerState.notifyError(http404Exception)
         testScope.runCurrent()
-        assertEquals(AppError.ContentUnavailable, controller.state.value.error)
+        assertEquals(AppError.ContentUnavailable(), controller.state.value.error)
 
         // 3. HTTP 500 status
         val invalid500 = createInvalidResponseCodeException(500, "Internal Server Error")

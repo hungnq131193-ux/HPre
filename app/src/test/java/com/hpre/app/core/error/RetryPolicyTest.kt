@@ -30,10 +30,11 @@ class RetryPolicyTest {
     fun non_network_errors_do_not_retry() {
         val nonNetworkErrors = listOf(
             AppError.RateLimited,
-            AppError.ContentUnavailable,
+            AppError.ContentUnavailable(),
             AppError.AgeRestricted,
             AppError.GeoRestricted,
             AppError.LoginRequired,
+            AppError.PaidContent,
             AppError.StreamExpired,
             AppError.UnsupportedFormat,
             AppError.ExtractionFailed,
@@ -106,7 +107,7 @@ class RetryPolicyTest {
         assertTrue(RetryPolicy.isManualRetryable(AppError.NetworkError))
         assertTrue(RetryPolicy.isManualRetryable(AppError.ExtractionFailed))
         assertFalse(RetryPolicy.isManualRetryable(AppError.RateLimited))
-        assertFalse(RetryPolicy.isManualRetryable(AppError.ContentUnavailable))
+        assertFalse(RetryPolicy.isManualRetryable(AppError.ContentUnavailable()))
         assertFalse(RetryPolicy.isManualRetryable(AppError.AgeRestricted))
         assertFalse(RetryPolicy.isManualRetryable(AppError.GeoRestricted))
         assertFalse(RetryPolicy.isManualRetryable(AppError.LoginRequired))

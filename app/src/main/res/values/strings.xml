@@ -249,6 +249,7 @@
     <string name="error_age_restricted">Nội dung này bị giới hạn độ tuổi.</string>
     <string name="error_geo_restricted">Nội dung này không khả dụng tại khu vực của bạn.</string>
     <string name="error_login_required">Nội dung này yêu cầu đăng nhập, hiện chưa được hỗ trợ.</string>
+    <string name="error_paid_content">Nội dung này chỉ dành cho thành viên trả phí của kênh.</string>
     <string name="error_stream_expired">Luồng phát đã hết hạn.</string>
     <string name="error_unsupported_format">Định dạng này không được hỗ trợ.</string>
     <string name="error_extraction_failed">Không đọc được dữ liệu video. Hãy thử lại; nếu vẫn lỗi, kiểm tra cập nhật HPre trong Cài đặt.</string>

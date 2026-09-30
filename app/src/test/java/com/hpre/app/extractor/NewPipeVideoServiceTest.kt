@@ -740,27 +740,27 @@ class NewPipeVideoServiceTest {
 
         val searchResult = service.search("query", SearchFilter.ALL, null)
         assertTrue("searchResult was $searchResult", searchResult is AppResult.Failure)
-        assertEquals(AppError.ContentUnavailable, (searchResult as AppResult.Failure).error)
+        assertEquals(AppError.ContentUnavailable(), (searchResult as AppResult.Failure).error)
 
         val videoResult = service.video(ContentKey(0, "dQw4w9WgXcQ"))
         assertTrue("videoResult was $videoResult", videoResult is AppResult.Failure)
-        assertEquals(AppError.ContentUnavailable, (videoResult as AppResult.Failure).error)
+        assertEquals(AppError.ContentUnavailable(), (videoResult as AppResult.Failure).error)
 
         val streamResult = service.streamInfo(ContentKey(0, "dQw4w9WgXcQ"))
         assertTrue("streamResult was $streamResult", streamResult is AppResult.Failure)
-        assertEquals(AppError.ContentUnavailable, (streamResult as AppResult.Failure).error)
+        assertEquals(AppError.ContentUnavailable(), (streamResult as AppResult.Failure).error)
 
         val channelResult = service.channel(ContentKey(0, "UCuCKox3vgM_q8p1Ufx9kGqg"))
         assertTrue("channelResult was $channelResult", channelResult is AppResult.Failure)
-        assertEquals(AppError.ContentUnavailable, (channelResult as AppResult.Failure).error)
+        assertEquals(AppError.ContentUnavailable(), (channelResult as AppResult.Failure).error)
 
         val playlistResult = service.playlist(ContentKey(0, "PL_TEST"))
         assertTrue("playlistResult was $playlistResult", playlistResult is AppResult.Failure)
-        assertEquals(AppError.ContentUnavailable, (playlistResult as AppResult.Failure).error)
+        assertEquals(AppError.ContentUnavailable(), (playlistResult as AppResult.Failure).error)
 
         val commentsResult = service.comments(ContentKey(0, "dQw4w9WgXcQ"), null)
         assertTrue("commentsResult was $commentsResult", commentsResult is AppResult.Failure)
-        assertEquals(AppError.ContentUnavailable, (commentsResult as AppResult.Failure).error)
+        assertEquals(AppError.ContentUnavailable(), (commentsResult as AppResult.Failure).error)
     }
 
     @Test

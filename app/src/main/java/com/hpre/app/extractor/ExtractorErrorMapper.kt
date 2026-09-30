@@ -33,7 +33,7 @@ object ExtractorErrorMapper {
     ): AppError {
         return when (statusCode) {
             403 -> AppError.LoginRequired
-            404, 410 -> AppError.ContentUnavailable
+            404, 410 -> AppError.ContentUnavailable()
             429 -> AppError.RateLimited
             in 500..599 -> AppError.NetworkError
             else -> AppError.NetworkError
@@ -56,12 +56,15 @@ object ExtractorErrorMapper {
             if (root is GeographicRestrictionException) {
                 return AppError.GeoRestricted
             }
-            if (root is PrivateContentException || root is PaidContentException ||
-                root is YoutubeMusicPremiumContentException || root is SoundCloudGoPlusContentException) {
+            if (root is PrivateContentException) {
                 return AppError.LoginRequired
             }
+            if (root is PaidContentException || root is YoutubeMusicPremiumContentException ||
+                root is SoundCloudGoPlusContentException) {
+                return AppError.PaidContent
+            }
             if (root is AccountTerminatedException || root is ContentNotAvailableException) {
-                return AppError.ContentUnavailable
+                return AppError.ContentUnavailable(unavailableReason(root))
             }
             if (root is ContentNotSupportedException) {
                 return AppError.UnsupportedFormat
@@ -79,6 +82,20 @@ object ExtractorErrorMapper {
             is ParsingException,
             is ExtractionException -> AppError.ExtractionFailed
             else -> AppError.Unknown
+        }
+    }
+
+    // Only surfaces the quoted reason YouTube embeds in the extractor's
+    // "Got error <status>: \"<reason>\"" messages (already localized by the
+    // request's hl param); anything else keeps the generic message.
+    private val playabilityReasonPattern = Regex("""^Got error \w+: "(.*)"$""")
+
+    private fun unavailableReason(throwable: Throwable): String? {
+        val message = throwable.message?.takeIf { it.isNotBlank() } ?: return null
+        return when (throwable) {
+            is AccountTerminatedException -> message
+            else -> playabilityReasonPattern.find(message)?.groupValues?.get(1)
+                ?.takeIf { it.isNotBlank() }
         }
     }
 }

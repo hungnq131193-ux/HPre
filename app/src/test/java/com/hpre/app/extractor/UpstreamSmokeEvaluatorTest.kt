@@ -619,7 +619,7 @@ class UpstreamSmokeEvaluatorTest {
         val service = TestVideoService(
             searchItems = items,
             videoResponses = mapOf(
-                "vid1" to AppResult.Failure(AppError.ContentUnavailable),
+                "vid1" to AppResult.Failure(AppError.ContentUnavailable()),
                 "vid2" to AppResult.Success(createFakeDetails("vid2"))
             ),
             streamResponses = mapOf(
@@ -660,7 +660,7 @@ class UpstreamSmokeEvaluatorTest {
         ) {
             override suspend fun video(key: ContentKey): AppResult<VideoDetails> {
                 videoCallCount++
-                return AppResult.Failure(AppError.ContentUnavailable)
+                return AppResult.Failure(AppError.ContentUnavailable())
             }
         }
 
@@ -708,7 +708,7 @@ class UpstreamSmokeEvaluatorTest {
             override suspend fun video(key: ContentKey): AppResult<VideoDetails> {
                 videoCallCount++
                 return when (key.nativeId) {
-                    "vid1" -> AppResult.Failure(AppError.ContentUnavailable)
+                    "vid1" -> AppResult.Failure(AppError.ContentUnavailable())
                     "vid2" -> AppResult.Failure(AppError.AgeRestricted)
                     "vid3" -> AppResult.Failure(AppError.GeoRestricted)
                     "vid4" -> AppResult.Failure(AppError.LoginRequired)

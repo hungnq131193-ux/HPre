@@ -250,6 +250,7 @@
     <string name="error_age_restricted">This content is age-restricted.</string>
     <string name="error_geo_restricted">This content is not available in your region.</string>
     <string name="error_login_required">This content requires login, which is not currently supported.</string>
+    <string name="error_paid_content">This content is only available to paying channel members.</string>
     <string name="error_stream_expired">Stream has expired.</string>
     <string name="error_unsupported_format">This format is not supported.</string>
     <string name="error_extraction_failed">Could not read video data. Retry; if it still fails, check for HPre updates in Settings.</string>

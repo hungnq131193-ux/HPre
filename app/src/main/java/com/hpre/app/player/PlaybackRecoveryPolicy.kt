@@ -15,7 +15,7 @@ object PlaybackRecoveryPolicy {
         return when (http?.responseCode) {
             403 -> PlaybackRecoveryDecision(AppError.StreamExpired, shouldRefresh = true)
             401 -> PlaybackRecoveryDecision(AppError.LoginRequired, shouldRefresh = true)
-            404 -> PlaybackRecoveryDecision(AppError.ContentUnavailable, shouldRefresh = true)
+            404 -> PlaybackRecoveryDecision(AppError.ContentUnavailable(), shouldRefresh = true)
             in 500..599 -> PlaybackRecoveryDecision(AppError.NetworkError, shouldRefresh = true)
             else -> when (error.errorCode) {
                 PlaybackException.ERROR_CODE_IO_NETWORK_CONNECTION_FAILED,

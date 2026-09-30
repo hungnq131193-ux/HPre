@@ -60,7 +60,7 @@ class NewPipeVideoServiceMethodsTest {
 
         val result = service.related(ContentKey(0, "dQw4w9WgXcQ"))
         assertTrue(result is AppResult.Failure)
-        assertEquals(AppError.ContentUnavailable, (result as AppResult.Failure).error)
+        assertEquals(AppError.ContentUnavailable(), (result as AppResult.Failure).error)
     }
 
     @Test
@@ -137,7 +137,7 @@ class NewPipeVideoServiceMethodsTest {
         // Error path
         val errorRes = service.playlist(ContentKey(0, "PL_ERROR"))
         assertTrue(errorRes is AppResult.Failure)
-        assertEquals(AppError.ContentUnavailable, (errorRes as AppResult.Failure).error)
+        assertEquals(AppError.ContentUnavailable(), (errorRes as AppResult.Failure).error)
     }
 
     @Test

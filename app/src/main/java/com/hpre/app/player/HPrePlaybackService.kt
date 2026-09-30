@@ -1727,7 +1727,7 @@ class HPrePlaybackService : MediaLibraryService() {
                         }
                     } else {
                         val errBundle = Bundle().apply {
-                            putString(EXTRA_PROBE_ERROR_CODE, AppError.ContentUnavailable.javaClass.simpleName)
+                            putString(EXTRA_PROBE_ERROR_CODE, AppError.ContentUnavailable::class.java.simpleName)
                         }
                         completion.set(SessionResult(SessionError.ERROR_BAD_VALUE, errBundle))
                     }

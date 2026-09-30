@@ -1727,7 +1727,8 @@ class SessionPlayerController internal constructor(
 
         internal fun mapServiceErrorName(value: String): AppError? = when (value) {
             AppError.NetworkError::class.java.simpleName -> AppError.NetworkError
-            AppError.ContentUnavailable::class.java.simpleName -> AppError.ContentUnavailable
+            AppError.ContentUnavailable::class.java.simpleName -> AppError.ContentUnavailable()
+            AppError.PaidContent::class.java.simpleName -> AppError.PaidContent
             AppError.AgeRestricted::class.java.simpleName -> AppError.AgeRestricted
             AppError.GeoRestricted::class.java.simpleName -> AppError.GeoRestricted
             AppError.LoginRequired::class.java.simpleName -> AppError.LoginRequired

@@ -515,7 +515,7 @@ class WatchViewModelTest {
         }
         val model = WatchViewModel(
             videoService = FakeVideoService(
-                streamInfoHandler = { AppResult.Failure(AppError.ContentUnavailable) }
+                streamInfoHandler = { AppResult.Failure(AppError.ContentUnavailable()) }
             ),
             playerController = FakePlayerController(),
             savedStateHandle = androidx.lifecycle.SavedStateHandle(),
@@ -528,7 +528,7 @@ class WatchViewModelTest {
 
         assertFalse(model.uiState.value.isLoading)
         assertEquals(testDetails(testKey), model.uiState.value.details)
-        assertEquals(AppError.ContentUnavailable, model.uiState.value.error)
+        assertEquals(AppError.ContentUnavailable(), model.uiState.value.error)
     }
 
     @Test
@@ -1487,7 +1487,7 @@ class WatchViewModelTest {
     fun stream_failure_exposes_mapped_error_and_retry_event() = runTest(testDispatcher) {
         val fakeService = FakeVideoService(
             videoHandler = { AppResult.Success(testDetails(it)) },
-            streamInfoHandler = { AppResult.Failure(AppError.ContentUnavailable) }
+            streamInfoHandler = { AppResult.Failure(AppError.ContentUnavailable()) }
         )
         val fakePlayer = FakePlayerController()
         val viewModel = WatchViewModel(
@@ -1502,7 +1502,7 @@ class WatchViewModelTest {
 
         val state = viewModel.uiState.value
         assertFalse(state.isLoading)
-        assertEquals(AppError.ContentUnavailable, state.error)
+        assertEquals(AppError.ContentUnavailable(), state.error)
         assertNull(fakePlayer.preparedKey)
     }
 

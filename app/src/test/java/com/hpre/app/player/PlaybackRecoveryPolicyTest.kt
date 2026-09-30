@@ -45,7 +45,7 @@ class PlaybackRecoveryPolicyTest {
     fun mapped_access_restrictions_do_not_refresh_without_temporary_media_failure() {
         listOf(
             AppError.LoginRequired,
-            AppError.ContentUnavailable,
+            AppError.ContentUnavailable(),
             AppError.AgeRestricted,
             AppError.GeoRestricted,
             AppError.RateLimited

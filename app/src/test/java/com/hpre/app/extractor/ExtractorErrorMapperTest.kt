@@ -32,8 +32,8 @@ class ExtractorErrorMapperTest {
 
     @Test
     fun http_404_maps_to_content_unavailable() {
-        assertEquals(AppError.ContentUnavailable, ExtractorErrorMapper.mapHttpFailure(statusCode = 404))
-        assertEquals(AppError.ContentUnavailable, ExtractorErrorMapper.mapHttpFailure(statusCode = 410))
+        assertEquals(AppError.ContentUnavailable(), ExtractorErrorMapper.mapHttpFailure(statusCode = 404))
+        assertEquals(AppError.ContentUnavailable(), ExtractorErrorMapper.mapHttpFailure(statusCode = 410))
     }
 
     @Test
@@ -47,8 +47,8 @@ class ExtractorErrorMapperTest {
     @Test
     fun extractor_http_exception_maps_to_mapped_http_failure() {
         assertEquals(AppError.LoginRequired, ExtractorErrorMapper.mapExtractorFailure(ExtractorHttpException(403, ExtractorOperationContext.EXTRACTION_METADATA)))
-        assertEquals(AppError.ContentUnavailable, ExtractorErrorMapper.mapExtractorFailure(ExtractorHttpException(404, ExtractorOperationContext.EXTRACTION_METADATA)))
-        assertEquals(AppError.ContentUnavailable, ExtractorErrorMapper.mapExtractorFailure(ExtractorHttpException(410, ExtractorOperationContext.EXTRACTION_METADATA)))
+        assertEquals(AppError.ContentUnavailable(), ExtractorErrorMapper.mapExtractorFailure(ExtractorHttpException(404, ExtractorOperationContext.EXTRACTION_METADATA)))
+        assertEquals(AppError.ContentUnavailable(), ExtractorErrorMapper.mapExtractorFailure(ExtractorHttpException(410, ExtractorOperationContext.EXTRACTION_METADATA)))
         assertEquals(AppError.RateLimited, ExtractorErrorMapper.mapExtractorFailure(ExtractorHttpException(429, ExtractorOperationContext.EXTRACTION_METADATA)))
         assertEquals(AppError.NetworkError, ExtractorErrorMapper.mapExtractorFailure(ExtractorHttpException(500, ExtractorOperationContext.EXTRACTION_METADATA)))
         assertEquals(AppError.NetworkError, ExtractorErrorMapper.mapExtractorFailure(ExtractorHttpException(503, ExtractorOperationContext.EXTRACTION_METADATA)))
@@ -66,13 +66,14 @@ class ExtractorErrorMapperTest {
         assertEquals(AppError.AgeRestricted, ExtractorErrorMapper.mapExtractorFailure(AgeRestrictedContentException("Age restricted")))
         assertEquals(AppError.GeoRestricted, ExtractorErrorMapper.mapExtractorFailure(GeographicRestrictionException("Geo blocked")))
         assertEquals(AppError.LoginRequired, ExtractorErrorMapper.mapExtractorFailure(PrivateContentException("Private video")))
-        assertEquals(AppError.LoginRequired, ExtractorErrorMapper.mapExtractorFailure(PaidContentException("Paid content")))
-        assertEquals(AppError.LoginRequired, ExtractorErrorMapper.mapExtractorFailure(YoutubeMusicPremiumContentException()))
-        assertEquals(AppError.LoginRequired, ExtractorErrorMapper.mapExtractorFailure(SoundCloudGoPlusContentException()))
+        assertEquals(AppError.PaidContent, ExtractorErrorMapper.mapExtractorFailure(PaidContentException("Paid content")))
+        assertEquals(AppError.PaidContent, ExtractorErrorMapper.mapExtractorFailure(YoutubeMusicPremiumContentException()))
+        assertEquals(AppError.PaidContent, ExtractorErrorMapper.mapExtractorFailure(SoundCloudGoPlusContentException()))
         assertEquals(AppError.RateLimited, ExtractorErrorMapper.mapExtractorFailure(ExtractorHttpException(429, ExtractorOperationContext.EXTRACTION_METADATA)))
         assertEquals(AppError.RateLimited, ExtractorErrorMapper.mapExtractorFailure(ReCaptchaException("Captcha", "https://youtube.com")))
-        assertEquals(AppError.ContentUnavailable, ExtractorErrorMapper.mapExtractorFailure(ContentNotAvailableException("Not available")))
-        assertEquals(AppError.ContentUnavailable, ExtractorErrorMapper.mapExtractorFailure(AccountTerminatedException("Terminated")))
+        assertEquals(AppError.ContentUnavailable(), ExtractorErrorMapper.mapExtractorFailure(ContentNotAvailableException("Not available")))
+        assertEquals(AppError.ContentUnavailable("Khởi chiếu sau 40 ngày"), ExtractorErrorMapper.mapExtractorFailure(ContentNotAvailableException("Got error LIVE_STREAM_OFFLINE: \"Khởi chiếu sau 40 ngày\"")))
+        assertEquals(AppError.ContentUnavailable("Terminated"), ExtractorErrorMapper.mapExtractorFailure(AccountTerminatedException("Terminated")))
         assertEquals(AppError.UnsupportedFormat, ExtractorErrorMapper.mapExtractorFailure(ContentNotSupportedException("Unsupported")))
         assertEquals(AppError.ExtractionFailed, ExtractorErrorMapper.mapExtractorFailure(ParsingException("Failed to parse regex")))
         assertEquals(AppError.Unknown, ExtractorErrorMapper.mapExtractorFailure(IllegalStateException("Unknown state")))

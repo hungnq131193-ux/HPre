@@ -76,10 +76,11 @@ class ErrorPaneTest {
 
         val nonRetryable = listOf(
             AppError.RateLimited,
-            AppError.ContentUnavailable,
+            AppError.ContentUnavailable(),
             AppError.AgeRestricted,
             AppError.GeoRestricted,
             AppError.LoginRequired,
+            AppError.PaidContent,
             AppError.UnsupportedFormat,
             AppError.StreamExpired,
             AppError.Unknown

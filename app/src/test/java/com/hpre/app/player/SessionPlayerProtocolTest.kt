@@ -390,7 +390,7 @@ class SessionPlayerProtocolTest {
     fun typed_error_safe_message_keys_cover_all_app_errors() {
         assertEquals("error_network", AppError.NetworkError.safeMessageKey())
         assertEquals("error_rate_limited", AppError.RateLimited.safeMessageKey())
-        assertEquals("error_content_unavailable", AppError.ContentUnavailable.safeMessageKey())
+        assertEquals("error_content_unavailable", AppError.ContentUnavailable().safeMessageKey())
         assertEquals("error_age_restricted", AppError.AgeRestricted.safeMessageKey())
         assertEquals("error_geo_restricted", AppError.GeoRestricted.safeMessageKey())
         assertEquals("error_login_required", AppError.LoginRequired.safeMessageKey())
