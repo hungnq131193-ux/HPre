@@ -48,6 +48,13 @@ interface PlayerController {
     fun selectSubtitle(language: String?) = Unit
     /** Prefers an audio track language for multi-language manifests; null restores default. */
     fun selectAudioLanguage(language: String?) = Unit
+
+    /**
+     * Refills quality/subtitle/audio-track metadata for the currently active item when the
+     * state was restored without a prepare (session restore, expired autoplay handoff).
+     * No-op unless the key matches and the metadata is missing; never touches playback.
+     */
+    fun hydratePlaybackMetadata(streamInfo: StreamInfo) = Unit
     /** Invalidate the previous media without destroying the shared playback session. */
     fun stopForTransition() = pause()
     fun clearMedia() = Unit

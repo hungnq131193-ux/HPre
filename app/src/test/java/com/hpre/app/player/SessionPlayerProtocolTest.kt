@@ -1764,4 +1764,57 @@ class SessionPlayerProtocolTest {
         assertFalse(controller.isReconnectingState)
         controller.release()
     }
+
+    @Test
+    fun hydrated_playback_state_refills_track_metadata_only_when_missing() {
+        val key = ContentKey(0, "hydrate-vid")
+        val streamInfo = StreamInfo(
+            key = key,
+            title = "T",
+            hlsManifestUrl = "https://manifest.test/vid.m3u8",
+            videoStreams = listOf(
+                VideoStream(
+                    "https://example.test/720.mp4", "mp4", "720p", 1280, 720, 800L,
+                    false, "video/mp4", "avc1.64001F,mp4a.40.2"
+                )
+            ),
+            audioStreams = listOf(
+                com.hpre.app.model.AudioStream(
+                    "https://example.test/en.m4a", "m4a", 128_000L, null, "en", "audio/mp4", "mp4a.40.2"
+                ),
+                com.hpre.app.model.AudioStream(
+                    "https://example.test/vi.m4a", "m4a", 128_000L, null, "vi", "audio/mp4", "mp4a.40.2"
+                )
+            ),
+            subtitles = listOf(
+                com.hpre.app.model.SubtitleStream("https://example.test/en.srt", "en", "srt")
+            )
+        )
+
+        // Restored/expired-handoff state: same active key, no track metadata.
+        val restored = hydratedPlaybackState(
+            current = PlaybackState(
+                key = key,
+                isPlaying = true,
+                streamType = PlaybackStreamType.DASH
+            ),
+            streamInfo = streamInfo
+        )
+        assertTrue(restored.availableQualities.isNotEmpty())
+        assertEquals(listOf("en"), restored.subtitles.map { it.language })
+        assertEquals(listOf("en", "vi"), restored.audioLanguages)
+        assertEquals("en", restored.selectedSubtitleLanguage)
+
+        // A prepared state must never be overwritten.
+        val prepared = PlaybackState(
+            key = key,
+            availableQualities = listOf(QualityOption(360, "360p", true)),
+            selectedSubtitleLanguage = "vi"
+        )
+        assertSame(prepared, hydratedPlaybackState(prepared, streamInfo))
+
+        // A different key must not adopt foreign metadata.
+        val other = PlaybackState(key = ContentKey(0, "other"))
+        assertSame(other, hydratedPlaybackState(other, streamInfo))
+    }
 }

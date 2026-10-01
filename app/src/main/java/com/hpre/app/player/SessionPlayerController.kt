@@ -112,6 +112,30 @@ internal fun restoreConnectedPlaybackState(
     playbackSpeed = playbackSpeed.takeIf { it > 0f } ?: current.playbackSpeed
 )
 
+internal fun hydratedPlaybackState(
+    current: PlaybackState,
+    streamInfo: StreamInfo
+): PlaybackState {
+    // Only refill track metadata for the same active item when prepare never populated it —
+    // e.g. a restored session where the service kept playing or an autoplay handoff that
+    // expired. A prepared state always lists at least one quality for playable media, so a
+    // non-empty list means metadata is already in place and must not be overwritten.
+    if (current.key != streamInfo.key || current.availableQualities.isNotEmpty()) return current
+    val tracks = resolveTrackSelections(
+        streamInfo = streamInfo,
+        streamType = current.streamType,
+        previousSubtitleLanguage = current.selectedSubtitleLanguage,
+        previousAudioLanguage = current.selectedAudioLanguage
+    )
+    return current.copy(
+        availableQualities = StreamSelector.getAvailableQualities(streamInfo),
+        subtitles = streamInfo.subtitles,
+        selectedSubtitleLanguage = tracks.subtitleLanguage,
+        audioLanguages = tracks.audioLanguages,
+        selectedAudioLanguage = tracks.audioLanguage
+    )
+}
+
 internal data class ResolvedTrackSelections(
     val subtitleLanguage: String?,
     val audioLanguages: List<String>,
@@ -1092,6 +1116,11 @@ class SessionPlayerController internal constructor(
                 .setPreferredAudioLanguage(language.orEmpty())
                 .build()
         }
+    }
+
+    override fun hydratePlaybackMetadata(streamInfo: StreamInfo) {
+        if (isReleased) return
+        _state.update { hydratedPlaybackState(it, streamInfo) }
     }
 
     private fun applyVideoTrackPolicy(
