@@ -12,7 +12,21 @@ object ErrorDiagnostics {
     private val _lastDetail = MutableStateFlow<String?>(null)
     val lastDetail: StateFlow<String?> = _lastDetail
 
+    private val urlPattern = Regex("https?://\\S+")
+
     fun record(throwable: Throwable) {
-        _lastDetail.value = throwable::class.java.simpleName
+        val name = throwable::class.java.simpleName
+        // LinkageError messages are JVM signatures ("No virtual method X(L..;)V in class Y"),
+        // safe to show verbatim — they name the exact missing API. Other throwables stay
+        // class-name-only since arbitrary messages can embed URLs or tokens.
+        _lastDetail.value = if (throwable is LinkageError) {
+            val signature = throwable.message?.lineSequence()?.firstOrNull()
+                ?.replace(urlPattern, "[url]")
+                ?.take(180)
+                ?: ""
+            if (signature.isEmpty()) name else "$name: $signature"
+        } else {
+            name
+        }
     }
 }
