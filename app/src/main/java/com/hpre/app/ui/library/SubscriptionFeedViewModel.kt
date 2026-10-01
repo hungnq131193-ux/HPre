@@ -7,6 +7,7 @@ import com.hpre.app.core.error.AppError
 import com.hpre.app.model.ContentKey
 import com.hpre.app.model.VideoSummary
 import com.hpre.app.repository.SubscriptionFeedRepository
+import com.hpre.app.repository.VideoService
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -26,7 +27,8 @@ sealed interface SubscriptionFeedUiState {
 }
 
 class SubscriptionFeedViewModel(
-    private val repository: SubscriptionFeedRepository
+    private val repository: SubscriptionFeedRepository,
+    private val videoService: VideoService? = null
 ) : ViewModel() {
     private val _state = MutableStateFlow<SubscriptionFeedUiState>(SubscriptionFeedUiState.Loading)
     val state: StateFlow<SubscriptionFeedUiState> = _state.asStateFlow()
@@ -52,6 +54,7 @@ class SubscriptionFeedViewModel(
                 val feed = repository.refreshAll(forceRefresh = true)
                 if (generation != refreshGeneration) return@launch
                 val existing = _state.value as? SubscriptionFeedUiState.Content
+                if (feed.videos.isNotEmpty()) prefetchTop(feed.videos)
                 _state.value = when {
                     feed.videos.isNotEmpty() -> SubscriptionFeedUiState.Content(
                         feed.videos, feed.failedChannels
@@ -75,12 +78,31 @@ class SubscriptionFeedViewModel(
         }
     }
 
+    /**
+     * Warms the shared extraction cache for the first few visible items so a tap on them skips
+     * the cold network round-trip. Bounded inside [VideoService.prefetch]; failures are ignored.
+     */
+    private fun prefetchTop(videos: List<VideoSummary>) {
+        val service = videoService ?: return
+        viewModelScope.launch {
+            try {
+                service.prefetch(videos.take(3).map(VideoSummary::key))
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (_: Exception) {
+            }
+        }
+    }
+
     companion object {
-        fun provideFactory(repository: SubscriptionFeedRepository): ViewModelProvider.Factory =
+        fun provideFactory(
+            repository: SubscriptionFeedRepository,
+            videoService: VideoService? = null
+        ): ViewModelProvider.Factory =
             object : ViewModelProvider.Factory {
                 @Suppress("UNCHECKED_CAST")
                 override fun <T : ViewModel> create(modelClass: Class<T>): T =
-                    SubscriptionFeedViewModel(repository) as T
+                    SubscriptionFeedViewModel(repository, videoService) as T
             }
     }
 }

@@ -157,4 +157,49 @@ class YouTubeChunkedDataSourceTest {
         assertEquals(listOf("0-19"), server.ranges)
         assertFalse(server.ranges.size > 1)
     }
+
+    @Test
+    fun readAhead_servesLaterChunksFromPrefetchedConnections() {
+        val delegate = FakeServer(media)
+        val prefetched = mutableListOf<FakeServer>()
+        val factory = object : HttpDataSource.Factory {
+            override fun createDataSource() = FakeServer(media).also { prefetched += it }
+            override fun setDefaultRequestProperties(defaultRequestProperties: MutableMap<String, String>) = this
+        }
+        val source = YouTubeMediaHttpDataSource(
+            delegate,
+            YouTubeRequestProfile.PROGRESSIVE,
+            chunkSizeBytes = 8,
+            readAheadFactory = factory
+        )
+
+        val (opened, bytes) = readAll(source, spec("$base&clen=20"))
+
+        assertEquals(20L, opened)
+        assertArrayEquals(media, bytes)
+        assertEquals(listOf("0-7"), delegate.ranges)
+        assertEquals(listOf("8-15", "16-19"), prefetched.flatMap { it.ranges })
+    }
+
+    @Test
+    fun readAheadFailure_fallsBackToSynchronousOpen() {
+        val delegate = FakeServer(media)
+        // Every prefetched request 416s (empty media), so adoption fails at each boundary.
+        val factory = object : HttpDataSource.Factory {
+            override fun createDataSource() = FakeServer(ByteArray(0))
+            override fun setDefaultRequestProperties(defaultRequestProperties: MutableMap<String, String>) = this
+        }
+        val source = YouTubeMediaHttpDataSource(
+            delegate,
+            YouTubeRequestProfile.PROGRESSIVE,
+            chunkSizeBytes = 8,
+            readAheadFactory = factory
+        )
+
+        val (opened, bytes) = readAll(source, spec("$base&clen=20"))
+
+        assertEquals(20L, opened)
+        assertArrayEquals(media, bytes)
+        assertEquals(listOf("0-7", "8-15", "16-19"), delegate.ranges)
+    }
 }

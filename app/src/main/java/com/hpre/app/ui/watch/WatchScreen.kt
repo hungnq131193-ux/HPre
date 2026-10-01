@@ -486,8 +486,8 @@ fun WatchScreen(
                 .graphicsLayer { translationY = minimizeDragOffsetY }
                 .testTag("watch_screen")
         ) {
-            // Landscape (car head units included) docks the player on the left with metadata and
-            // related videos scrolling in a right panel — YouTube's wide-screen layout. Portrait
+            // Landscape (car head units included) docks the player top-left with metadata
+            // scrolling underneath and a dedicated related-videos rail on the right. Portrait
             // keeps the original stacked arrangement.
             val playerArea: @Composable (Modifier) -> Unit = { playerModifier ->
                 // Video Player Container (16:9 aspect ratio)
@@ -576,7 +576,7 @@ fun WatchScreen(
                 }
             }
 
-            val detailsArea: @Composable (Modifier) -> Unit = { detailsModifier ->
+            val detailsArea: @Composable (Modifier, Boolean) -> Unit = { detailsModifier, includeRelated ->
                 // Metadata, loading, or error content below player
                 val error = uiState.error ?: playbackState.error
                 Box(
@@ -633,26 +633,55 @@ fun WatchScreen(
                             viewModel.enqueue(com.hpre.app.player.QueuedItem(video.key, video.title), playNext)
                         },
                         allowSheets = !isInPip,
+                        includeRelated = includeRelated,
                         modifier = Modifier.fillMaxSize()
                     )
                 }
                 }
             }
 
+            val relatedArea: @Composable (Modifier) -> Unit = { relatedModifier ->
+                LazyColumn(
+                    modifier = relatedModifier
+                        .padding(horizontal = 16.dp)
+                        .testTag("watch_related_column")
+                ) {
+                    relatedVideoItems(
+                        state = relatedState,
+                        onVideoClick = onRelatedVideoClick,
+                        onRetry = viewModel::retryRelated,
+                        onRefresh = viewModel::refreshRelated,
+                        onVideoSelected = onRelatedVideoSelected,
+                        onChannelClick = onChannelClick,
+                        onEnqueueVideo = { video, playNext ->
+                            viewModel.enqueue(com.hpre.app.player.QueuedItem(video.key, video.title), playNext)
+                        }
+                    )
+                    item(key = "section:related_bottom_spacer") {
+                        Spacer(modifier = Modifier.height(16.dp))
+                    }
+                }
+            }
+
             if (isPortrait) {
                 playerArea(Modifier.fillMaxWidth().aspectRatio(16f / 9f))
-                detailsArea(Modifier.fillMaxWidth().weight(1f))
+                detailsArea(Modifier.fillMaxWidth().weight(1f), true)
             } else {
                 Row(modifier = Modifier.fillMaxSize()) {
-                    Box(
+                    Column(
                         modifier = Modifier
                             .weight(0.58f)
-                            .fillMaxHeight(),
-                        contentAlignment = Alignment.TopCenter
+                            .fillMaxHeight()
                     ) {
                         playerArea(Modifier.fillMaxWidth().aspectRatio(16f / 9f))
+                        detailsArea(
+                            Modifier
+                                .fillMaxWidth()
+                                .weight(1f),
+                            false
+                        )
                     }
-                    detailsArea(
+                    relatedArea(
                         Modifier
                             .weight(0.42f)
                             .fillMaxHeight()
@@ -761,7 +790,8 @@ fun WatchMetadataContent(
     onRelatedVideoSelected: ((VideoSummary) -> Unit)? = null,
     onChannelClick: ((ContentKey) -> Unit)? = null,
     onEnqueueVideo: ((VideoSummary, Boolean) -> Unit)? = null,
-    allowSheets: Boolean = true
+    allowSheets: Boolean = true,
+    includeRelated: Boolean = true
 ) {
     val effectiveLazyListState = lazyListState ?: rememberLazyListState()
     var isDescriptionExpanded by rememberSaveable(details.key.serviceId, details.key.nativeId) {
@@ -1004,19 +1034,21 @@ fun WatchMetadataContent(
             }
         }
 
-        item(key = "section:comments_related_spacer") {
-            Spacer(modifier = Modifier.height(16.dp))
-        }
+        if (includeRelated) {
+            item(key = "section:comments_related_spacer") {
+                Spacer(modifier = Modifier.height(16.dp))
+            }
 
-        relatedVideoItems(
-            state = relatedState,
-            onVideoClick = onRelatedVideoClick,
-            onRetry = onRetryRelated,
-            onRefresh = onRefreshRelated,
-            onVideoSelected = onRelatedVideoSelected,
-            onChannelClick = onChannelClick,
-            onEnqueueVideo = onEnqueueVideo
-        )
+            relatedVideoItems(
+                state = relatedState,
+                onVideoClick = onRelatedVideoClick,
+                onRetry = onRetryRelated,
+                onRefresh = onRefreshRelated,
+                onVideoSelected = onRelatedVideoSelected,
+                onChannelClick = onChannelClick,
+                onEnqueueVideo = onEnqueueVideo
+            )
+        }
 
         item(key = "section:watch_bottom_spacer") {
             Spacer(modifier = Modifier.height(16.dp))

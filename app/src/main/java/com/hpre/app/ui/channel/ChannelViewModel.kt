@@ -43,7 +43,24 @@ class ChannelViewModel(
                 _state.value = when (val result = videoService.channel(key)) {
                     is AppResult.Success -> if (
                         result.value.channel.name.isBlank() && result.value.videos.isEmpty() && result.value.shorts.isEmpty()
-                    ) ChannelUiState.Empty else ChannelUiState.Content(result.value)
+                    ) {
+                        ChannelUiState.Empty
+                    } else {
+                        // Warm the extraction cache for the first few rows so a tap skips the
+                        // cold network round-trip; prefetch is bounded and failures are ignored.
+                        viewModelScope.launch(ioDispatcher) {
+                            try {
+                                videoService.prefetch(
+                                    (result.value.videos + result.value.shorts)
+                                        .take(3).map(com.hpre.app.model.VideoSummary::key)
+                                )
+                            } catch (cancelled: CancellationException) {
+                                throw cancelled
+                            } catch (_: Exception) {
+                            }
+                        }
+                        ChannelUiState.Content(result.value)
+                    }
                     is AppResult.Failure -> ChannelUiState.Error(result.error)
                 }
             } catch (cancelled: CancellationException) {

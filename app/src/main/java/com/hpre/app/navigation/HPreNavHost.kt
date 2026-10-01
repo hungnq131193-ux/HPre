@@ -142,7 +142,8 @@ fun HPreNavHost(
                     com.hpre.app.repository.SubscriptionFeedRepository(
                         container.subscriptionRepository,
                         container.videoService
-                    )
+                    ),
+                    videoService = container.videoService
                 )
             )
             com.hpre.app.ui.library.SubscriptionsScreen(
