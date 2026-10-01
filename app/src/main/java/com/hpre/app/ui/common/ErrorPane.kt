@@ -37,7 +37,9 @@ import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.hpre.app.core.error.AppError
+import com.hpre.app.core.error.ErrorDiagnostics
 import com.hpre.app.core.error.RetryPolicy
 import com.hpre.app.R
 import com.hpre.app.core.designsystem.HPreShapes
@@ -241,6 +243,19 @@ fun ErrorPane(
                 color = MaterialTheme.colorScheme.onSurface,
                 textAlign = TextAlign.Center
             )
+            if (error == AppError.Unknown) {
+                val diagnosticDetail by ErrorDiagnostics.lastDetail.collectAsStateWithLifecycle()
+                diagnosticDetail?.let {
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Text(
+                        text = it,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        textAlign = TextAlign.Center,
+                        modifier = Modifier.testTag("error_diagnostic_detail")
+                    )
+                }
+            }
             if (isRetryable) {
                 Spacer(modifier = Modifier.height(16.dp))
                 Button(

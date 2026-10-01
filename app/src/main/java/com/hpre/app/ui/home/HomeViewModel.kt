@@ -1,10 +1,12 @@
 package com.hpre.app.ui.home
 
+import android.util.Log
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
 import com.hpre.app.core.error.AppError
 import com.hpre.app.core.error.AppResult
+import com.hpre.app.core.error.ErrorDiagnostics
 import com.hpre.app.model.VideoSummary
 import com.hpre.app.repository.HomeRecommendationSource
 import com.hpre.app.repository.RecommendationRequest
@@ -135,6 +137,8 @@ class HomeViewModel(
             } catch (ce: kotlinx.coroutines.CancellationException) {
                 throw ce
             } catch (t: Throwable) {
+                ErrorDiagnostics.record(t)
+                Log.e(TAG, "home feed load failed", t)
                 AppResult.Failure(AppError.Unknown)
             }
             if (generation == loadGeneration) {
@@ -208,6 +212,8 @@ class HomeViewModel(
             } catch (ce: kotlinx.coroutines.CancellationException) {
                 throw ce
             } catch (t: Throwable) {
+                ErrorDiagnostics.record(t)
+                Log.e(TAG, "home feed refresh failed", t)
                 AppResult.Failure(AppError.Unknown)
             }
 
@@ -291,6 +297,7 @@ class HomeViewModel(
     }
 
     companion object {
+        private const val TAG = "HPreHome"
         internal const val INITIAL_LOAD_TIMEOUT_MS = com.hpre.app.repository.HOME_DEADLINE_MS + 500L
 
         /** Cache key for the "Tất cả" chip, which has no query of its own. */

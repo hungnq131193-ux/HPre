@@ -1,6 +1,7 @@
 package com.hpre.app.extractor
 
 import com.hpre.app.core.error.AppError
+import com.hpre.app.core.error.ErrorDiagnostics
 import org.schabi.newpipe.extractor.exceptions.AccountTerminatedException
 import org.schabi.newpipe.extractor.exceptions.AgeRestrictedContentException
 import org.schabi.newpipe.extractor.exceptions.ContentNotAvailableException
@@ -81,7 +82,10 @@ object ExtractorErrorMapper {
             is IOException -> AppError.NetworkError
             is ParsingException,
             is ExtractionException -> AppError.ExtractionFailed
-            else -> AppError.Unknown
+            else -> {
+                ErrorDiagnostics.record(throwable)
+                AppError.Unknown
+            }
         }
     }
 
