@@ -25,6 +25,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.aspectRatio
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -485,11 +486,13 @@ fun WatchScreen(
                 .graphicsLayer { translationY = minimizeDragOffsetY }
                 .testTag("watch_screen")
         ) {
+            // Landscape (car head units included) docks the player on the left with metadata and
+            // related videos scrolling in a right panel — YouTube's wide-screen layout. Portrait
+            // keeps the original stacked arrangement.
+            val playerArea: @Composable (Modifier) -> Unit = { playerModifier ->
                 // Video Player Container (16:9 aspect ratio)
                 Box(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .aspectRatio(16f / 9f)
+                    modifier = playerModifier
                         .background(Color.Black)
                         .testTag("player_container")
                 ) {
@@ -571,13 +574,13 @@ fun WatchScreen(
                         }
                     )
                 }
+            }
 
+            val detailsArea: @Composable (Modifier) -> Unit = { detailsModifier ->
                 // Metadata, loading, or error content below player
                 val error = uiState.error ?: playbackState.error
                 Box(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .weight(1f)
+                    modifier = detailsModifier
                         .graphicsLayer {
                             alpha = if (minimizeFadeRangePx > 0f) {
                                 (1f - minimizeDragOffsetY / minimizeFadeRangePx).coerceIn(0f, 1f)
@@ -634,6 +637,28 @@ fun WatchScreen(
                     )
                 }
                 }
+            }
+
+            if (isPortrait) {
+                playerArea(Modifier.fillMaxWidth().aspectRatio(16f / 9f))
+                detailsArea(Modifier.fillMaxWidth().weight(1f))
+            } else {
+                Row(modifier = Modifier.fillMaxSize()) {
+                    Box(
+                        modifier = Modifier
+                            .weight(0.58f)
+                            .fillMaxHeight(),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        playerArea(Modifier.fillMaxWidth().aspectRatio(16f / 9f))
+                    }
+                    detailsArea(
+                        Modifier
+                            .weight(0.42f)
+                            .fillMaxHeight()
+                    )
+                }
+            }
         }
     }
 

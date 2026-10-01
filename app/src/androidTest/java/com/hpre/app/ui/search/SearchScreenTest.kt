@@ -73,11 +73,11 @@ class SearchScreenTest {
         var items by androidx.compose.runtime.mutableStateOf<List<SearchResultItem>>(
             (1..15).map { SearchResultItem.VideoItem(summary("item_$it")) }
         )
-        lateinit var listState: androidx.compose.foundation.lazy.LazyListState
+        lateinit var listState: androidx.compose.foundation.lazy.grid.LazyGridState
 
         composeTestRule.setContent {
             HPreTheme {
-                val state = androidx.compose.foundation.lazy.rememberLazyListState()
+                val state = androidx.compose.foundation.lazy.grid.rememberLazyGridState()
                 listState = state
                 SearchResultsList(
                     items = items,
@@ -154,11 +154,11 @@ class SearchScreenTest {
         var items by androidx.compose.runtime.mutableStateOf<List<SearchResultItem>>(
             (1..20).map { SearchResultItem.VideoItem(summary("state_item_$it")) }
         )
-        lateinit var listState: androidx.compose.foundation.lazy.LazyListState
+        lateinit var listState: androidx.compose.foundation.lazy.grid.LazyGridState
 
         composeTestRule.setContent {
             HPreTheme {
-                val state = androidx.compose.foundation.lazy.rememberLazyListState()
+                val state = androidx.compose.foundation.lazy.grid.rememberLazyGridState()
                 listState = state
                 SearchResultsList(
                     items = items,
@@ -505,11 +505,11 @@ class SearchScreenTest {
         var items by androidx.compose.runtime.mutableStateOf<List<SearchResultItem>>(
             (1..15).map { SearchResultItem.VideoItem(summary("req_item_$it")) }
         )
-        lateinit var listState: androidx.compose.foundation.lazy.LazyListState
+        lateinit var listState: androidx.compose.foundation.lazy.grid.LazyGridState
 
         composeTestRule.setContent {
             HPreTheme {
-                val state = androidx.compose.foundation.lazy.rememberLazyListState()
+                val state = androidx.compose.foundation.lazy.grid.rememberLazyGridState()
                 listState = state
                 SearchResultsList(
                     items = items,

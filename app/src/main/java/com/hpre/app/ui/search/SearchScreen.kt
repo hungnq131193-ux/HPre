@@ -15,11 +15,14 @@ import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.foundation.lazy.grid.LazyGridState
+import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
+import androidx.compose.foundation.lazy.grid.items
+import androidx.compose.foundation.lazy.grid.rememberLazyGridState
 import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.lazy.LazyListState
-import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
@@ -85,7 +88,10 @@ import com.hpre.app.ui.common.HPreChip
 import com.hpre.app.ui.common.InlineErrorPane
 import com.hpre.app.ui.common.DelayedLinearLoadingIndicator
 import com.hpre.app.ui.common.DelayedLoadingPane
+import com.hpre.app.core.designsystem.HPreSpacing
+import com.hpre.app.ui.common.AdaptiveVideoGridCells
 import com.hpre.app.ui.common.VideoCard
+import com.hpre.app.ui.common.fullGridSpan
 import com.hpre.app.ui.common.videoListItemKey
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -114,7 +120,7 @@ fun SearchScreen(
     var hasFocusedOnce by rememberSaveable { mutableStateOf(false) }
     // Suggestions overlay is dismissed on submit/select and re-arms when the user edits the text.
     var suggestionsDismissed by rememberSaveable { mutableStateOf(true) }
-    val listState = rememberLazyListState()
+    val listState = rememberLazyGridState()
 
     val historyFailureMessage = stringResource(R.string.search_history_update_failed)
     LaunchedEffect(historyState.error) {
@@ -480,7 +486,7 @@ internal fun SearchResultsList(
     onVideoClick: (ContentKey) -> Unit,
     onChannelClick: (ContentKey) -> Unit,
     onPlaylistClick: (ContentKey) -> Unit,
-    listState: LazyListState = rememberLazyListState(),
+    listState: LazyGridState = rememberLazyGridState(),
     paginationError: AppError? = null,
     earlierResultsDropped: Boolean = false,
     onRestart: () -> Unit = {},
@@ -537,16 +543,25 @@ internal fun SearchResultsList(
         }
     }
 
-    LazyColumn(
-        state = listState,
-        contentPadding = PaddingValues(top = 8.dp, bottom = 24.dp),
-        modifier = Modifier
-            .fillMaxSize()
-            .nestedScroll(nestedScrollConnection)
-            .testTag("search_results_list")
-    ) {
+    BoxWithConstraints(modifier = Modifier.fillMaxSize()) {
+        val isWide = maxWidth >= 600.dp
+        LazyVerticalGrid(
+            columns = AdaptiveVideoGridCells,
+            state = listState,
+            contentPadding = PaddingValues(
+                start = if (isWide) HPreSpacing.Large else 0.dp,
+                end = if (isWide) HPreSpacing.Large else 0.dp,
+                top = 8.dp,
+                bottom = 24.dp
+            ),
+            horizontalArrangement = Arrangement.spacedBy(HPreSpacing.Medium),
+            modifier = Modifier
+                .fillMaxSize()
+                .nestedScroll(nestedScrollConnection)
+                .testTag("search_results_list")
+        ) {
         if (earlierResultsDropped) {
-            item(key = "search_window_notice") {
+            item(key = "search_window_notice", span = fullGridSpan) {
                 TextButton(onClick = onRestart, modifier = Modifier.testTag("search_restart")) {
                     Text(stringResource(R.string.search_window_restart))
                 }
@@ -575,7 +590,8 @@ internal fun SearchResultsList(
                         video = item.summary,
                         onClick = { if (onVideoSelected != null) onVideoSelected(item.summary) else onVideoClick(it) },
                         onChannelClick = { onChannelClick(it) },
-                        compact = true
+                        compact = !isWide,
+                        horizontalPadding = if (isWide) 0.dp else HPreSpacing.Large
                     )
                 }
                 is SearchResultItem.ChannelItem -> {
@@ -594,7 +610,7 @@ internal fun SearchResultsList(
         }
 
         if (paginationError != null) {
-            item(key = "search_pagination_error") {
+            item(key = "search_pagination_error", span = fullGridSpan) {
                 InlineErrorPane(
                     error = paginationError,
                     onRetry = onLoadMore,
@@ -602,7 +618,7 @@ internal fun SearchResultsList(
                 )
             }
         } else if (isLoadingNextPage) {
-            item {
+            item(span = fullGridSpan) {
                 Box(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -612,6 +628,7 @@ internal fun SearchResultsList(
                     CircularProgressIndicator(modifier = Modifier.size(24.dp))
                 }
             }
+        }
         }
     }
 }

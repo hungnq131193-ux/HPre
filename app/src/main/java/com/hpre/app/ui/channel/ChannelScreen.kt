@@ -2,6 +2,7 @@ package com.hpre.app.ui.channel
 
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -9,8 +10,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -33,10 +33,12 @@ import androidx.compose.ui.unit.dp
 import com.hpre.app.model.ContentKey
 import com.hpre.app.R
 import com.hpre.app.core.designsystem.HPreSpacing
+import com.hpre.app.ui.common.AdaptiveVideoGridCells
 import com.hpre.app.ui.common.EmptyPane
 import com.hpre.app.ui.common.ErrorPane
 import com.hpre.app.ui.common.LoadingPane
-import com.hpre.app.ui.common.VideoCard
+import com.hpre.app.ui.common.fullGridSpan
+import com.hpre.app.ui.common.videoGridItems
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -78,17 +80,23 @@ fun ChannelScreen(
                 "channel_empty"
             )
             is ChannelUiState.Error -> ErrorPane(current.error, viewModel::retry, Modifier.padding(padding), "channel_error")
-            is ChannelUiState.Content -> LazyColumn(
-                Modifier.fillMaxSize().padding(padding).testTag("channel_content"),
+            is ChannelUiState.Content -> LazyVerticalGrid(
+                columns = AdaptiveVideoGridCells,
+                modifier = Modifier.fillMaxSize().padding(padding).testTag("channel_content"),
+                contentPadding = PaddingValues(horizontal = HPreSpacing.Large),
+                horizontalArrangement = Arrangement.spacedBy(HPreSpacing.Medium),
                 verticalArrangement = Arrangement.spacedBy(HPreSpacing.Medium)
             ) {
-                item { ChannelHeader(current.details.channel) }
-                items(current.details.videos, key = { it.key.toString() }, contentType = { "video" }) { video ->
-                    VideoCard(video, onVideoClick)
-                }
-                items(current.details.shorts, key = { "short:${it.key}" }, contentType = { "video" }) { video ->
-                    VideoCard(video, onVideoClick)
-                }
+                item(span = fullGridSpan) { ChannelHeader(current.details.channel) }
+                videoGridItems(
+                    videos = current.details.videos,
+                    onClick = { onVideoClick(it.key) }
+                )
+                videoGridItems(
+                    videos = current.details.shorts,
+                    onClick = { onVideoClick(it.key) },
+                    keyPrefix = "short:"
+                )
             }
         }
     }

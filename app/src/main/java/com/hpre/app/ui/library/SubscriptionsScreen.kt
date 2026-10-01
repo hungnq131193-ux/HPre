@@ -8,11 +8,13 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
@@ -42,10 +44,13 @@ import com.hpre.app.model.ContentKey
 import com.hpre.app.model.VideoSummary
 import com.hpre.app.R
 import com.hpre.app.repository.LocalSubscription
+import com.hpre.app.core.designsystem.HPreSpacing
+import com.hpre.app.ui.common.AdaptiveVideoGridCells
 import com.hpre.app.ui.common.ErrorPane
 import com.hpre.app.ui.common.InlineErrorPane
 import com.hpre.app.ui.common.LoadingPane
-import com.hpre.app.ui.common.VideoCard
+import com.hpre.app.ui.common.fullGridSpan
+import com.hpre.app.ui.common.videoGridItems
 
 @Composable
 fun SubscriptionsScreen(
@@ -76,13 +81,16 @@ fun SubscriptionsScreen(
                 )
             }
         } else {
-            LazyColumn(
+            LazyVerticalGrid(
+                columns = AdaptiveVideoGridCells,
                 modifier = Modifier
                     .fillMaxSize()
                     .testTag("subscriptions_list"),
+                contentPadding = PaddingValues(horizontal = HPreSpacing.Large),
+                horizontalArrangement = Arrangement.spacedBy(HPreSpacing.Medium),
                 verticalArrangement = Arrangement.spacedBy(8.dp)
             ) {
-                item {
+                item(span = fullGridSpan) {
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
@@ -110,7 +118,7 @@ fun SubscriptionsScreen(
                         }
                     }
                 }
-                item {
+                item(span = fullGridSpan) {
                     androidx.compose.material3.TextButton(
                         onClick = { feedViewModel?.refresh() },
                         modifier = Modifier.testTag("subscriptions_refresh_button")
@@ -119,9 +127,9 @@ fun SubscriptionsScreen(
                     }
                 }
                 when (val feed = feedState) {
-                    SubscriptionFeedUiState.Loading -> item { LoadingPane(testTag = "subscription_feed_loading") }
+                    SubscriptionFeedUiState.Loading -> item(span = fullGridSpan) { LoadingPane(testTag = "subscription_feed_loading") }
                     SubscriptionFeedUiState.Empty -> Unit
-                    is SubscriptionFeedUiState.Error -> item {
+                    is SubscriptionFeedUiState.Error -> item(span = fullGridSpan) {
                         InlineErrorPane(
                             feed.error,
                             { feedViewModel?.refresh() },
@@ -130,14 +138,14 @@ fun SubscriptionsScreen(
                     }
                     is SubscriptionFeedUiState.Content -> {
                         if (feed.isRefreshing) {
-                            item {
+                            item(span = fullGridSpan) {
                                 androidx.compose.material3.LinearProgressIndicator(
                                     modifier = Modifier.fillMaxWidth().testTag("subscription_feed_refreshing")
                                 )
                             }
                         }
                         feed.refreshError?.let { refreshError ->
-                            item {
+                            item(span = fullGridSpan) {
                                 InlineErrorPane(
                                     refreshError,
                                     { feedViewModel?.refresh() },
@@ -146,7 +154,7 @@ fun SubscriptionsScreen(
                             }
                         }
                         if (feed.failedChannels.isNotEmpty()) {
-                            item {
+                            item(span = fullGridSpan) {
                                 Text(
                                     stringResource(R.string.subscriptions_partial_error),
                                     color = MaterialTheme.colorScheme.error,
@@ -154,13 +162,14 @@ fun SubscriptionsScreen(
                                 )
                             }
                         }
-                        items(feed.videos, key = { "feed:${it.key}" }, contentType = { "video" }) { video ->
-                            VideoCard(
-                                video = video,
-                                onClick = { if (onVideoSelected != null) onVideoSelected(video) else onVideoClick(it) },
-                                onChannelClick = { onChannelClick(it) }
-                            )
-                        }
+                        videoGridItems(
+                            videos = feed.videos,
+                            onClick = { video ->
+                                if (onVideoSelected != null) onVideoSelected(video) else onVideoClick(video.key)
+                            },
+                            onChannelClick = { onChannelClick(it) },
+                            keyPrefix = "feed:"
+                        )
                     }
                 }
             }

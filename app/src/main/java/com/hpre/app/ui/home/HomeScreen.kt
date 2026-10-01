@@ -9,11 +9,10 @@ import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
-import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
+import androidx.compose.foundation.lazy.grid.rememberLazyGridState
 import androidx.compose.foundation.lazy.itemsIndexed
-import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -38,8 +37,8 @@ import com.hpre.app.ui.common.EmptyPane
 import com.hpre.app.ui.common.ErrorPane
 import com.hpre.app.ui.common.HPreChip
 import com.hpre.app.ui.common.InlineErrorPane
-import com.hpre.app.ui.common.VideoCard
-import com.hpre.app.ui.common.videoListItemKey
+import com.hpre.app.ui.common.AdaptiveVideoGridCells
+import com.hpre.app.ui.common.videoGridItems
 
 internal interface IdleQueueRegistry {
     fun addIdleHandler(handler: () -> Boolean): Any
@@ -139,7 +138,7 @@ internal fun HomeScreen(
                     onDispose(cancel)
                 }
 
-                val listState = rememberLazyListState()
+                val gridState = rememberLazyGridState()
                 val pullRefreshState = rememberPullToRefreshState()
                 PullToRefreshBox(
                     isRefreshing = state.content.isRefreshing,
@@ -147,22 +146,22 @@ internal fun HomeScreen(
                     state = pullRefreshState,
                     modifier = Modifier.fillMaxSize()
                 ) {
-                    LazyColumn(
-                        state = listState,
-                        contentPadding = PaddingValues(top = 8.dp, bottom = 16.dp),
+                    LazyVerticalGrid(
+                        columns = AdaptiveVideoGridCells,
+                        state = gridState,
+                        contentPadding = PaddingValues(
+                            start = 16.dp, end = 16.dp, top = 8.dp, bottom = 16.dp
+                        ),
+                        horizontalArrangement = Arrangement.spacedBy(12.dp),
                         modifier = Modifier.fillMaxSize().testTag("home_video_list")
                     ) {
-                        items(
-                            items = state.content.videos,
-                            key = { videoListItemKey(it.key) },
-                            contentType = { "video" }
-                        ) { video ->
-                            VideoCard(
-                                video = video,
-                                onClick = { if (onVideoSelected != null) onVideoSelected(video) else onVideoClick(it) },
-                                onChannelClick = onChannelClick
-                            )
-                        }
+                        videoGridItems(
+                            videos = state.content.videos,
+                            onClick = { video ->
+                                if (onVideoSelected != null) onVideoSelected(video) else onVideoClick(video.key)
+                            },
+                            onChannelClick = onChannelClick
+                        )
                     }
 
                     // Switching chips keeps the previous list on screen; a thin bar plus a label
