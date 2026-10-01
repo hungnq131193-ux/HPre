@@ -514,11 +514,15 @@ class WatchViewModel(
                         // Playback for this key is already active but its track metadata never
                         // reached controller state (restored session or expired autoplay
                         // handoff) — refill it so the quality and subtitle controls render.
-                        val streamResult = videoService.streamInfo(key)
-                        if (streamResult is AppResult.Success) {
-                            synchronized(sessionGuard) {
-                                if (isCurrentRequest(key, generation)) {
-                                    playerController.hydratePlaybackMetadata(streamResult.value)
+                        // Runs beside the main flow: the extraction must never delay
+                        // readiness observation or the details/related pipeline.
+                        launch {
+                            val streamResult = videoService.streamInfo(key)
+                            if (streamResult is AppResult.Success) {
+                                synchronized(sessionGuard) {
+                                    if (isCurrentRequest(key, generation)) {
+                                        playerController.hydratePlaybackMetadata(streamResult.value)
+                                    }
                                 }
                             }
                         }
