@@ -27,7 +27,7 @@ coroutines = "1.10.1"
 moshi = "1.15.2"
 
 # Extractor
-newpipeExtractor = "v0.26.5-hpre.1"
+newpipeExtractor = "v0.26.5-hpre.2"
 desugarJdkLibs = "2.1.5"
 
 # Testing

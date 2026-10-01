@@ -553,7 +553,7 @@ fun WatchScreen(
                                 onMinimizeToHome()
                             }
                         },
-                        minimizeEnabled = isPortrait,
+                        minimizeEnabled = true,
                         isInPip = isInPip,
                         onMinimizeDragUpdate = { dy ->
                             minimizeAnimJob?.cancel()
@@ -648,7 +648,7 @@ fun WatchScreen(
                         modifier = Modifier
                             .weight(0.58f)
                             .fillMaxHeight(),
-                        contentAlignment = Alignment.Center
+                        contentAlignment = Alignment.TopCenter
                     ) {
                         playerArea(Modifier.fillMaxWidth().aspectRatio(16f / 9f))
                     }
