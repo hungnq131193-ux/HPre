@@ -163,6 +163,18 @@ class WatchViewModelTest {
             _state.value = _state.value.copy(selectedQuality = quality)
         }
 
+        var hydrateCount = 0
+        var hydratedStreamInfo: StreamInfo? = null
+
+        override fun hydratePlaybackMetadata(streamInfo: StreamInfo) {
+            hydrateCount++
+            hydratedStreamInfo = streamInfo
+            _state.value = _state.value.copy(
+                availableQualities = com.hpre.app.player.StreamSelector.getAvailableQualities(streamInfo),
+                subtitles = streamInfo.subtitles
+            )
+        }
+
         override fun release() {
             isReleased = true
             _state.value = PlaybackState()
@@ -1198,7 +1210,8 @@ class WatchViewModelTest {
                 isPlaying = true,
                 isReady = true,
                 currentPositionMs = 42_000L,
-                durationMs = 120_000L
+                durationMs = 120_000L,
+                availableQualities = listOf(QualityOption(720, "720p", true))
             )
         }
         val viewModel = WatchViewModel(
@@ -1213,8 +1226,44 @@ class WatchViewModelTest {
 
         assertEquals(0, fakeService.streamInfoCallCount)
         assertEquals(0, fakePlayer.prepareCount)
+        assertEquals(0, fakePlayer.hydrateCount)
         assertTrue(fakePlayer.seekToPositions.isEmpty())
         assertEquals(42_000L, fakePlayer.state.value.currentPositionMs)
+        assertEquals(testDetails(testKey), viewModel.uiState.value.details)
+    }
+
+    @Test
+    fun load_active_key_with_missing_track_metadata_hydrates_without_prepare() = runTest(testDispatcher) {
+        val fakeService = FakeVideoService(
+            videoHandler = { AppResult.Success(testDetails(it)) },
+            streamInfoHandler = { AppResult.Success(testStreamInfo(it)) }
+        )
+        val fakePlayer = FakePlayerController().apply {
+            _state.value = PlaybackState(
+                key = testKey,
+                isPlaying = true,
+                isReady = true,
+                currentPositionMs = 42_000L,
+                durationMs = 120_000L
+            )
+        }
+        val viewModel = WatchViewModel(
+            videoService = fakeService,
+            playerController = fakePlayer,
+            savedStateHandle = androidx.lifecycle.SavedStateHandle(),
+            ioDispatcher = testDispatcher
+        )
+
+        viewModel.load(testKey)
+        advanceUntilIdle()
+
+        assertEquals(1, fakeService.streamInfoCallCount)
+        assertEquals(0, fakePlayer.prepareCount)
+        assertEquals(1, fakePlayer.hydrateCount)
+        assertEquals(testKey, fakePlayer.hydratedStreamInfo?.key)
+        assertTrue(fakePlayer.state.value.availableQualities.isNotEmpty())
+        assertEquals(42_000L, fakePlayer.state.value.currentPositionMs)
+        assertTrue(fakePlayer.seekToPositions.isEmpty())
         assertEquals(testDetails(testKey), viewModel.uiState.value.details)
     }
 
