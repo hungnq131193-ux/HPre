@@ -382,7 +382,10 @@ class WatchViewModel(
             }
 
             val cachedSnapshot = if (!forceRefresh) watchStateCache?.get(key) else null
-            val reuseActivePlayer = activePlayback.key == key && activePlayback.error == null
+            // An ended (or otherwise idle) entry keeps its key, but there is nothing left to
+            // reuse — skipping prepare there would leave a dead black player.
+            val reuseActivePlayer = activePlayback.key == key && activePlayback.error == null &&
+                !activePlayback.isEnded
             val isSameActiveItem = reuseActivePlayer
             val metricsSession = if (!isSameActiveItem) {
                 currentMetricsSession?.let { videoOpenMetrics.cancel(it) }

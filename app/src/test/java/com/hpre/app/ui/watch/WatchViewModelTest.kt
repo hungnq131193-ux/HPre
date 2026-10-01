@@ -1233,6 +1233,36 @@ class WatchViewModelTest {
     }
 
     @Test
+    fun load_ended_active_key_reprepares_instead_of_reusing() = runTest(testDispatcher) {
+        val fakeService = FakeVideoService(
+            videoHandler = { AppResult.Success(testDetails(it)) },
+            streamInfoHandler = { AppResult.Success(testStreamInfo(it)) }
+        )
+        val fakePlayer = FakePlayerController().apply {
+            _state.value = PlaybackState(
+                key = testKey,
+                isEnded = true,
+                isPlaying = false,
+                currentPositionMs = 120_000L,
+                durationMs = 120_000L
+            )
+        }
+        val viewModel = WatchViewModel(
+            videoService = fakeService,
+            playerController = fakePlayer,
+            savedStateHandle = androidx.lifecycle.SavedStateHandle(),
+            ioDispatcher = testDispatcher
+        )
+
+        viewModel.load(testKey)
+        advanceUntilIdle()
+
+        assertEquals(1, fakePlayer.prepareCount)
+        assertEquals(testKey, fakePlayer.preparedKey)
+        assertEquals(0, fakePlayer.hydrateCount)
+    }
+
+    @Test
     fun load_active_key_with_missing_track_metadata_hydrates_without_prepare() = runTest(testDispatcher) {
         val fakeService = FakeVideoService(
             videoHandler = { AppResult.Success(testDetails(it)) },
