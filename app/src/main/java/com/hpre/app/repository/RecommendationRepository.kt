@@ -44,6 +44,13 @@ internal const val MAX_TOPIC_CONCURRENCY = 6
 internal const val MAX_PAGES_PER_QUERY = 2
 internal const val MAX_TOTAL_CONTINUATIONS = 6
 internal const val COLLECTION_DEADLINE_MS = 1_500L
+/**
+ * After [COLLECTION_DEADLINE_MS] and at least one success, in-flight sources keep delivering for
+ * this grace window — a fast cached source (trending/related) must not kill history- and
+ * search-driven queries that are still in flight. Each new batch of candidates resets the window,
+ * so only a source that genuinely stalls gets cut.
+ */
+internal const val COLLECTION_STALL_MS = 2_500L
 /** Hard cap when nothing has arrived by [COLLECTION_DEADLINE_MS], e.g. on a slow or cold network. */
 internal const val COLLECTION_MAX_WAIT_MS = 8_000L
 internal const val COLLECTION_POLL_MS = 100L
@@ -394,6 +401,10 @@ class RecommendationRepository(
             }
         }
 
+        suspend fun candidateCount(): Int {
+            return mutex.withLock { candidates.size }
+        }
+
         suspend fun snapshotCandidates(): List<VideoSummary> {
             return mutex.withLock { candidates.toList() }
         }
@@ -410,7 +421,9 @@ class RecommendationRepository(
     /**
      * Runs [collect] for up to [COLLECTION_DEADLINE_MS]. When nothing has succeeded by then it keeps
      * waiting for the first success, up to [COLLECTION_MAX_WAIT_MS], instead of failing and
-     * cancelling requests that were about to complete.
+     * cancelling requests that were about to complete. Once results are arriving, collection keeps
+     * going while candidates still land and stops only after a [COLLECTION_STALL_MS] lull, so a
+     * single fast source cannot starve the slower personalized ones.
      */
     private suspend fun collectUntilDeadline(state: CollectionState, collect: suspend () -> Unit) {
         withTimeoutOrNull(COLLECTION_MAX_WAIT_MS) {
@@ -418,6 +431,18 @@ class RecommendationRepository(
                 val work = launch { collect() }
                 if (withTimeoutOrNull(COLLECTION_DEADLINE_MS) { work.join() } == null) {
                     while (work.isActive && !state.hasAnySuccess()) delay(COLLECTION_POLL_MS)
+                    var lastCount = state.candidateCount()
+                    var quietForMs = 0L
+                    while (work.isActive && quietForMs < COLLECTION_STALL_MS) {
+                        delay(COLLECTION_POLL_MS)
+                        val count = state.candidateCount()
+                        if (count > lastCount) {
+                            lastCount = count
+                            quietForMs = 0L
+                        } else {
+                            quietForMs += COLLECTION_POLL_MS
+                        }
+                    }
                     work.cancel(SoftDeadlineReached())
                 }
             }

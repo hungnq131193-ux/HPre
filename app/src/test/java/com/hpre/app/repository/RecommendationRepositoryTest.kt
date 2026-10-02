@@ -454,7 +454,37 @@ class RecommendationRepositoryTest {
 
         assertEquals(10, result.size)
         assertTrue(result.all { it.key.nativeId.startsWith("fast_topic") })
-        assertEquals(1_500L, testScheduler.currentTime)
+        assertEquals(COLLECTION_DEADLINE_MS + COLLECTION_STALL_MS, testScheduler.currentTime)
+    }
+
+    @Test
+    fun `slow personalized searches are not starved by a fast generic source`() = runTest {
+        // Regression: the first source to finish (usually a cached trending) used to cancel every
+        // still-running topic search at the soft deadline, so on real networks the home feed came
+        // out trending-only and watch/search personalization never landed.
+        val service = FakeVideoService(
+            trendingResponse = AppResult.Success(listOf(video("trending1"), video("trending2")))
+        )
+        service.searchHandler = { query, _, _ ->
+            kotlinx.coroutines.delay(2_000L)
+            AppResult.Success(
+                SearchPage(listOf(SearchResultItem.VideoItem(video("${query}_v", "$query video"))))
+            )
+        }
+        val queries = listOf("alpha", "beta", "gamma").mapIndexed { idx, q ->
+            LocalSearchHistoryItem(q, 100L - idx)
+        }
+        val repository = RecommendationRepository(
+            CatalogRepository(service, this),
+            searchHistory(queries),
+            history(emptyList())
+        )
+
+        val result = repository.home(RecommendationRequest(limit = 30)).valueOrThrow()
+        val ids = result.map { it.key.nativeId }
+
+        assertTrue("personalized topic results starved by early cancel: $ids",
+            ids.any { it.endsWith("_v") })
     }
 
     @Test
