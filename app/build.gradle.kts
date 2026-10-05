@@ -24,16 +24,21 @@ val releaseKeyPassword = signingValue(
     "HPRE_SIGNING_KEY_PASSWORD"
 )
 
+// Origin Island (OriginOS) only renders its island player for whitelisted
+// package names; build the island variant with
+// ./gradlew assembleRelease -Phpre.appId=com.kugou.android.lite
+val releaseApplicationId = providers.gradleProperty("hpre.appId").getOrElse("com.hpre.app")
+
 android {
     namespace = "com.hpre.app"
     compileSdk = 35
 
     defaultConfig {
-        applicationId = "com.hpre.app"
+        applicationId = releaseApplicationId
         minSdk = 26
         targetSdk = 35
-        versionCode = 66
-        versionName = "1.0.65"
+        versionCode = 200
+        versionName = "2.0.0"
 
         testInstrumentationRunner = "com.hpre.app.testing.HPreTestRunner"
         manifestPlaceholders["applicationClass"] = "com.hpre.app.HPreApplication"
