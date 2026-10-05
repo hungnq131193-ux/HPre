@@ -37,6 +37,7 @@ data class SubtitleStream(
 data class StreamInfo(
     val key: ContentKey,
     val title: String,
+    val thumbnailUrl: String? = null,
     val videoStreams: List<VideoStream> = emptyList(),
     val audioStreams: List<AudioStream> = emptyList(),
     val subtitles: List<SubtitleStream> = emptyList(),

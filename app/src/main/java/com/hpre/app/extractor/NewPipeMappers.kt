@@ -632,6 +632,7 @@ object NewPipeMappers {
         return DomainStreamInfo(
             key = ContentKey(serviceId, nativeId),
             title = title,
+            thumbnailUrl = selectPreferredImage(streamInfo.thumbnails, 960),
             videoStreams = videoStreams,
             audioStreams = audioStreams,
             subtitles = subtitles,
@@ -666,6 +667,7 @@ object NewPipeMappers {
         return DomainStreamInfo(
             key = ContentKey(serviceId, key.nativeId),
             title = extractor.name.orEmpty(),
+            thumbnailUrl = selectPreferredImage(extractor.thumbnails, 960),
             videoStreams = videoStreams,
             audioStreams = audioStreams,
             subtitles = subtitles,

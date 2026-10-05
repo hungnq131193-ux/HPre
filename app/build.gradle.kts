@@ -37,8 +37,8 @@ android {
         applicationId = releaseApplicationId
         minSdk = 26
         targetSdk = 35
-        versionCode = 200
-        versionName = "2.0.0"
+        versionCode = 201
+        versionName = "2.0.1"
 
         testInstrumentationRunner = "com.hpre.app.testing.HPreTestRunner"
         manifestPlaceholders["applicationClass"] = "com.hpre.app.HPreApplication"

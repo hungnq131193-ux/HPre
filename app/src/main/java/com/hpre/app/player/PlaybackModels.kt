@@ -60,6 +60,7 @@ data class QualityOption(
 data class SelectedStreams(
     val key: ContentKey,
     val title: String = "",
+    val thumbnailUrl: String? = null,
     val streamType: PlaybackStreamType,
     val videoStream: VideoStream? = null,
     val audioStream: AudioStream? = null,

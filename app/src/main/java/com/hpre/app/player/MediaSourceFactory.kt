@@ -208,6 +208,7 @@ class MediaSourceFactory(
                 .setMediaMetadata(
                     androidx.media3.common.MediaMetadata.Builder()
                         .setTitle(selected.title.ifBlank { "HPre video" })
+                        .setArtworkUri(selected.thumbnailUrl?.let(Uri::parse))
                         .setExtras(extras)
                         .build()
                 )

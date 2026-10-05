@@ -1031,7 +1031,10 @@ class HPrePlaybackService : MediaLibraryService() {
                 }
                 when (selectionResult) {
                     is AppResult.Success -> {
-                        val selected = selectionResult.value.copy(title = streamInfo.title)
+                        val selected = selectionResult.value.copy(
+                            title = streamInfo.title,
+                            thumbnailUrl = streamInfo.thumbnailUrl
+                        )
                         val source = mediaSourceFactory?.createMediaSource(selected)
                         if (source != null) {
                             AppResult.Success(Pair(selected, source))
@@ -1189,7 +1192,10 @@ class HPrePlaybackService : MediaLibraryService() {
                 val selectionResult = StreamSelector.selectStream(streamInfo, pref)
                 when (selectionResult) {
                     is AppResult.Success -> {
-                        val selected = selectionResult.value.copy(title = streamInfo.title)
+                        val selected = selectionResult.value.copy(
+                            title = streamInfo.title,
+                            thumbnailUrl = streamInfo.thumbnailUrl
+                        )
                         val source = mediaSourceFactory?.createMediaSource(selected)
                         if (source != null) {
                             AppResult.Success(Pair(selected, source))
