@@ -3,8 +3,10 @@
 # Triggers:
 #   A) origin/main has commits on top of the newest v* tag (i.e. the tag is merged into main
 #      and main moved on) -> build main, bump patch, release.
-#   B) NewPipeExtractor upstream published a newer version than the newest tag pins
-#      -> build that tag, bump extractor + patch, release.
+#   B) the NewPipeExtractor fork (com.github.hungnq131193-ux) has a newer tag than the
+#      newest release tag pins -> build that tag, bump extractor + patch, release.
+#      A newer upstream release is only reported until it is merged into the fork and
+#      tagged v<ver>-hpre.N — pinning an untagged upstream version cannot resolve on jitpack.
 # Manual: BASE_REF_OVERRIDE=<git ref> forces a release built from that ref.
 # Safety: single-run lock, dirty-tree abort, build failure restores files, no downgrade
 # (main is only released when it already contains the newest release tag).
@@ -31,8 +33,14 @@ git fetch --tags --quiet origin
 TAG_MAX=$(git tag -l 'v*' | sort -V | tail -1)
 TAG_COMMIT=$(git rev-list -n1 "$TAG_MAX")
 MAIN=$(git rev-parse origin/main)
-NP_NEW=$(gh api repos/TeamNewPipe/NewPipeExtractor/releases/latest -q .tag_name | sed 's/^v//')
+NP_UPSTREAM=$(gh api repos/TeamNewPipe/NewPipeExtractor/releases/latest -q .tag_name | sed 's/^v//')
 NP_PINNED=$(git show "$TAG_MAX:gradle/libs.versions.toml" | grep -oP 'newpipeExtractor = "v\K[^"]+')
+NP_FORK=$(git ls-remote --tags https://github.com/hungnq131193-ux/NewPipeExtractor 'refs/tags/v*' \
+    | grep -oP 'refs/tags/v\K[0-9][^\^]*' | sort -V | tail -1)
+if [ -z "$NP_FORK" ]; then
+    echo "cannot list fork tags, abort"
+    exit 1
+fi
 
 if [ -n "${BASE_REF_OVERRIDE:-}" ]; then
     BASE_REF=$BASE_REF_OVERRIDE
@@ -43,11 +51,14 @@ elif git merge-base --is-ancestor "$TAG_MAX" origin/main && [ "$MAIN" != "$TAG_C
     # script-only commits on main must not produce a duplicate release.
     BASE_REF=origin/main
     REASON="new commits on main"
-elif [ "$NP_PINNED" != "$NP_NEW" ]; then
+elif [ "$NP_PINNED" != "$NP_FORK" ]; then
     BASE_REF=$TAG_MAX
-    REASON="NewPipeExtractor v$NP_NEW"
+    REASON="NewPipeExtractor v$NP_FORK"
 else
-    echo "nothing to release (no app changes on main vs $TAG_MAX, newpipe $NP_PINNED = latest)"
+    if [ "${NP_PINNED%%-*}" != "$NP_UPSTREAM" ]; then
+        echo "upstream extractor v$NP_UPSTREAM is newer than pinned base ${NP_PINNED%%-*} — merge it into the fork and tag v$NP_UPSTREAM-hpre.1 to release"
+    fi
+    echo "nothing to release (no app changes on main vs $TAG_MAX, newpipe $NP_PINNED = latest fork tag)"
     exit 0
 fi
 
@@ -67,10 +78,10 @@ if git rev-parse -q --verify "refs/tags/$TAG" >/dev/null || gh release view "$TA
     exit 0
 fi
 
-echo "releasing $TAG from $BASE_REF ($REASON, newpipe $NP_NEW)"
+echo "releasing $TAG from $BASE_REF ($REASON, newpipe $NP_FORK)"
 git checkout -B "$BRANCH" "$BASE_REF"
 TEST=app/src/test/java/com/hpre/app/BuildConfigurationTest.kt
-sed -i "s/newpipeExtractor = \"v[^\"]*\"/newpipeExtractor = \"v$NP_NEW\"/" gradle/libs.versions.toml
+sed -i "s/newpipeExtractor = \"v[^\"]*\"/newpipeExtractor = \"v$NP_FORK\"/" gradle/libs.versions.toml
 sed -i "s/versionCode = [0-9]*/versionCode = $NEW_VC/; s/versionName = \"[^\"]*\"/versionName = \"$NEW_VN\"/" app/build.gradle.kts
 sed -i \
     -e "s/fun release_version_is_[0-9_]*_code_[0-9]*_and_shrinks_resources/fun release_version_is_${NEW_VN//./_}_code_${NEW_VC}_and_shrinks_resources/" \
@@ -93,6 +104,6 @@ APK="HPre-$TAG-release.apk"
 cp app/build/outputs/apk/release/app-release.apk "/tmp/$APK"
 ( cd /tmp && sha256sum "$APK" | tr 'a-f' 'A-F' > "$APK.sha256" )
 gh release create "$TAG" --repo "$GITHUB_REPO" --title "HPre $NEW_VN" \
-    --notes "$REASON. NewPipeExtractor v$NP_NEW." \
+    --notes "$REASON. NewPipeExtractor v$NP_FORK." \
     "/tmp/$APK" "/tmp/$APK.sha256"
 echo "released $TAG"
