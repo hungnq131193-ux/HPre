@@ -158,6 +158,9 @@ fun RootScaffold(
             com.hpre.app.settings.AppUpdatePrompt(updateManager)
         }
     }
+    if (!isWatchScreen) {
+        com.hpre.app.settings.OriginIslandLegacyInstalledPrompt()
+    }
 
     val chromeBrush = hpreChromeBrush()
 

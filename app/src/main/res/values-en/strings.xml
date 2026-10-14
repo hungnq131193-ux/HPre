@@ -233,6 +233,9 @@
     <string name="update_action_later">Later</string>
     <string name="update_downloading">Downloading update… %1$d%%</string>
     <string name="update_download_failed">Could not download the update. Try again or open the release page.</string>
+    <string name="update_origin_os7_v201_notice">Because OriginOS 7 now supports adding the app directly to Origin Island, this update restores the standard package name. Please uninstall the old 2.0.1 version before installing the new version.</string>
+    <string name="update_origin_os7_v201_download_link">Download link: %1$s</string>
+    <string name="update_origin_os7_uninstall_old">Uninstall old 2.0.1</string>
     <string name="settings_choose_speed">Choose default playback speed</string>
     <string name="quality_high">1080p (High)</string>
     <string name="quality_medium">720p (Medium)</string>

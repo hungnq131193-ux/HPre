@@ -60,4 +60,19 @@ class AppUpdateManagerTest {
         assertEquals(UpdateUiState.UpdateAvailable("1.0.0", "1.0.1", page), manager.state.value)
         assertFalse(manager.launchPromptVisible.value)
     }
+
+    @Test
+    fun origin_island_migration_notice_shows_only_for_2_0_1() {
+        org.junit.Assert.assertTrue(com.hpre.app.settings.shouldShowOriginIslandMigrationNotice("2.0.1"))
+        org.junit.Assert.assertTrue(com.hpre.app.settings.shouldShowOriginIslandMigrationNotice("v2.0.1"))
+        assertFalse(com.hpre.app.settings.shouldShowOriginIslandMigrationNotice("2.0.0"))
+        assertFalse(com.hpre.app.settings.shouldShowOriginIslandMigrationNotice("2.0.2"))
+        assertFalse(com.hpre.app.settings.shouldShowOriginIslandMigrationNotice(null))
+
+        val apkUrl = "https://github.com/hungnq131193-ux/HPre/releases/download/v2.0.2/HPre-v2.0.2-release.apk"
+        val apk = ReleaseApk(apkUrl, 100L, null)
+        val stateWithApk = UpdateUiState.UpdateAvailable("2.0.1", "2.0.2", page, apk = apk)
+        assertEquals(apkUrl, com.hpre.app.settings.originIslandMigrationDownloadUrl(stateWithApk))
+    }
 }
+

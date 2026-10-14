@@ -670,20 +670,24 @@ fun WatchScreen(
                 Row(modifier = Modifier.fillMaxSize()) {
                     Column(
                         modifier = Modifier
-                            .weight(0.58f)
+                            .weight(0.72f)
                             .fillMaxHeight()
                     ) {
-                        playerArea(Modifier.fillMaxWidth().aspectRatio(16f / 9f))
+                        playerArea(
+                            Modifier
+                                .fillMaxWidth()
+                                .weight(0.78f)
+                        )
                         detailsArea(
                             Modifier
                                 .fillMaxWidth()
-                                .weight(1f),
+                                .weight(0.22f),
                             false
                         )
                     }
                     relatedArea(
                         Modifier
-                            .weight(0.42f)
+                            .weight(0.28f)
                             .fillMaxHeight()
                     )
                 }

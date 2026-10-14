@@ -1438,8 +1438,8 @@ class SessionPlayerController internal constructor(
         val matched = _state.value.availableQualities.firstOrNull { it == quality } ?: return
         val qualityGen = ++localQualityRequestGen
         val prepareGen = localPrepareRequestGeneration.get()
-        val resolvedPolicy = QualityPolicyResolver.forSelection(_state.value.streamType, matched)
-        if (resolvedPolicy is UserQualityPolicy.Auto) {
+        if (shouldApplyInPlaceAdaptivePolicy(_state.value.streamType, matched)) {
+            val resolvedPolicy = QualityPolicyResolver.forSelection(_state.value.streamType, matched)
             _state.update {
                 it.copy(
                     selectedQuality = matched,
@@ -1501,12 +1501,13 @@ class SessionPlayerController internal constructor(
                         localMediaGen = mediaGen
                         val streamType = extras.getString(HPrePlaybackService.EXTRA_PROBE_STREAM_TYPE)
                             ?.let { runCatching { PlaybackStreamType.valueOf(it) }.getOrNull() } ?: matched.streamType
+                        val newPolicy = if (matched.height <= 0) UserQualityPolicy.Auto() else UserQualityPolicy.Fixed(matched)
                         _state.update {
                             it.copy(
                                 isLoading = false,
                                 pendingQuality = null,
                                 selectedQuality = matched,
-                                qualityPolicy = UserQualityPolicy.Fixed(matched),
+                                qualityPolicy = newPolicy,
                                 streamType = streamType,
                                 error = null
                             )

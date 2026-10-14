@@ -278,6 +278,18 @@ class SessionPlayerProtocolTest {
     }
 
     @Test
+    fun specific_quality_selection_on_dash_switches_stream_instead_of_noop_policy() {
+        val autoDash = QualityOption(0, "Auto (DASH)", false, "mpd", "application/dash+xml", null, PlaybackStreamType.DASH)
+        val merged1080 = QualityOption(1080, "1080p (adaptive)", false, "mp4", "video/mp4", "avc1.640028", PlaybackStreamType.MERGED_AV)
+        val prog720 = QualityOption(720, "720p", true, "mp4", "video/mp4", "avc1.64001F", PlaybackStreamType.PROGRESSIVE)
+
+        assertTrue(shouldApplyInPlaceAdaptivePolicy(PlaybackStreamType.DASH, autoDash))
+        assertFalse(shouldApplyInPlaceAdaptivePolicy(PlaybackStreamType.DASH, merged1080))
+        assertFalse(shouldApplyInPlaceAdaptivePolicy(PlaybackStreamType.DASH, prog720))
+        assertFalse(shouldApplyInPlaceAdaptivePolicy(PlaybackStreamType.MERGED_AV, autoDash))
+    }
+
+    @Test
     fun surface_handoff_generations_reject_stale_attach_and_retain_previous_on_reject() {
         val coordinator = PlaybackUiCoordinator()
         val watch = coordinator.beginSurfaceHandoff(SurfaceOwner.WATCH)

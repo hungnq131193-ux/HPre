@@ -14,6 +14,7 @@ import androidx.media3.common.PlaybackException
 import androidx.media3.common.Player
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.exoplayer.ExoPlayer
+import androidx.media3.exoplayer.trackselection.AdaptiveTrackSelection
 import androidx.media3.exoplayer.trackselection.DefaultTrackSelector
 import androidx.media3.exoplayer.analytics.AnalyticsListener
 import androidx.media3.session.CommandButton
@@ -297,7 +298,15 @@ class HPrePlaybackService : MediaLibraryService() {
             .setContentType(C.AUDIO_CONTENT_TYPE_MOVIE)
             .build()
 
-        val selector = DefaultTrackSelector(this)
+        val selector = DefaultTrackSelector(
+            this,
+            AdaptiveTrackSelection.Factory(
+                /* minDurationForQualityIncreaseMs = */ 2_500,
+                /* maxDurationForQualityDecreaseMs = */ 20_000,
+                /* minDurationToRetainAfterDiscardMs = */ 3_000,
+                /* bandwidthFraction = */ 0.8f
+            )
+        )
         trackSelector = selector
         val memory = getSystemService(Context.ACTIVITY_SERVICE) as? ActivityManager
         val loadControl = MemoryAwareLoadControl(
@@ -850,12 +859,19 @@ class HPrePlaybackService : MediaLibraryService() {
         when (policy) {
             is UserQualityPolicy.Auto -> {
                 val maxHeight = policy.maxHeight ?: Int.MAX_VALUE
+                builder.setMinVideoSize(0, 0)
                 builder.setMaxVideoSize(Int.MAX_VALUE, maxHeight)
                 builder.setMaxVideoBitrate(policy.maxBitrate ?: Int.MAX_VALUE)
             }
             is UserQualityPolicy.Fixed -> {
                 val height = policy.option.height
-                if (height > 0) builder.setMaxVideoSize(Int.MAX_VALUE, height)
+                if (height > 0) {
+                    builder.setMinVideoSize(0, height)
+                    builder.setMaxVideoSize(Int.MAX_VALUE, height)
+                } else {
+                    builder.clearVideoSizeConstraints()
+                }
+                builder.setMaxVideoBitrate(Int.MAX_VALUE)
             }
         }
         player.trackSelectionParameters = builder.build()
@@ -1179,7 +1195,8 @@ class HPrePlaybackService : MediaLibraryService() {
                 completion?.set(SessionResult(SessionError.ERROR_BAD_VALUE))
                 return@launch
             }
-            currentQualityPolicy = UserQualityPolicy.Fixed(matched)
+            startupCeilingMediaGeneration = null
+            currentQualityPolicy = if (matched.height <= 0) UserQualityPolicy.Auto() else UserQualityPolicy.Fixed(matched)
             val currentPos = player.currentPosition
             val effectiveSwitchPositionMs = PlaybackPolicy.resolveStartPosition(
                 isLive = streamInfo.isLive,
@@ -1795,6 +1812,12 @@ class HPrePlaybackService : MediaLibraryService() {
                         val option = availableQualities.firstOrNull { it.height == matchHeight }
                             ?: return Futures.immediateFuture(SessionResult(SessionError.ERROR_BAD_VALUE))
                         UserQualityPolicy.Fixed(option)
+                    }
+                    startupCeilingMediaGeneration = null
+                    if (policy is UserQualityPolicy.Auto && policy.maxHeight == null) {
+                        currentSelectedQuality = availableQualities.firstOrNull {
+                            it.streamType == currentStreamType && it.height <= 0
+                        } ?: currentSelectedQuality
                     }
                     applyQualityPolicy(policy)
                     persistCurrentSnapshot()

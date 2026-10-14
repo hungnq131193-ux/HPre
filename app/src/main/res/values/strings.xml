@@ -232,6 +232,9 @@
     <string name="update_action_later">Để sau</string>
     <string name="update_downloading">Đang tải bản cập nhật… %1$d%%</string>
     <string name="update_download_failed">Không tải được bản cập nhật. Hãy thử lại hoặc mở trang phát hành.</string>
+    <string name="update_origin_os7_v201_notice">Do OriginOS 7 đã có thể đưa ứng dụng lên Đảo Origin nên bản cập nhật này đưa ứng dụng về lại tên gói chuẩn. Mọi người vui lòng gỡ bản 2.0.1 cũ trước khi cài bản mới.</string>
+    <string name="update_origin_os7_v201_download_link">Link tải bản mới: %1$s</string>
+    <string name="update_origin_os7_uninstall_old">Gỡ bản 2.0.1 cũ</string>
     <string name="settings_choose_speed">Chọn tốc độ phát mặc định</string>
     <string name="quality_high">1080p (Cao)</string>
     <string name="quality_medium">720p (Trung bình)</string>

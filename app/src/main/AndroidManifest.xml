@@ -12,6 +12,10 @@
     <!-- In-app update: hands the downloaded release APK to the system installer -->
     <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
 
+    <queries>
+        <package android:name="com.kugou.android.lite" />
+    </queries>
+
     <application
         android:name="${applicationClass}"
         android:allowBackup="false"

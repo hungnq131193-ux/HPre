@@ -137,7 +137,6 @@ class YouTubeMediaHttpDataSource(
     private fun openChunk(state: ChunkState) {
         val chunk = openChunkAt(chunkSource, state, state.position)
         applyChunk(state, chunk)
-        maybePrefetchNext(state)
     }
 
     private fun applyChunk(state: ChunkState, chunk: OpenedChunk) {
@@ -241,7 +240,6 @@ class YouTubeMediaHttpDataSource(
             val adopted = adoptReadAhead(state)
             if (adopted != null) {
                 applyChunk(state, adopted)
-                maybePrefetchNext(state)
             } else {
                 try {
                     openChunk(state)
@@ -265,6 +263,9 @@ class YouTubeMediaHttpDataSource(
         state.position += read
         state.chunkRemaining -= read
         state.chunkBytesRead += read
+        if (readAhead == null && state.chunkBytesRead >= state.chunkRemaining) {
+            maybePrefetchNext(state)
+        }
         return read
     }
 

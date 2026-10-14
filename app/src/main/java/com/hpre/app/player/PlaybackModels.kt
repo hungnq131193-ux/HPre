@@ -147,3 +147,16 @@ data class PlayerTestingSnapshot(
     val videoDecoderInitializedCount: Int = 0,
     val surfaceAttached: Boolean = false
 )
+
+internal fun shouldApplyInPlaceAdaptivePolicy(
+    currentStreamType: PlaybackStreamType?,
+    selected: QualityOption
+): Boolean {
+    if (currentStreamType == null || currentStreamType != selected.streamType) return false
+    return when (currentStreamType) {
+        PlaybackStreamType.HLS -> true
+        PlaybackStreamType.DASH -> selected.height <= 0
+        else -> false
+    }
+}
+

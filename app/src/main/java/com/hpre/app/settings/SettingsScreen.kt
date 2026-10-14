@@ -334,6 +334,12 @@ fun SettingsScreen(
                         style = MaterialTheme.typography.bodyMedium,
                         color = MaterialTheme.colorScheme.primary
                     )
+                    if (shouldShowOriginIslandMigrationNotice(state.installedVersion)) {
+                        OriginIslandV201MigrationNotice(
+                            downloadUrl = originIslandMigrationDownloadUrl(state),
+                            modifier = Modifier.padding(top = 8.dp)
+                        )
+                    }
                     UpdateDownloadControls(
                         state = state,
                         onInstall = viewModel::downloadAndInstallUpdate
