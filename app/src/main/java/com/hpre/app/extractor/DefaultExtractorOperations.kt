@@ -94,15 +94,7 @@ internal class DefaultExtractorOperations(
     }
 
     override fun refreshStreamInfo(key: ContentKey): StreamInfo {
-        val linkHandler = streamingService.streamLHFactory.fromId(key.nativeId)
-        val streamExtractor = streamingService.getStreamExtractor(linkHandler)
-        ExtractorLocalization.apply(streamExtractor)
-        streamExtractor.fetchPage()
-        val streams = NewPipeMappers.mapStreamExtractor(streamExtractor, key, serviceId)
-            ?: throw ContentNotSupportedException("No usable playback streams or manifests found")
-        if (streams.key != key) {
-            throw ExtractionException("Returned video key does not match requested key $key")
-        }
+        val (_, streams) = extractStreamsWithFallback(streamingService, key, serviceId)
         return streams
     }
 
@@ -112,36 +104,93 @@ internal class DefaultExtractorOperations(
         serviceId: Int,
         onStreamReady: (StreamInfo) -> Unit
     ): ExtractedVideoBundle {
-        val linkHandler = service.streamLHFactory.fromId(key.nativeId)
-        val streamExtractor = streamExtractorFactory?.invoke(service, key)
-            ?: service.getStreamExtractor(linkHandler)
-        ExtractorLocalization.apply(streamExtractor)
-        streamExtractor.fetchPage()
-        val extractedKey = ContentKey(streamExtractor.serviceId, streamExtractor.id)
-        if (extractedKey != key) {
-            throw ExtractionException("Returned video key does not match requested key $key")
-        }
-        val streams = NewPipeMappers.mapStreamExtractor(streamExtractor, key, serviceId)
-            ?: throw ContentNotSupportedException("No usable playback streams or manifests found")
-        if (streams.key != key) {
-            throw ExtractionException("Returned video key does not match requested key $key")
-        }
+        val (streamExtractor, streams) = extractStreamsWithFallback(service, key, serviceId)
         onStreamReady(streams)
 
-        val info = ExtractorStreamInfo.getInfo(streamExtractor)
-        val details = NewPipeMappers.mapVideoDetails(info, serviceId)
-            ?: throw ExtractionException("Failed to map valid video details")
+        val details = NewPipeMappers.mapVideoDetailsFromExtractor(
+            extractor = streamExtractor,
+            key = key,
+            fallbackServiceId = serviceId,
+            fallbackStreamInfo = streams
+        )
         if (details.key != key) {
             throw ExtractionException("Returned video key does not match requested key $key")
         }
-        val relatedItems = info.relatedItems.orEmpty()
-            .filterIsInstance<org.schabi.newpipe.extractor.stream.StreamInfoItem>()
+        val relatedItems = runCatching {
+            streamExtractor.relatedItems?.items.orEmpty()
+                .filterIsInstance<org.schabi.newpipe.extractor.stream.StreamInfoItem>()
+        }.getOrDefault(emptyList())
         return ExtractedVideoBundle(
             details = details,
             streamInfo = streams,
             related = emptyList(),
             deferredRelatedItems = relatedItems
         )
+    }
+
+    private fun extractStreamsWithFallback(
+        service: StreamingService,
+        key: ContentKey,
+        serviceId: Int
+    ): Pair<StreamExtractor, StreamInfo> {
+        val linkHandler = service.streamLHFactory.fromId(key.nativeId)
+        val customFactory = streamExtractorFactory
+        val initialExtractor = customFactory?.invoke(service, key)
+            ?: service.getStreamExtractor(linkHandler)
+        ExtractorLocalization.apply(initialExtractor)
+
+        fun attemptExtract(extractor: StreamExtractor): Pair<StreamExtractor, StreamInfo> {
+            extractor.fetchPage()
+            val extractedKey = ContentKey(extractor.serviceId, extractor.id)
+            if (extractedKey != key) {
+                throw ExtractionException("Returned video key does not match requested key $key")
+            }
+            val streams = NewPipeMappers.mapStreamExtractor(extractor, key, serviceId)
+                ?: throw ContentNotSupportedException("No usable playback streams or manifests found")
+            if (streams.key != key) {
+                throw ExtractionException("Returned video key does not match requested key $key")
+            }
+            return extractor to streams
+        }
+
+        return try {
+            attemptExtract(initialExtractor)
+        } catch (e: Exception) {
+            if (customFactory != null || !isRetriableWithIosClient(e)) {
+                throw e
+            }
+            synchronized(NewPipeMappers.YoutubeJsLock) {
+                runCatching {
+                    org.schabi.newpipe.extractor.services.youtube.YoutubeJavaScriptPlayerManager.clearAllCaches()
+                }
+                org.schabi.newpipe.extractor.services.youtube.extractors.YoutubeStreamExtractor.setFetchIosClient(true)
+            }
+            try {
+                val retryExtractor = service.getStreamExtractor(linkHandler)
+                ExtractorLocalization.apply(retryExtractor)
+                attemptExtract(retryExtractor)
+            } finally {
+                synchronized(NewPipeMappers.YoutubeJsLock) {
+                    org.schabi.newpipe.extractor.services.youtube.extractors.YoutubeStreamExtractor.setFetchIosClient(false)
+                }
+            }
+        }
+    }
+
+    private fun isRetriableWithIosClient(error: Throwable): Boolean {
+        return when (error) {
+            is org.schabi.newpipe.extractor.exceptions.AgeRestrictedContentException,
+            is org.schabi.newpipe.extractor.exceptions.GeographicRestrictionException,
+            is org.schabi.newpipe.extractor.exceptions.PrivateContentException,
+            is org.schabi.newpipe.extractor.exceptions.PaidContentException,
+            is org.schabi.newpipe.extractor.exceptions.AccountTerminatedException,
+            is org.schabi.newpipe.extractor.exceptions.ContentNotAvailableException,
+            is org.schabi.newpipe.extractor.exceptions.ReCaptchaException,
+            is org.schabi.newpipe.extractor.exceptions.SignInConfirmNotBotException -> false
+            is ContentNotSupportedException,
+            is org.schabi.newpipe.extractor.exceptions.ParsingException -> true
+            else -> false
+        }
     }
 
     override fun channel(key: ContentKey): ChannelDetails {

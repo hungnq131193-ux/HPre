@@ -82,6 +82,10 @@ fun MiniPlayer(
         colors = CardDefaults.cardColors(
             containerColor = MaterialTheme.colorScheme.surfaceContainerHigh
         ),
+        border = androidx.compose.foundation.BorderStroke(
+            1.dp,
+            MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.28f)
+        ),
         elevation = CardDefaults.cardElevation(defaultElevation = 6.dp),
         modifier = modifier
             .padding(horizontal = HPreSpacing.Small, vertical = HPreSpacing.Compact + 2.dp)

@@ -642,32 +642,78 @@ object NewPipeMappers {
         )
     }
 
+    internal object YoutubeJsLock
+
     fun mapStreamExtractor(
         extractor: StreamExtractor,
         key: ContentKey,
         fallbackServiceId: Int
     ): DomainStreamInfo? {
         val serviceId = extractor.serviceId.takeIf { it >= 0 } ?: fallbackServiceId
-        val videoStreams = buildList {
-            extractor.videoStreams.orEmpty().mapNotNullTo(this, ::mapVideoStream)
-            extractor.videoOnlyStreams.orEmpty().mapNotNullTo(this, ::mapVideoStream)
+        var firstStreamError: Throwable? = null
+        var rawVideoStreams: List<VideoStream> = emptyList()
+        var rawVideoOnlyStreams: List<VideoStream> = emptyList()
+        var rawAudioStreams: List<AudioStream> = emptyList()
+
+        // ponytail: YoutubeJavaScriptPlayerManager uses an unsynchronized HashMap and caches
+        // ParsingExceptions in static fields forever until clearAllCaches() is called.
+        synchronized(YoutubeJsLock) {
+            fun extractRawStreams(retryOnFailure: Boolean) {
+                firstStreamError = null
+                rawVideoStreams = runCatching { extractor.videoStreams.orEmpty() }
+                    .onFailure { if (firstStreamError == null) firstStreamError = it }
+                    .getOrDefault(emptyList())
+                rawVideoOnlyStreams = runCatching { extractor.videoOnlyStreams.orEmpty() }
+                    .onFailure { if (firstStreamError == null) firstStreamError = it }
+                    .getOrDefault(emptyList())
+                rawAudioStreams = runCatching { extractor.audioStreams.orEmpty() }
+                    .onFailure { if (firstStreamError == null) firstStreamError = it }
+                    .getOrDefault(emptyList())
+
+                if (retryOnFailure && firstStreamError != null &&
+                    rawVideoStreams.isEmpty() && rawVideoOnlyStreams.isEmpty() && rawAudioStreams.isEmpty()
+                ) {
+                    runCatching {
+                        org.schabi.newpipe.extractor.services.youtube.YoutubeJavaScriptPlayerManager.clearAllCaches()
+                    }
+                    extractRawStreams(retryOnFailure = false)
+                }
+            }
+            extractRawStreams(retryOnFailure = true)
         }
-        val audioStreams = extractor.audioStreams.orEmpty().mapNotNull(::mapAudioStream)
-        val subtitles = extractor.subtitlesDefault.orEmpty().mapNotNull(::mapSubtitleStream)
-        val hlsUrl = extractor.hlsUrl?.takeIf(::isValidHttpUrl)
-        val streamType = extractor.streamType
+
+        val videoStreams = buildList {
+            rawVideoStreams.mapNotNullTo(this, ::mapVideoStream)
+            rawVideoOnlyStreams.mapNotNullTo(this, ::mapVideoStream)
+        }
+        val audioStreams = rawAudioStreams.mapNotNull(::mapAudioStream)
+        val subtitles = runCatching { extractor.subtitlesDefault.orEmpty() }
+            .getOrDefault(emptyList())
+            .mapNotNull(::mapSubtitleStream)
+        val hlsUrl = runCatching { extractor.hlsUrl }
+            .getOrNull()
+            ?.takeIf(::isValidHttpUrl)
+        val streamType = runCatching { extractor.streamType }.getOrDefault(StreamType.VIDEO_STREAM)
         val isLive = streamType == StreamType.LIVE_STREAM || streamType == StreamType.AUDIO_LIVE_STREAM
-        val dashUrl = extractor.dashMpdUrl?.takeIf(::isValidHttpUrl)
+        val durationSeconds = runCatching { extractor.length }.getOrDefault(0L)
+        val dashUrl = runCatching { extractor.dashMpdUrl }
+            .getOrNull()
+            ?.takeIf(::isValidHttpUrl)
             ?: if (isLive) null else localDashManifest(
-                extractor.videoOnlyStreams.orEmpty(), extractor.audioStreams.orEmpty(), runCatching { extractor.length }.getOrDefault(0L)
+                rawVideoOnlyStreams, rawAudioStreams, durationSeconds
             )
         if (videoStreams.isEmpty() && audioStreams.isEmpty() && hlsUrl == null && dashUrl == null) {
+            firstStreamError?.let { throw it }
             return null
         }
+        val extractedThumbnails = runCatching { extractor.thumbnails }.getOrDefault(emptyList())
+        val thumbnailUrl = selectPreferredImage(extractedThumbnails, 960)
+            ?: fallbackYouTubeThumbnailUrl(key.nativeId)
+        val title = runCatching { extractor.name }.getOrNull().orEmpty()
         return DomainStreamInfo(
             key = ContentKey(serviceId, key.nativeId),
-            title = extractor.name.orEmpty(),
-            thumbnailUrl = selectPreferredImage(extractor.thumbnails, 960),
+            title = title,
+            thumbnailUrl = thumbnailUrl,
             videoStreams = videoStreams,
             audioStreams = audioStreams,
             subtitles = subtitles,
@@ -676,6 +722,58 @@ object NewPipeMappers {
             isLive = isLive
         )
     }
+
+    fun mapVideoDetailsFromExtractor(
+        extractor: StreamExtractor,
+        key: ContentKey,
+        fallbackServiceId: Int,
+        fallbackStreamInfo: DomainStreamInfo? = null
+    ): DomainVideoDetails {
+        val serviceId = extractor.serviceId.takeIf { it >= 0 } ?: fallbackServiceId
+        val title = runCatching { extractor.name }.getOrNull()?.takeIf { it.isNotBlank() }
+            ?: fallbackStreamInfo?.title.orEmpty()
+        val canonicalUrl = runCatching { extractor.url }.getOrNull()?.takeIf { it.isNotBlank() }
+            ?: "https://www.youtube.com/watch?v=${key.nativeId}"
+        val description = runCatching { descriptionToPlainText(extractor.description) }.getOrNull()
+        val uploaderUrl = runCatching { extractor.uploaderUrl }.getOrNull()
+        val channelId = extractNativeChannelId(uploaderUrl)
+        val channelKey = if (!channelId.isNullOrBlank()) ContentKey(serviceId, channelId) else null
+        val channelName = runCatching { extractor.uploaderName }.getOrNull()?.takeIf { it.isNotBlank() }
+        val channelAvatarUrl = runCatching { selectPreferredImage(extractor.uploaderAvatars, 160) }.getOrNull()
+        val subscriberCount = runCatching { extractor.uploaderSubscriberCount }.getOrNull()?.takeIf { it >= 0 }
+        val thumbnailUrl = runCatching { selectPreferredImage(extractor.thumbnails, 960) }.getOrNull()
+            ?: fallbackStreamInfo?.thumbnailUrl
+            ?: fallbackYouTubeThumbnailUrl(key.nativeId)
+        val duration = runCatching { extractor.length }.getOrNull()?.takeIf { it >= 0 }
+        val viewCount = runCatching { extractor.viewCount }.getOrNull()?.takeIf { it >= 0 }
+        val likeCount = runCatching { extractor.likeCount }.getOrNull()?.takeIf { it >= 0 }
+        val publishedTimestamp = runCatching { mapDateWrapperToTimestamp(extractor.uploadDate) }.getOrNull()
+        val streamType = runCatching { extractor.streamType }.getOrDefault(StreamType.VIDEO_STREAM)
+        val isLive = fallbackStreamInfo?.isLive
+            ?: (streamType == StreamType.LIVE_STREAM || streamType == StreamType.AUDIO_LIVE_STREAM)
+        val isShort = runCatching { extractor.isShortFormContent }.getOrDefault(false)
+
+        return DomainVideoDetails(
+            key = ContentKey(serviceId, key.nativeId),
+            title = title,
+            canonicalUrl = canonicalUrl,
+            description = description,
+            channelKey = channelKey,
+            channelName = channelName,
+            channelAvatarUrl = channelAvatarUrl,
+            subscriberCount = subscriberCount,
+            thumbnailUrl = thumbnailUrl,
+            durationSeconds = duration,
+            viewCount = viewCount,
+            likeCount = likeCount,
+            publishedTimestamp = publishedTimestamp,
+            isLive = isLive,
+            isShort = isShort
+        )
+    }
+
+    private fun fallbackYouTubeThumbnailUrl(nativeId: String): String? =
+        if (VIDEO_ID_REGEX.matches(nativeId)) "https://i.ytimg.com/vi/$nativeId/hqdefault.jpg" else null
 
     private fun localDashManifest(
         videoOnly: List<VideoStream>,

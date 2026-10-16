@@ -128,10 +128,13 @@ private fun LargeVideoCard(
                 Text(
                     text = video.title,
                     style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.SemiBold,
                     maxLines = 2,
                     overflow = TextOverflow.Ellipsis,
                     color = MaterialTheme.colorScheme.onSurface
                 )
+
+                Spacer(modifier = Modifier.height(2.dp))
 
                 VideoMetadata(video = video, onChannelClick = onChannelClick)
             }
@@ -172,10 +175,12 @@ private fun CompactVideoCard(
             Text(
                 text = video.title,
                 style = MaterialTheme.typography.titleSmall,
+                fontWeight = FontWeight.SemiBold,
                 maxLines = 2,
                 overflow = TextOverflow.Ellipsis,
                 color = MaterialTheme.colorScheme.onSurface
             )
+            Spacer(modifier = Modifier.height(2.dp))
             VideoMetadata(video = video, onChannelClick = onChannelClick)
         }
     }
@@ -234,7 +239,7 @@ private fun VideoThumbnail(
             )
             durationText.isNotEmpty() -> VideoBadge(
                 text = durationText,
-                background = Color.Black.copy(alpha = 0.75f),
+                background = Color.Black.copy(alpha = 0.82f),
                 contentColor = Color.White,
                 modifier = Modifier.align(Alignment.BottomEnd).padding(HPreSpacing.Small)
             )
@@ -250,7 +255,8 @@ private fun ChannelAvatar(video: VideoSummary, size: Dp) {
             contentDescription = null,
             modifier = Modifier
                 .size(size)
-                .clip(CircleShape),
+                .clip(CircleShape)
+                .background(MaterialTheme.colorScheme.surfaceContainerHighest),
             contentScale = ContentScale.Crop
         )
     } else {
@@ -319,7 +325,7 @@ private fun VideoBadge(
     Row(
         modifier = modifier
             .background(background, RoundedCornerShape(HPreShapes.Badge))
-            .padding(horizontal = 6.dp, vertical = 2.dp),
+            .padding(horizontal = 7.dp, vertical = 3.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
         if (showDot) {

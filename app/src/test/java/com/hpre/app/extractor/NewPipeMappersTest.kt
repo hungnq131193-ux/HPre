@@ -510,4 +510,61 @@ class NewPipeMappersTest {
         assertEquals("raw text <kept> &amp; raw", NewPipeMappers.descriptionToPlainText(desc))
         assertNull(NewPipeMappers.descriptionToPlainText(null))
     }
+
+    @Test
+    fun mapStreamExtractor_survives_partial_parsing_exceptions_and_calls_stream_getters_once() {
+        val key = ContentKey(0, "dQw4w9WgXcQ")
+        var videoOnlyCalls = 0
+        var audioCalls = 0
+        val extractor = object : org.schabi.newpipe.extractor.stream.StreamExtractor(
+            org.schabi.newpipe.extractor.ServiceList.YouTube,
+            org.schabi.newpipe.extractor.linkhandler.LinkHandler(
+                "https://youtube.com/watch?v=${key.nativeId}",
+                "https://youtube.com/watch?v=${key.nativeId}",
+                key.nativeId
+            )
+        ) {
+            override fun onFetchPage(downloader: org.schabi.newpipe.extractor.downloader.Downloader) {}
+            override fun getName(): String = "Partial Video"
+            override fun getThumbnails(): List<Image> =
+                throw org.schabi.newpipe.extractor.exceptions.ParsingException("Could not get thumbnails")
+            override fun getSubtitlesDefault(): List<SubtitlesStream> =
+                throw org.schabi.newpipe.extractor.exceptions.ParsingException("Could not get subtitles")
+            override fun getUploaderUrl(): String = ""
+            override fun getUploaderName(): String = "Creator"
+            override fun getVideoStreams(): List<VideoStream> =
+                throw org.schabi.newpipe.extractor.exceptions.ParsingException("Progressive streams failed")
+            override fun getVideoOnlyStreams(): List<VideoStream> {
+                videoOnlyCalls++
+                return listOf(
+                    VideoStream.Builder()
+                        .setId("137")
+                        .setContent("https://video.HPre/v1080.mp4", true)
+                        .setIsVideoOnly(true)
+                        .setResolution("1080p")
+                        .build()
+                )
+            }
+            override fun getAudioStreams(): List<AudioStream> {
+                audioCalls++
+                return listOf(
+                    AudioStream.Builder()
+                        .setId("140")
+                        .setContent("https://audio.HPre/a.m4a", true)
+                        .build()
+                )
+            }
+            override fun getStreamType(): StreamType = StreamType.VIDEO_STREAM
+            override fun getAgeLimit(): Int = 0
+        }
+
+        val mapped = NewPipeMappers.mapStreamExtractor(extractor, key, fallbackServiceId = 0)
+        assertNotNull(mapped)
+        mapped!!
+        assertEquals(1, videoOnlyCalls)
+        assertEquals(1, audioCalls)
+        assertEquals(1, mapped.videoStreams.size)
+        assertEquals(1, mapped.audioStreams.size)
+        assertEquals("https://i.ytimg.com/vi/dQw4w9WgXcQ/hqdefault.jpg", mapped.thumbnailUrl)
+    }
 }

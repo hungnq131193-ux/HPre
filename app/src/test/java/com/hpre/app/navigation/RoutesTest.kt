@@ -126,4 +126,52 @@ class RoutesTest {
         assertNull(Screen.Watch.parseThumbnailArgument("javascript:alert(1)"))
         assertNull(Screen.Watch.parseThumbnailArgument(" "))
     }
+
+    @Test
+    fun exitWatchDestination_returns_to_search_without_falling_back_to_home() {
+        val stack = ArrayDeque(listOf(Screen.Home.route, Screen.Search.route, Screen.Watch.route))
+        var fallbackHomeCalled = false
+
+        exitWatchDestination(
+            currentRoute = { stack.lastOrNull() },
+            popWatch = {
+                if (stack.lastOrNull() == Screen.Watch.route) {
+                    stack.removeLast()
+                    true
+                } else {
+                    false
+                }
+            },
+            fallbackNavigateHome = { fallbackHomeCalled = true }
+        )
+
+        assertEquals(listOf(Screen.Home.route, Screen.Search.route), stack.toList())
+        assertEquals(Screen.Search.route, stack.lastOrNull())
+        org.junit.Assert.assertFalse(fallbackHomeCalled)
+    }
+
+    @Test
+    fun exitWatchDestination_falls_back_to_home_when_no_destination_below_watch() {
+        val stack = ArrayDeque(listOf(Screen.Watch.route))
+        var fallbackHomeCalled = false
+
+        exitWatchDestination(
+            currentRoute = { stack.lastOrNull() },
+            popWatch = {
+                if (stack.lastOrNull() == Screen.Watch.route) {
+                    stack.removeLast()
+                    true
+                } else {
+                    false
+                }
+            },
+            fallbackNavigateHome = {
+                fallbackHomeCalled = true
+                stack.addLast(Screen.Home.route)
+            }
+        )
+
+        org.junit.Assert.assertTrue(fallbackHomeCalled)
+        assertEquals(listOf(Screen.Home.route), stack.toList())
+    }
 }

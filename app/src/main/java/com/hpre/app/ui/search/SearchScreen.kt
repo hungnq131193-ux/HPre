@@ -318,13 +318,31 @@ fun SearchScreen(
                             isLoadingNextPage = state.isLoadingNextPage,
                             paginationError = state.paginationError,
                             onLoadMore = { viewModel.loadNextPage() },
-                            onVideoClick = onVideoClick,
-                            onChannelClick = onChannelClick,
-                            onPlaylistClick = onPlaylistClick,
+                            onVideoClick = { key ->
+                                suggestionsDismissed = true
+                                focusManager.clearFocus()
+                                onVideoClick(key)
+                            },
+                            onChannelClick = { key ->
+                                suggestionsDismissed = true
+                                focusManager.clearFocus()
+                                onChannelClick(key)
+                            },
+                            onPlaylistClick = { key ->
+                                suggestionsDismissed = true
+                                focusManager.clearFocus()
+                                onPlaylistClick(key)
+                            },
                             listState = listState,
                             earlierResultsDropped = state.earlierResultsDropped,
                             onRestart = viewModel::retry,
-                            onVideoSelected = onVideoSelected
+                            onVideoSelected = onVideoSelected?.let { callback ->
+                                { video ->
+                                    suggestionsDismissed = true
+                                    focusManager.clearFocus()
+                                    callback(video)
+                                }
+                            }
                         )
                     }
 

@@ -421,8 +421,10 @@ fun HPreNavHost(
                     viewModel = watchViewModel,
                     fullscreenHostHandlerFactory = container.fullscreenHostHandlerFactory,
                     onNavigateBack = {
-                        watchViewModel.cancelPendingLoads()
-                        navController.popBackStack()
+                        if (navController.currentBackStackEntry?.id == backStackEntry.id) {
+                            watchViewModel.cancelPendingLoads()
+                            navController.popWatchOrNavigateHome()
+                        }
                     },
                     onRelatedVideoClick = { nextKey ->
                         if (nextKey != key && navController.currentBackStackEntry?.id == backStackEntry.id) {
@@ -443,9 +445,11 @@ fun HPreNavHost(
                         }
                     },
                     onMinimizeToHome = {
-                        effectiveCoordinator.requestMinimizeToHome()
-                        watchViewModel.cancelPendingLoads()
-                        navController.navigateToHomeFromWatch()
+                        if (navController.currentBackStackEntry?.id == backStackEntry.id) {
+                            effectiveCoordinator.requestMinimizeToHome()
+                            watchViewModel.cancelPendingLoads()
+                            navController.popWatchOrNavigateHome()
+                        }
                     },
                     isInPip = playbackUiState.isInPip,
                     playbackUiCoordinator = effectiveCoordinator,
@@ -464,6 +468,14 @@ internal fun NavHostController.replaceWatch(route: String) {
         popUpTo(Screen.Watch.route) { inclusive = true }
         launchSingleTop = true
     }
+}
+
+fun NavHostController.popWatchOrNavigateHome() {
+    exitWatchDestination(
+        currentRoute = { currentBackStackEntry?.destination?.route },
+        popWatch = { popBackStack(Screen.Watch.route, inclusive = true) },
+        fallbackNavigateHome = { navigateToHomeFromWatch() }
+    )
 }
 
 fun NavHostController.navigateToHomeFromWatch() {

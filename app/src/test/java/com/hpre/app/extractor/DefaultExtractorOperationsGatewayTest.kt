@@ -333,4 +333,68 @@ class DefaultExtractorOperationsGatewayTest {
         assertEquals(PageToken.Url("https://youtube.com/comments_continuation?token=abc"), pageTokenUrl)
         assertEquals("https://youtube.com/comments_continuation?token=abc", pageTokenUrl.url)
     }
+
+    @Test
+    fun videoBundle_extracts_streams_once_and_survives_thumbnail_parsing_exception() {
+        ExtractorBootstrap.init(OkHttpDownloader())
+        val key = ContentKey(0, "dQw4w9WgXcQ")
+        val videoStreamsCalls = AtomicInteger()
+        val videoOnlyStreamsCalls = AtomicInteger()
+        val audioStreamsCalls = AtomicInteger()
+        val extractor = object : StreamExtractor(
+            ServiceList.YouTube,
+            LinkHandler(
+                "https://youtube.com/watch?v=${key.nativeId}",
+                "https://youtube.com/watch?v=${key.nativeId}",
+                key.nativeId
+            )
+        ) {
+            override fun onFetchPage(downloader: org.schabi.newpipe.extractor.downloader.Downloader) {}
+            override fun getName(): String = "Resilient video"
+            override fun getThumbnails(): List<Image> =
+                throw org.schabi.newpipe.extractor.exceptions.ParsingException("Could not get thumbnails")
+            override fun getUploaderUrl(): String = "https://www.youtube.com/channel/UC1234567890123456789012"
+            override fun getUploaderName(): String = "Creator"
+            override fun getAudioStreams(): List<AudioStream> {
+                audioStreamsCalls.incrementAndGet()
+                return listOf(
+                    AudioStream.Builder()
+                        .setId("140")
+                        .setContent("https://audio.HPre/a.m4a", true)
+                        .build()
+                )
+            }
+            override fun getVideoStreams(): List<VideoStream> {
+                videoStreamsCalls.incrementAndGet()
+                return listOf(
+                    VideoStream.Builder()
+                        .setId("18")
+                        .setContent("https://video.HPre/v.mp4", true)
+                        .setIsVideoOnly(false)
+                        .setResolution("360p")
+                        .build()
+                )
+            }
+            override fun getVideoOnlyStreams(): List<VideoStream> {
+                videoOnlyStreamsCalls.incrementAndGet()
+                return emptyList()
+            }
+            override fun getStreamType(): StreamType = StreamType.VIDEO_STREAM
+            override fun getAgeLimit(): Int = 0
+            override fun getDescription(): Description = Description("Body", Description.PLAIN_TEXT)
+        }
+        val operations = DefaultExtractorOperations(
+            streamExtractorFactory = { _, _ -> extractor }
+        )
+
+        val bundle = operations.videoBundle(key)
+
+        assertEquals(1, videoStreamsCalls.get())
+        assertEquals(1, videoOnlyStreamsCalls.get())
+        assertEquals(1, audioStreamsCalls.get())
+        assertEquals("Resilient video", bundle.streamInfo.title)
+        assertEquals("https://i.ytimg.com/vi/dQw4w9WgXcQ/hqdefault.jpg", bundle.streamInfo.thumbnailUrl)
+        assertEquals("Resilient video", bundle.details.title)
+        assertEquals("https://i.ytimg.com/vi/dQw4w9WgXcQ/hqdefault.jpg", bundle.details.thumbnailUrl)
+    }
 }

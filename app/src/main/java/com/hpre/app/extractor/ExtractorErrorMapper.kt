@@ -12,6 +12,7 @@ import org.schabi.newpipe.extractor.exceptions.PaidContentException
 import org.schabi.newpipe.extractor.exceptions.ParsingException
 import org.schabi.newpipe.extractor.exceptions.PrivateContentException
 import org.schabi.newpipe.extractor.exceptions.ReCaptchaException
+import org.schabi.newpipe.extractor.exceptions.SignInConfirmNotBotException
 import org.schabi.newpipe.extractor.exceptions.SoundCloudGoPlusContentException
 import org.schabi.newpipe.extractor.exceptions.YoutubeMusicPremiumContentException
 import java.io.IOException
@@ -48,7 +49,7 @@ object ExtractorErrorMapper {
             if (root is ExtractorHttpException) {
                 return mapHttpFailure(root.statusCode, root.operationContext)
             }
-            if (root is ReCaptchaException) {
+            if (root is ReCaptchaException || root is SignInConfirmNotBotException) {
                 return AppError.RateLimited
             }
             if (root is AgeRestrictedContentException) {

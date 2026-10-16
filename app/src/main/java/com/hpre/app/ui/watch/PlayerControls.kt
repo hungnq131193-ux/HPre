@@ -32,6 +32,7 @@ import androidx.compose.material.icons.filled.Forward10
 import androidx.compose.material.icons.filled.Fullscreen
 import androidx.compose.material.icons.filled.FullscreenExit
 import androidx.compose.material.icons.filled.HighQuality
+import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Replay10
@@ -715,6 +716,23 @@ fun PlayerControlsOverlay(
                                 .testTag("player_fullscreen_title")
                         )
                     }
+                }
+            } else if (minimizeEnabled && !isInPip) {
+                IconButton(
+                    onClick = {
+                        keepControlsAlive()
+                        onMinimizeToHome()
+                    },
+                    modifier = Modifier
+                        .align(Alignment.TopStart)
+                        .padding(8.dp)
+                        .testTag("control_minimize_player")
+                ) {
+                    Icon(
+                        imageVector = androidx.compose.material.icons.Icons.Default.KeyboardArrowDown,
+                        contentDescription = stringResource(R.string.action_back),
+                        tint = Color.White
+                    )
                 }
             }
 

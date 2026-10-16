@@ -845,8 +845,14 @@ fun WatchMetadataContent(
             val viewsText = details.viewCount?.let {
                 pluralStringResource(R.plurals.watch_view_count, it.toInt(), it)
             } ?: ""
+            val now = remember(details.key, details.publishedTimestamp) { System.currentTimeMillis() }
+            val ageText = com.hpre.app.ui.common.VideoFormat.age(details.publishedTimestamp, now)
+            val metaLine = listOfNotNull(
+                viewsText.takeIf(String::isNotBlank),
+                ageText.takeIf(String::isNotBlank)
+            ).joinToString(" • ")
             Text(
-                text = viewsText,
+                text = metaLine,
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
@@ -971,7 +977,10 @@ fun WatchMetadataContent(
                 Column(
                     modifier = Modifier
                         .fillMaxWidth()
+                        .clip(RoundedCornerShape(HPreShapes.Card))
+                        .background(MaterialTheme.colorScheme.surfaceContainer)
                         .clickable { isDescriptionExpanded = !isDescriptionExpanded }
+                        .padding(12.dp)
                         .testTag("watch_description_container")
                 ) {
                     Row(

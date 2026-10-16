@@ -71,6 +71,12 @@ class ExtractorErrorMapperTest {
         assertEquals(AppError.PaidContent, ExtractorErrorMapper.mapExtractorFailure(SoundCloudGoPlusContentException()))
         assertEquals(AppError.RateLimited, ExtractorErrorMapper.mapExtractorFailure(ExtractorHttpException(429, ExtractorOperationContext.EXTRACTION_METADATA)))
         assertEquals(AppError.RateLimited, ExtractorErrorMapper.mapExtractorFailure(ReCaptchaException("Captcha", "https://youtube.com")))
+        assertEquals(
+            AppError.RateLimited,
+            ExtractorErrorMapper.mapExtractorFailure(
+                org.schabi.newpipe.extractor.exceptions.SignInConfirmNotBotException("Sign in to confirm you’re not a bot")
+            )
+        )
         assertEquals(AppError.ContentUnavailable(), ExtractorErrorMapper.mapExtractorFailure(ContentNotAvailableException("Not available")))
         assertEquals(AppError.ContentUnavailable("Khởi chiếu sau 40 ngày"), ExtractorErrorMapper.mapExtractorFailure(ContentNotAvailableException("Got error LIVE_STREAM_OFFLINE: \"Khởi chiếu sau 40 ngày\"")))
         assertEquals(AppError.ContentUnavailable("Terminated"), ExtractorErrorMapper.mapExtractorFailure(AccountTerminatedException("Terminated")))

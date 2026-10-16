@@ -177,4 +177,30 @@ class OkHttpDownloaderTest {
             assertFalse(e.message?.contains("https://") ?: false)
         }
     }
+
+    @Test
+    fun execute_caches_youtube_visitor_id_post_per_user_agent() {
+        var networkCalls = 0
+        val client = createMockClient(
+            statusCode = 200,
+            responseBody = """{"responseContext":{"visitorData":"Cgt2aXNpdG9yX2lk"}}"""
+        ) {
+            networkCalls++
+        }
+        val downloader = OkHttpDownloader(client)
+        val request = Request.newBuilder()
+            .url("https://www.youtube.com/youtubei/v1/visitor_id?prettyPrint=false")
+            .httpMethod("POST")
+            .headers(mapOf("User-Agent" to listOf("com.google.android.youtube/19.28.35 (Linux; U; Android 15; GB) gzip")))
+            .dataToSend("""{"context":{"client":{"clientName":"ANDROID"}}}""".toByteArray(Charsets.UTF_8))
+            .build()
+
+        val first = downloader.execute(request)
+        val second = downloader.execute(request)
+        val third = downloader.execute(request)
+
+        assertEquals(1, networkCalls)
+        assertEquals(first.responseBody(), second.responseBody())
+        assertEquals(first.responseBody(), third.responseBody())
+    }
 }

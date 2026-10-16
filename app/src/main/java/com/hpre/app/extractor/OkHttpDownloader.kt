@@ -48,6 +48,8 @@ open class OkHttpDownloader(
 
     companion object {
         const val USER_AGENT = com.hpre.app.core.network.NetworkPolicy.DEFAULT_USER_AGENT
+        private const val VISITOR_ID_URL_PREFIX = "https://www.youtube.com/youtubei/v1/visitor_id"
+        private const val VISITOR_ID_CACHE_TTL_MS = 10 * 60 * 1000L
 
         private val activeCallsByThread = ConcurrentHashMap<Long, Call>()
 
@@ -66,6 +68,13 @@ open class OkHttpDownloader(
         }
     }
 
+    private data class CachedVisitorResponse(
+        val response: Response,
+        val timestampMs: Long
+    )
+
+    private val visitorIdCache = ConcurrentHashMap<String, CachedVisitorResponse>()
+
     @Throws(IOException::class)
     override fun execute(request: Request): Response {
         val httpMethod = request.httpMethod()
@@ -75,6 +84,7 @@ open class OkHttpDownloader(
 
         val requestBuilder = okhttp3.Request.Builder().url(url)
 
+        var effectiveUserAgent: String = USER_AGENT
         var hasUserAgent = false
         var contentTypeHeaderValue: String? = null
 
@@ -83,6 +93,7 @@ open class OkHttpDownloader(
                 if (values != null) {
                     if (name.equals("User-Agent", ignoreCase = true)) {
                         hasUserAgent = true
+                        values.firstOrNull()?.let { effectiveUserAgent = it }
                     }
                     if (name.equals("Content-Type", ignoreCase = true)) {
                         contentTypeHeaderValue = values.firstOrNull()
@@ -96,6 +107,16 @@ open class OkHttpDownloader(
 
         if (!hasUserAgent) {
             requestBuilder.header("User-Agent", USER_AGENT)
+        }
+
+        val isVisitorIdRequest = httpMethod.equals("POST", ignoreCase = true) &&
+            url.startsWith(VISITOR_ID_URL_PREFIX)
+        if (isVisitorIdRequest) {
+            val nowMs = System.currentTimeMillis()
+            val cached = visitorIdCache[effectiveUserAgent]
+            if (cached != null && nowMs - cached.timestampMs < VISITOR_ID_CACHE_TTL_MS) {
+                return cached.response
+            }
         }
 
         val mediaType = contentTypeHeaderValue?.toMediaTypeOrNull()
@@ -158,13 +179,23 @@ open class OkHttpDownloader(
                     }
                     body.string()
                 }.orEmpty()
-                Response(
+                val mappedResponse = Response(
                     responseCode,
                     responseMessage,
                     responseHeaders,
                     responseBody,
                     latestUrl
                 )
+                if (isVisitorIdRequest && responseBody.isNotBlank()) {
+                    if (visitorIdCache.size >= 16) {
+                        visitorIdCache.clear()
+                    }
+                    visitorIdCache[effectiveUserAgent] = CachedVisitorResponse(
+                        response = mappedResponse,
+                        timestampMs = System.currentTimeMillis()
+                    )
+                }
+                mappedResponse
             }
         } catch (e: InterruptedException) {
             throw InterruptedIOException("Call interrupted").apply { initCause(e) }

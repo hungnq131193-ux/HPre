@@ -172,3 +172,16 @@ internal fun beginVideoNavigation(
     navigate()
 }
 
+internal fun exitWatchDestination(
+    currentRoute: () -> String?,
+    popWatch: () -> Boolean,
+    fallbackNavigateHome: () -> Unit
+) {
+    while (currentRoute() == Screen.Watch.route) {
+        if (!popWatch()) break
+    }
+    val remaining = currentRoute()
+    if (remaining.isNullOrBlank() || remaining == Screen.Watch.route) {
+        fallbackNavigateHome()
+    }
+}
