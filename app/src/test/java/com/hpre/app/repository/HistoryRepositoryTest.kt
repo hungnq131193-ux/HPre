@@ -180,7 +180,7 @@ class HistoryRepositoryTest {
 
         val result = repo.recordHistory(summary, positionMs = 50_000L, watchedTimestamp = 1000L)
         assertTrue(result is AppResult.Success)
-        assertEquals(50, dao.recordAndTrimMaxEntries)
+        assertEquals(200, dao.recordAndTrimMaxEntries)
 
         val item = (repo.getHistoryItem(ContentKey(1, "vid1")) as AppResult.Success).value
         assertNotNull(item)
@@ -400,5 +400,39 @@ class HistoryRepositoryTest {
         assertTrue(job.isCancelled)
         // Storage should have no write because cancellation occurred before gate was released and write completed
         assertTrue("Storage should not contain item on cancellation", dao.storage.isEmpty())
+    }
+
+    @Test
+    fun recordHistory_normalizes_and_preserves_shorts_url_and_isShort_flag() = runTest {
+        val dao = FakeHistoryDao()
+        val repo = DefaultHistoryRepository(
+            dao,
+            FakePlaybackPreferences(),
+            StandardTestDispatcher(testScheduler)
+        )
+        val shortSummary = summary.copy(
+            key = ContentKey(0, "short99"),
+            canonicalUrl = "https://www.youtube.com/watch?v=short99",
+            durationSeconds = null,
+            isShort = true
+        )
+        repo.recordHistory(shortSummary, positionMs = 1_000L, watchedTimestamp = 1_000L)
+
+        // Periodic background playback update with generic watch URL must not clobber /shorts/ URL
+        repo.recordHistory(
+            shortSummary.copy(
+                title = "Video",
+                canonicalUrl = "https://hpre.test/watch?v=short99",
+                isShort = false
+            ),
+            positionMs = 12_000L,
+            watchedTimestamp = 2_000L
+        )
+
+        val item = (repo.getHistoryItem(ContentKey(0, "short99")) as AppResult.Success).value
+        assertNotNull(item)
+        assertTrue(item!!.isShort)
+        assertEquals("https://www.youtube.com/shorts/short99", item.canonicalUrl)
+        assertTrue(item.toVideoSummary().isShort)
     }
 }

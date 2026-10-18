@@ -23,14 +23,20 @@ internal class MemoryAwareLoadControl(private val maxTargetBytes: Int) : Default
     DefaultAllocator(true, C.DEFAULT_BUFFER_SEGMENT_SIZE),
     HPrePlaybackService.MIN_PLAYBACK_BUFFER_MS,
     HPrePlaybackService.MAX_PLAYBACK_BUFFER_MS,
-    HPrePlaybackService.BUFFER_FOR_PLAYBACK_MS,
-    HPrePlaybackService.BUFFER_AFTER_REBUFFER_MS,
+    FAST_BUFFER_FOR_PLAYBACK_MS,
+    FAST_BUFFER_AFTER_REBUFFER_MS,
     C.LENGTH_UNSET,
     false,
-    0,
-    false
+    BACK_BUFFER_DURATION_MS,
+    true
 ) {
     override fun calculateTargetBufferBytes(trackSelectionArray: Array<out ExoTrackSelection?>): Int =
         // Keep Media3's smaller audio-only target; a video budget must not increase audio RAM.
         minOf(super.calculateTargetBufferBytes(trackSelectionArray), maxTargetBytes)
+
+    companion object {
+        private const val FAST_BUFFER_FOR_PLAYBACK_MS = 250
+        private const val FAST_BUFFER_AFTER_REBUFFER_MS = 800
+        private const val BACK_BUFFER_DURATION_MS = 15_000
+    }
 }

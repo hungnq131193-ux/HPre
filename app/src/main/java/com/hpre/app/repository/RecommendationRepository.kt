@@ -63,9 +63,13 @@ private fun RecommendationRequest.safeLimit(): Int = limit.coerceIn(0, MAX_FEED_
 private fun cleanCandidates(
     candidates: List<VideoSummary>,
     excludedKeys: Set<ContentKey>
-): List<VideoSummary> = candidates
-    .distinctBy(VideoSummary::key)
-    .filterNot { it.key in excludedKeys }
+): List<VideoSummary> {
+    val base = candidates
+        .distinctBy(VideoSummary::key)
+        .filterNot { it.key in excludedKeys }
+    val highView = base.filter { it.viewCount == null || it.viewCount >= 500L }
+    return if (highView.isNotEmpty()) highView else base
+}
 
 class RecommendationRepository(
     private val catalogRepository: CatalogRepository,
@@ -114,13 +118,11 @@ class RecommendationRepository(
             .map(LocalSearchHistoryItem::query)
         val watchHistory = historyRepository.observeRecentHistory(MAX_WATCH_HISTORY_SIGNALS).first()
 
-        val channelFrequency = watchHistory
-            .mapNotNull(WatchHistoryItem::channelName)
-            .groupingBy(::normalize)
-            .eachCount()
+        val channelFrequency = buildWeightedChannelFrequency(watchHistory)
+        val prioritizedTitles = prioritizeTitlesByRetention(watchHistory)
 
         val historyTopics = TopicExtractor.topicsFromHistory(
-            recentTitles = watchHistory.map(WatchHistoryItem::title),
+            recentTitles = prioritizedTitles,
             channelFrequency = channelFrequency,
             maxTitleTopics = MAX_TITLE_TOPICS,
             maxChannelTopics = MAX_CHANNEL_TOPICS
@@ -161,6 +163,16 @@ class RecommendationRepository(
         )
 
         val state = CollectionState()
+        val homeRelatedKeys = mutableSetOf<ContentKey>()
+        val homeRelatedLock = Mutex()
+        val deepWatchedAnchors = if (videoService != null) {
+            watchHistory
+                .filter { watchEngagementWeight(it) >= 2 }
+                .sortedByDescending { watchEngagementWeight(it) }
+                .take(2)
+        } else {
+            emptyList()
+        }
 
         try {
             collectUntilDeadline(state) {
@@ -168,6 +180,17 @@ class RecommendationRepository(
                     launch {
                         val res = safeRequest { catalogRepository.getTrending(request.forceRefresh) }
                         state.recordResult(res)
+                    }
+                    for (anchor in deepWatchedAnchors) {
+                        launch {
+                            val svc = videoService ?: return@launch
+                            val res = safeRequest { svc.related(anchor.key) }
+                            if (res is AppResult.Success) {
+                                val keys = res.value.map(VideoSummary::key)
+                                homeRelatedLock.withLock { homeRelatedKeys.addAll(keys) }
+                            }
+                            state.recordResult(res)
+                        }
                     }
                     for (topic in topics) {
                         launch {
@@ -191,10 +214,14 @@ class RecommendationRepository(
 
         val candidates = state.snapshotCandidates()
         val clean = cleanCandidates(candidates, request.excludedKeys)
+        val relatedKeysSnapshot = homeRelatedLock.withLock { homeRelatedKeys.toSet() }
         val ranked = RecommendationRanker.rank(
             candidates = clean,
             signals = signals,
-            context = RecommendationContext(nowEpochSeconds = System.currentTimeMillis() / 1000L),
+            context = RecommendationContext(
+                providerRelatedKeys = relatedKeysSnapshot,
+                nowEpochSeconds = System.currentTimeMillis() / 1000L
+            ),
             limit = targetLimit
         )
 
@@ -225,16 +252,13 @@ class RecommendationRepository(
         } else {
             emptyList()
         }
-        val channelFrequency = watchHistory
-            .mapNotNull(WatchHistoryItem::channelName)
-            .groupingBy(::normalize)
-            .eachCount()
+        val channelFrequency = buildWeightedChannelFrequency(watchHistory)
         val currentTitleTopic = TopicExtractor.keywords(details.title)
             .joinToString(" ")
             .takeIf(String::isNotBlank)
         val localTopics = if (historyEnabled) {
             TopicExtractor.topicsFromHistory(
-                recentTitles = watchHistory.map(WatchHistoryItem::title),
+                recentTitles = prioritizeTitlesByRetention(watchHistory),
                 channelFrequency = channelFrequency,
                 maxTitleTopics = MAX_TITLE_TOPICS,
                 maxChannelTopics = MAX_CHANNEL_TOPICS
@@ -465,6 +489,51 @@ class RecommendationRepository(
         .trim()
         .lowercase(Locale.ROOT)
         .replace(whitespace, " ")
+
+    /**
+     * Scores a history entry by watch time and completion ratio so videos that held the user's
+     * attention longest ("video xem lâu") dominate topic extraction and channel affinity.
+     */
+    internal fun watchEngagementWeight(item: WatchHistoryItem): Int {
+        val watchedSec = (item.playbackPositionMs / 1000L).coerceAtLeast(0L)
+        if (watchedSec == 0L) return 1
+        val durationSec = item.durationSeconds ?: 0L
+        val completionRatio = if (durationSec > 0L) {
+            watchedSec.toDouble() / durationSec.toDouble()
+        } else {
+            0.0
+        }
+        return when {
+            watchedSec >= 240L || completionRatio >= 0.70 -> 4
+            watchedSec >= 90L || completionRatio >= 0.45 -> 3
+            watchedSec >= 25L || completionRatio >= 0.25 -> 2
+            watchedSec in 1L..7L && durationSec >= 30L && completionRatio < 0.12 -> 0
+            else -> 1
+        }
+    }
+
+    private fun buildWeightedChannelFrequency(watchHistory: List<WatchHistoryItem>): Map<String, Int> {
+        val freq = linkedMapOf<String, Int>()
+        for (item in watchHistory) {
+            val channel = item.channelName?.let(::normalize)?.takeIf(String::isNotBlank) ?: continue
+            val weight = watchEngagementWeight(item)
+            if (weight > 0) {
+                freq[channel] = (freq[channel] ?: 0) + weight
+            }
+        }
+        return freq
+    }
+
+    private fun prioritizeTitlesByRetention(watchHistory: List<WatchHistoryItem>): List<String> {
+        return watchHistory
+            .withIndex()
+            .filter { watchEngagementWeight(it.value) > 0 }
+            .sortedWith(
+                compareByDescending<IndexedValue<WatchHistoryItem>> { watchEngagementWeight(it.value) }
+                    .thenBy { it.index }
+            )
+            .map { it.value.title }
+    }
 
     companion object {
         const val MAX_SEARCH_QUERIES = 3

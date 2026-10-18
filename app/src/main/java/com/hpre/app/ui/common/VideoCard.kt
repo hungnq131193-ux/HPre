@@ -237,6 +237,16 @@ private fun VideoThumbnail(
                 showDot = true,
                 modifier = Modifier.align(Alignment.BottomEnd).padding(HPreSpacing.Small)
             )
+            video.isShort -> VideoBadge(
+                text = if (durationText.isNotEmpty()) {
+                    "${stringResource(R.string.shorts_badge)} • $durationText"
+                } else {
+                    stringResource(R.string.shorts_badge)
+                },
+                background = HPreLiveBadge.copy(alpha = 0.90f),
+                contentColor = HPreOnLiveBadge,
+                modifier = Modifier.align(Alignment.BottomEnd).padding(HPreSpacing.Small)
+            )
             durationText.isNotEmpty() -> VideoBadge(
                 text = durationText,
                 background = Color.Black.copy(alpha = 0.82f),

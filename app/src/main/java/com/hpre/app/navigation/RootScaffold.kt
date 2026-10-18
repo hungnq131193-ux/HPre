@@ -18,9 +18,11 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material.icons.filled.SlowMotionVideo
 import androidx.compose.material.icons.filled.Subscriptions
 import androidx.compose.material.icons.filled.VideoLibrary
 import androidx.compose.material.icons.outlined.Home
+import androidx.compose.material.icons.outlined.SlowMotionVideo
 import androidx.compose.material.icons.outlined.Subscriptions
 import androidx.compose.material.icons.outlined.VideoLibrary
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -80,6 +82,13 @@ private sealed class BottomNavItem(
         unselectedIcon = Icons.Outlined.Home
     )
 
+    data object Shorts : BottomNavItem(
+        route = Screen.Shorts.route,
+        titleRes = R.string.nav_shorts,
+        selectedIcon = Icons.Filled.SlowMotionVideo,
+        unselectedIcon = Icons.Outlined.SlowMotionVideo
+    )
+
     data object Subscriptions : BottomNavItem(
         route = Screen.Subscriptions.route,
         titleRes = R.string.nav_subscriptions,
@@ -97,6 +106,7 @@ private sealed class BottomNavItem(
 
 private val bottomNavItems = listOf(
     BottomNavItem.Home,
+    BottomNavItem.Shorts,
     BottomNavItem.Subscriptions,
     BottomNavItem.Library
 )
@@ -114,10 +124,12 @@ fun RootScaffold(
 
     val isTopLevelDestination = currentRoute in listOf(
         Screen.Home.route,
+        Screen.Shorts.route,
         Screen.Subscriptions.route,
         Screen.Library.route
     )
 
+    val isShortsScreen = currentRoute == Screen.Shorts.route
     val isWatchScreen = currentRoute?.startsWith("watch/") == true
     val app = LocalContext.current.applicationContext as? com.hpre.app.HPreApplication
     val effectiveCoordinator = coordinator ?: app?.playbackUiCoordinator ?: remember { com.hpre.app.player.PlaybackUiCoordinator() }
@@ -143,6 +155,40 @@ fun RootScaffold(
     // Non-null exactly when media is active, so the mini player never triggers construction.
     val activePlayerController = if (hasActiveMedia) container.peekPlayerController() else null
 
+    val isPlaybackKeepingScreenOnFlow = remember(container) {
+        container.playbackState
+            .map { state -> state.key != null && (state.isPlaying || state.isBuffering) }
+            .distinctUntilChanged()
+    }
+    val isPlaybackKeepingScreenOn by isPlaybackKeepingScreenOnFlow.collectAsStateWithLifecycle(
+        initialValue = false
+    )
+    val shouldKeepScreenOn = isPlaybackKeepingScreenOn || isShortsScreen
+    val currentContext = LocalContext.current
+    val currentView = androidx.compose.ui.platform.LocalView.current
+    DisposableEffect(shouldKeepScreenOn, currentContext, currentView) {
+        currentView.keepScreenOn = shouldKeepScreenOn
+        var ctx: android.content.Context? = currentContext
+        var activity: android.app.Activity? = null
+        while (ctx is android.content.ContextWrapper) {
+            if (ctx is android.app.Activity) {
+                activity = ctx
+                break
+            }
+            ctx = ctx.baseContext
+        }
+        val window = activity?.window
+        if (shouldKeepScreenOn) {
+            window?.addFlags(android.view.WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+        } else {
+            window?.clearFlags(android.view.WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+        }
+        onDispose {
+            currentView.keepScreenOn = false
+            window?.clearFlags(android.view.WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+        }
+    }
+
     val playbackUiState by effectiveCoordinator.state.collectAsStateWithLifecycle()
     androidx.compose.runtime.LaunchedEffect(playbackUiState.backgroundPlaybackEnabled, playbackUiState.isInPip) {
         container.updatePlayerLifecyclePolicy(
@@ -167,7 +213,7 @@ fun RootScaffold(
     Scaffold(
         contentWindowInsets = WindowInsets(0, 0, 0, 0),
         topBar = {
-            if (isTopLevelDestination) {
+            if (isTopLevelDestination && !isShortsScreen) {
                 TopAppBar(
                     title = {
                         if (currentRoute == Screen.Home.route) {
@@ -222,7 +268,7 @@ fun RootScaffold(
         },
         bottomBar = {
             Column(modifier = Modifier.fillMaxWidth()) {
-                if (!isWatchScreen && activePlayerController != null) {
+                if (!isWatchScreen && !isShortsScreen && activePlayerController != null) {
                     MiniPlayer(
                         playerController = activePlayerController,
                         coordinator = effectiveCoordinator,

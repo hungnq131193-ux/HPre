@@ -76,13 +76,28 @@ class DefaultHistoryRepository(
 
             writeMutex.withLock {
                 val existing = historyDao.getByKey(summary.key.serviceId, summary.key.nativeId)
+                val normalizedSummaryUrl = if (
+                    summary.isShort &&
+                    !summary.canonicalUrl.contains("/shorts/", ignoreCase = true) &&
+                    summary.key.nativeId.isNotBlank()
+                ) {
+                    "https://www.youtube.com/shorts/${summary.key.nativeId}"
+                } else {
+                    summary.canonicalUrl
+                }
+                val resolvedCanonicalUrl = when {
+                    existing?.canonicalUrl?.contains("/shorts/", ignoreCase = true) == true &&
+                        (summary.durationSeconds == null || summary.durationSeconds <= 60L) &&
+                        !normalizedSummaryUrl.contains("/shorts/", ignoreCase = true) ->
+                        existing.canonicalUrl
+                    normalizedSummaryUrl.isNotBlank() && !normalizedSummaryUrl.startsWith("https://hpre.test/watch?") ->
+                        normalizedSummaryUrl
+                    else -> existing?.canonicalUrl ?: normalizedSummaryUrl
+                }
                 val entity = HistoryEntity(
                     serviceId = summary.key.serviceId,
                     videoId = summary.key.nativeId,
-                    canonicalUrl = summary.canonicalUrl
-                        .takeUnless { it.isBlank() || it.startsWith("https://hpre.test/watch?") }
-                        ?: existing?.canonicalUrl
-                        ?: summary.canonicalUrl,
+                    canonicalUrl = resolvedCanonicalUrl,
                     title = summary.title.takeUnless { it.isBlank() || it == "Video" } ?: existing?.title ?: summary.title,
                     channelId = summary.channelKey?.nativeId ?: existing?.channelId,
                     channelName = summary.channelName ?: existing?.channelName,
@@ -138,6 +153,6 @@ class DefaultHistoryRepository(
     }
 
     companion object {
-        internal const val MAX_HISTORY_ENTRIES = 50
+        internal const val MAX_HISTORY_ENTRIES = 200
     }
 }

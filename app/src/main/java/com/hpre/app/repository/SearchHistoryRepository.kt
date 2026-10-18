@@ -16,7 +16,7 @@ interface SearchHistoryRepository {
 
     companion object {
         const val DEFAULT_HISTORY_LIMIT = 20
-        const val MAX_HISTORY_ENTRIES = 100
+        const val MAX_HISTORY_ENTRIES = 200
 
         fun normalizeQuery(query: String): String {
             return query.trim().lowercase(java.util.Locale.ROOT).replace("\\s+".toRegex(), " ")

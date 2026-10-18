@@ -74,6 +74,7 @@ object RouteEncoder {
 
 sealed class Screen(val route: String) {
     data object Home : Screen("home")
+    data object Shorts : Screen("shorts")
     data object Search : Screen("search")
     data object Subscriptions : Screen("subscriptions")
     data object Library : Screen("library")

@@ -49,16 +49,25 @@ internal class DefaultExtractorOperations(
         get() = streamingService.suggestionExtractor != null
 
     override fun search(query: String, filter: SearchFilter, pageToken: PageToken?): SearchPage {
+        if (gateway === ProductionSearchCommentsGateway &&
+            pageToken == null &&
+            query.contains("#shorts", ignoreCase = true)
+        ) {
+            YoutubeShortsSearchHelper.searchShortsPage(query, serviceId)?.let { return it }
+        }
+
         val queryHandlerFactory = streamingService.searchQHFactory
+        // NewPipeExtractor's "videos" filter sends URL-encoded "EgIQAfABAQ%3D%3D" inside JSON,
+        // which causes YouTube InnerTube search to return unranked 0-view uploads.
         val contentFilterList = when (filter) {
             SearchFilter.ALL -> emptyList<String>()
-            SearchFilter.VIDEOS -> listOf("videos")
+            SearchFilter.VIDEOS -> emptyList<String>()
             SearchFilter.CHANNELS -> listOf("channels")
             SearchFilter.PLAYLISTS -> listOf("playlists")
         }
         val queryHandler = queryHandlerFactory.fromQuery(query, contentFilterList, "")
 
-        return if (pageToken == null) {
+        val pageResult = if (pageToken == null) {
             val searchInfo = gateway.getSearchInfo(streamingService, queryHandler)
             NewPipeMappers.mapSearchInfo(searchInfo, serviceId)
         } else {
@@ -68,6 +77,14 @@ internal class DefaultExtractorOperations(
             val items = infoPage.items.orEmpty().mapNotNull { NewPipeMappers.mapInfoItemToSearchResult(it, serviceId) }
             val nextToken = NewPipeMappers.mapPageToPageToken(infoPage.nextPage)
             SearchPage(items = items, nextPageToken = nextToken)
+        }
+
+        return if (filter == SearchFilter.VIDEOS) {
+            pageResult.copy(
+                items = pageResult.items.filterIsInstance<com.hpre.app.model.SearchResultItem.VideoItem>()
+            )
+        } else {
+            pageResult
         }
     }
 
@@ -153,19 +170,17 @@ internal class DefaultExtractorOperations(
             return extractor to streams
         }
 
-        return try {
-            attemptExtract(initialExtractor)
-        } catch (e: Exception) {
-            if (customFactory != null || !isRetriableWithIosClient(e)) {
-                throw e
-            }
+        fun maxDimensionOf(info: StreamInfo): Int =
+            info.videoStreams.maxOfOrNull { maxOf(it.width ?: 0, it.height ?: 0) } ?: 0
+
+        fun extractWithIosFallback(): Pair<StreamExtractor, StreamInfo> {
             synchronized(NewPipeMappers.YoutubeJsLock) {
                 runCatching {
                     org.schabi.newpipe.extractor.services.youtube.YoutubeJavaScriptPlayerManager.clearAllCaches()
                 }
                 org.schabi.newpipe.extractor.services.youtube.extractors.YoutubeStreamExtractor.setFetchIosClient(true)
             }
-            try {
+            return try {
                 val retryExtractor = service.getStreamExtractor(linkHandler)
                 ExtractorLocalization.apply(retryExtractor)
                 attemptExtract(retryExtractor)
@@ -174,6 +189,30 @@ internal class DefaultExtractorOperations(
                     org.schabi.newpipe.extractor.services.youtube.extractors.YoutubeStreamExtractor.setFetchIosClient(false)
                 }
             }
+        }
+
+        return try {
+            val initialResult = attemptExtract(initialExtractor)
+            val (_, initialStreams) = initialResult
+            if (customFactory == null && !initialStreams.isLive && maxDimensionOf(initialStreams) < 720) {
+                val upgraded = runCatching { extractWithIosFallback() }.getOrNull()
+                if (upgraded != null && (
+                        maxDimensionOf(upgraded.second) > maxDimensionOf(initialStreams) ||
+                            (!upgraded.second.hlsManifestUrl.isNullOrBlank() && initialStreams.hlsManifestUrl.isNullOrBlank())
+                        )
+                ) {
+                    upgraded
+                } else {
+                    initialResult
+                }
+            } else {
+                initialResult
+            }
+        } catch (e: Exception) {
+            if (customFactory != null || !isRetriableWithIosClient(e)) {
+                throw e
+            }
+            extractWithIosFallback()
         }
     }
 
@@ -184,9 +223,10 @@ internal class DefaultExtractorOperations(
             is org.schabi.newpipe.extractor.exceptions.PrivateContentException,
             is org.schabi.newpipe.extractor.exceptions.PaidContentException,
             is org.schabi.newpipe.extractor.exceptions.AccountTerminatedException,
-            is org.schabi.newpipe.extractor.exceptions.ContentNotAvailableException,
             is org.schabi.newpipe.extractor.exceptions.ReCaptchaException,
             is org.schabi.newpipe.extractor.exceptions.SignInConfirmNotBotException -> false
+            is org.schabi.newpipe.extractor.exceptions.ContentNotAvailableException ->
+                error.message?.contains("LIVE_STREAM_OFFLINE") != true
             is ContentNotSupportedException,
             is org.schabi.newpipe.extractor.exceptions.ParsingException -> true
             else -> false

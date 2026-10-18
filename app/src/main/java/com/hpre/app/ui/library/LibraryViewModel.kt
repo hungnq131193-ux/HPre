@@ -22,7 +22,9 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flatMapLatest
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.withLock
@@ -64,6 +66,22 @@ class LibraryViewModel(
             started = SharingStarted.WhileSubscribed(5_000),
             initialValue = emptyList()
         )
+
+    val recentVideoHistory: StateFlow<List<WatchHistoryItem>> = historyRepository.observeHistory()
+        .map { list -> list.filterNot { it.isShort }.take(12) }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+
+    val recentShortsHistory: StateFlow<List<WatchHistoryItem>> = historyRepository.observeHistory()
+        .map { list -> list.filter { it.isShort }.take(12) }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+
+    val regularVideoHistory: StateFlow<List<WatchHistoryItem>> = historyRepository.observeHistory()
+        .map { list -> list.filterNot { it.isShort } }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+
+    val shortsHistory: StateFlow<List<WatchHistoryItem>> = historyRepository.observeHistory()
+        .map { list -> list.filter { it.isShort } }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
     val subscriptions: StateFlow<List<LocalSubscription>> = subscriptionRepository.observeSubscriptions()
         .stateIn(
@@ -153,6 +171,25 @@ class LibraryViewModel(
     fun clearHistory() = runMutation("clearHistory") {
         requestedHistoryPage.value = 0
         historyRepository.clearHistory()
+    }
+
+    fun clearRegularVideoHistory() = runMutation("clearRegularVideoHistory") {
+        requestedHistoryPage.value = 0
+        val items = historyRepository.observeHistory().first().filterNot { it.isShort }
+        for (item in items) {
+            val res = historyRepository.deleteHistoryItem(item.key)
+            if (res is AppResult.Failure) return@runMutation res
+        }
+        AppResult.Success(Unit)
+    }
+
+    fun clearShortsHistory() = runMutation("clearShortsHistory") {
+        val items = historyRepository.observeHistory().first().filter { it.isShort }
+        for (item in items) {
+            val res = historyRepository.deleteHistoryItem(item.key)
+            if (res is AppResult.Failure) return@runMutation res
+        }
+        AppResult.Success(Unit)
     }
 
     fun unsubscribe(channelKey: ContentKey) = runMutation("unsubscribe", "unsubscribe:$channelKey") {

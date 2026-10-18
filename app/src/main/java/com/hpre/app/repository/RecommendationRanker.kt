@@ -57,9 +57,10 @@ object RecommendationRanker {
                     currentChannel != null && normalizedChannel == currentChannel
                 ) CURRENT_CHANNEL_SCORE else 0
                 val freshnessScore = freshnessScore(video.publishedTimestamp, context.nowEpochSeconds)
+                val popularityScore = popularityScore(video.viewCount)
                 RankedVideo(
                     video,
-                    queryScore + affinity + relatedScore + currentChannelScore + freshnessScore,
+                    queryScore + affinity + relatedScore + currentChannelScore + freshnessScore + popularityScore,
                     indexed.index,
                     normalizedChannel,
                     isFallbackWatched = hasFreshCandidates && video.key in signals.recentlyWatched
@@ -129,6 +130,21 @@ object RecommendationRanker {
             ageDays <= 30 -> 5
             ageDays <= 180 -> 3
             ageDays <= 365 -> 1
+            else -> 0
+        }
+    }
+
+    private fun popularityScore(viewCount: Long?): Int {
+        if (viewCount == null) return 0
+        return when {
+            viewCount < 500L -> -35
+            viewCount < 2_000L -> -10
+            viewCount >= 5_000_000L -> 22
+            viewCount >= 1_000_000L -> 18
+            viewCount >= 200_000L -> 14
+            viewCount >= 50_000L -> 10
+            viewCount >= 10_000L -> 6
+            viewCount >= 2_000L -> 3
             else -> 0
         }
     }

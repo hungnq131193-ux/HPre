@@ -305,4 +305,152 @@ class MediaSourceFactory(
 
         return baseSource
     }
+
+    private val resolutionLabelRegex = Regex("""^(\d{3,4})p""")
+
+    /**
+     * Returns the nominal short-side resolution (e.g., 1080 for both 1920x1080 horizontal and
+     * 1080x1920 vertical Shorts, 720 for 720x1280 vertical Shorts) so vertical 9:16, 4:5, 3:4,
+     * and 60fps streams (`1080p60`, `720p60`) are never misclassified as non-HD.
+     */
+    internal fun nominalResolution(option: QualityOption): Int {
+        val fromLabel = resolutionLabelRegex.find(option.label)?.groupValues?.getOrNull(1)?.toIntOrNull()
+        if (fromLabel != null && fromLabel in 144..2160 && fromLabel != option.height) {
+            return fromLabel
+        }
+        return when {
+            option.height in listOf(1920, 1280, 854, 640, 426, 256) -> (option.height * 9 + 8) / 16
+            option.height in 1700..2000 -> 1080
+            option.height in 1150..1699 -> 720
+            else -> option.height
+        }
+    }
+
+    /**
+     * Ranks codecs by Android hardware decoder universality so fast-start and Shorts playback
+     * prefer H.264 (`avc1`) over VP9 and avoid AV1 (`av01`) hardware decoder failures.
+     */
+    private fun codecCompatibilityRank(option: QualityOption): Int {
+        val codec = option.codec?.lowercase().orEmpty()
+        return when {
+            codec.startsWith("avc1") || codec.startsWith("h264") -> 3
+            codec.startsWith("vp9") || codec.startsWith("vp09") -> 2
+            codec.startsWith("av01") -> 0
+            else -> 1
+        }
+    }
+
+    private fun fastStartResolutionRank(resolution: Int): Int = when (resolution) {
+        in 781..1150 -> 4  // 1080p Full HD
+        in 680..780 -> 3   // 720p HD
+        in 440..679 -> 2   // 480p
+        in 320..439 -> 1   // 360p
+        else -> 0
+    }
+
+    /**
+     * Selects a high-definition cache-friendly stream option (1080p/720p H.264 Merged AV or HD
+     * Progressive MP4) that bypasses multi-round-trip DASH manifest parsing, works with
+     * [SimpleCache], and avoids 360p blurriness (`itag 18`) as well as AV1 codec failures.
+     */
+    fun selectFastStartQuality(streamInfo: com.hpre.app.model.StreamInfo): QualityOption? {
+        val qualities = StreamSelector.getAvailableQualities(streamInfo)
+        val cacheable = qualities.filter {
+            it.streamType == PlaybackStreamType.MERGED_AV || it.streamType == PlaybackStreamType.PROGRESSIVE
+        }
+        if (cacheable.isEmpty()) {
+            return qualities.firstOrNull {
+                it.streamType == PlaybackStreamType.DASH || it.streamType == PlaybackStreamType.HLS
+            }
+        }
+
+        val hdComparator = compareBy<QualityOption> { codecCompatibilityRank(it) }
+            .thenBy { fastStartResolutionRank(nominalResolution(it)) }
+            .thenBy { nominalResolution(it) }
+            .thenBy { it.isProgressive }
+
+        // 1. Prefer crisp 720p..1080p (Full HD / HD) with universally supported H.264/VP9 codec
+        val hdNonAv1 = cacheable
+            .filter { nominalResolution(it) in 680..1150 && codecCompatibilityRank(it) >= 1 }
+            .maxWithOrNull(hdComparator)
+        if (hdNonAv1 != null) return hdNonAv1
+
+        // 2. Next prefer 480p..1080p (any compatible codec, preferring H.264/VP9)
+        val sdOrHd = cacheable
+            .filter { nominalResolution(it) in 440..1150 }
+            .maxWithOrNull(hdComparator)
+        if (sdOrHd != null) return sdOrHd
+
+        // 3. If only <=360p progressive exists (e.g. itag 18) but an adaptive HLS/DASH manifest
+        // is present, prefer adaptive HLS/DASH so playback can still reach 720p/1080p HD!
+        qualities.firstOrNull {
+            it.streamType == PlaybackStreamType.HLS || it.streamType == PlaybackStreamType.DASH
+        }?.let { return it }
+
+        // 4. Fallback to 360p/240p Progressive or Merged AV only when no >=480p or manifest exists
+        return cacheable
+            .filter { nominalResolution(it) in 240..480 }
+            .maxWithOrNull(hdComparator)
+            ?: cacheable.maxWithOrNull(hdComparator)
+    }
+
+    /**
+     * Pre-warms the first media bytes of [streamInfo] into [SimpleCache] so that when the user
+     * swipes to this Short or opens this video, ExoPlayer reads the initial keyframes from local
+     * cache in 0ms without waiting on a network round-trip.
+     */
+    fun preCacheFirstBytes(
+        streamInfo: com.hpre.app.model.StreamInfo,
+        preferredQuality: QualityOption? = null,
+        maxBytes: Long = 1_048_576L
+    ) {
+        if (streamInfo.isLive) return
+        val quality = preferredQuality ?: selectFastStartQuality(streamInfo)
+        val preference = quality?.let { QualityPreference.SpecificOption(it) } ?: QualityPreference.ExactOrBelow(1080)
+        val selected = (StreamSelector.selectStream(streamInfo, preference) as? com.hpre.app.core.error.AppResult.Success)?.value
+            ?: return
+
+        when (selected.streamType) {
+            PlaybackStreamType.PROGRESSIVE -> {
+                val video = selected.videoStream ?: return
+                val cacheKey = YouTubeCacheKeyFactory.buildVideoCacheKey(selected.key, video)
+                warmDataSourceRange(Uri.parse(video.url), cacheKey, maxBytes)
+            }
+            PlaybackStreamType.MERGED_AV -> {
+                val video = selected.videoStream ?: return
+                val audio = selected.audioStream ?: return
+                val videoCacheKey = YouTubeCacheKeyFactory.buildVideoCacheKey(selected.key, video)
+                val audioCacheKey = YouTubeCacheKeyFactory.buildAudioCacheKey(selected.key, audio)
+                warmDataSourceRange(Uri.parse(video.url), videoCacheKey, (maxBytes * 3) / 4)
+                warmDataSourceRange(Uri.parse(audio.url), audioCacheKey, maxBytes / 4)
+            }
+            else -> Unit
+        }
+    }
+
+    private fun warmDataSourceRange(uri: Uri, cacheKey: String, maxBytes: Long) {
+        if (maxBytes <= 0L) return
+        val dataSource = cachedProgressiveDataSourceFactory.createDataSource()
+        val spec = androidx.media3.datasource.DataSpec.Builder()
+            .setUri(uri)
+            .setPosition(0L)
+            .setLength(maxBytes)
+            .setKey(cacheKey)
+            .build()
+        try {
+            dataSource.open(spec)
+            val buffer = ByteArray(32 * 1024)
+            var totalRead = 0L
+            while (totalRead < maxBytes) {
+                val toRead = minOf(buffer.size.toLong(), maxBytes - totalRead).toInt()
+                val read = dataSource.read(buffer, 0, toRead)
+                if (read == C.RESULT_END_OF_INPUT || read <= 0) break
+                totalRead += read
+            }
+        } catch (_: Throwable) {
+            // Best-effort pre-caching; ignore network or cancellation errors
+        } finally {
+            runCatching { dataSource.close() }
+        }
+    }
 }

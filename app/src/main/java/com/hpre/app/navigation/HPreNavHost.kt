@@ -46,6 +46,9 @@ import com.hpre.app.ui.home.HomeScreen
 import com.hpre.app.ui.home.HomeViewModel
 import com.hpre.app.ui.search.SearchScreen
 import com.hpre.app.ui.search.SearchViewModel
+import com.hpre.app.ui.shorts.ShortsScreen
+import com.hpre.app.ui.shorts.ShortsSeedStore
+import com.hpre.app.ui.shorts.ShortsViewModel
 
 @Composable
 fun HPreNavHost(
@@ -56,6 +59,22 @@ fun HPreNavHost(
 ) {
     val app = androidx.compose.ui.platform.LocalContext.current.applicationContext as? com.hpre.app.HPreApplication
     val effectiveCoordinator = coordinator ?: app?.playbackUiCoordinator ?: androidx.compose.runtime.remember { com.hpre.app.player.PlaybackUiCoordinator() }
+
+    fun navigateToVideoOrShort(video: VideoSummary, beforeNavigate: () -> Unit = {}) {
+        if (video.isShort) {
+            beforeNavigate()
+            ShortsSeedStore.seed(video)
+            navController.navigate(Screen.Shorts.route) {
+                launchSingleTop = true
+            }
+        } else {
+            beginVideoNavigation(
+                key = video.key,
+                beforeNavigate = beforeNavigate,
+                navigate = { navController.navigate(Screen.Watch.createRoute(video.key, video.thumbnailUrl)) }
+            )
+        }
+    }
 
     NavHost(
         navController = navController,
@@ -81,16 +100,40 @@ fun HPreNavHost(
                     )
                 },
                 onVideoSelected = { video ->
-                    beginVideoNavigation(
-                        key = video.key,
-                        beforeNavigate = { homeViewModel.onVideoSelected() },
-                        navigate = { navController.navigate(Screen.Watch.createRoute(video.key, video.thumbnailUrl)) }
-                    )
+                    navigateToVideoOrShort(video) { homeViewModel.onVideoSelected() }
                 },
                 onChannelClick = { channelKey ->
                     navController.navigate(Screen.Channel.createRoute(channelKey))
                 },
                 onContentIdle = container::prewarmPlaybackInfrastructure
+            )
+        }
+
+        composable(Screen.Shorts.route) {
+            val shortsViewModel: ShortsViewModel = viewModel(
+                factory = ShortsViewModel.provideFactory(
+                    catalogRepository = container.catalogRepository,
+                    videoService = container.videoService,
+                    searchHistoryRepository = container.searchHistoryRepository,
+                    historyRepository = container.historyRepository,
+                    playbackPreferences = container.playbackPreferences,
+                    playerController = container.createPlayerController(),
+                    mediaSourceFactory = container.mediaSourceFactory,
+                    mediaCacheManager = container.mediaCacheManager
+                )
+            )
+            ShortsScreen(
+                viewModel = shortsViewModel,
+                onSearchClick = { navController.navigate(Screen.Search.route) },
+                onChannelClick = { channelKey ->
+                    navController.navigate(Screen.Channel.createRoute(channelKey))
+                },
+                onOpenFullWatch = { video ->
+                    beginVideoNavigation(
+                        key = video.key,
+                        navigate = { navController.navigate(Screen.Watch.createRoute(video.key, video.thumbnailUrl)) }
+                    )
+                }
             )
         }
 
@@ -120,11 +163,7 @@ fun HPreNavHost(
                     navController.navigate(Screen.PlaylistUnavailable.createRoute(key))
                 },
                 onVideoSelected = { video ->
-                    beginVideoNavigation(
-                        key = video.key,
-                        beforeNavigate = { searchViewModel.onVideoSelected() },
-                        navigate = { navController.navigate(Screen.Watch.createRoute(video.key, video.thumbnailUrl)) }
-                    )
+                    navigateToVideoOrShort(video) { searchViewModel.onVideoSelected() }
                 }
             )
         }
@@ -158,9 +197,7 @@ fun HPreNavHost(
                     })
                 },
                 onVideoSelected = { video ->
-                    beginVideoNavigation(key = video.key, navigate = {
-                        navController.navigate(Screen.Watch.createRoute(video.key, video.thumbnailUrl))
-                    })
+                    navigateToVideoOrShort(video)
                 }
             )
         }
@@ -175,7 +212,14 @@ fun HPreNavHost(
             )
             com.hpre.app.ui.library.LibraryScreen(
                 viewModel = libraryViewModel,
-                onNavigateToHistory = { navController.navigate(Screen.History.route) },
+                onNavigateToHistory = {
+                    HistoryInitialTabStore.requestShortsTab(false)
+                    navController.navigate(Screen.History.route)
+                },
+                onNavigateToShortsHistory = {
+                    HistoryInitialTabStore.requestShortsTab(true)
+                    navController.navigate(Screen.History.route)
+                },
                 onNavigateToSubscriptions = { navController.navigate(Screen.Subscriptions.route) },
                 onNavigateToPlaylists = { navController.navigate(Screen.Playlists.route) },
                 onNavigateToDownloads = { navController.navigate(Screen.Downloads.route) },
@@ -192,6 +236,9 @@ fun HPreNavHost(
                     beginVideoNavigation(key = key, navigate = {
                         navController.navigate(Screen.Watch.createRoute(key, thumb))
                     })
+                },
+                onShortSelected = { video ->
+                    navigateToVideoOrShort(video)
                 }
             )
         }
@@ -214,12 +261,19 @@ fun HPreNavHost(
                     playlistRepository = container.playlistRepository
                 )
             )
+            val startOnShortsTab = androidx.compose.runtime.remember {
+                HistoryInitialTabStore.consumeShortsTab()
+            }
             com.hpre.app.ui.library.HistoryScreen(
                 viewModel = libraryViewModel,
+                initialShortsTab = startOnShortsTab,
                 onVideoClick = { key ->
                     beginVideoNavigation(key = key, navigate = {
                         navController.navigate(Screen.Watch.createRoute(key))
                     })
+                },
+                onShortSelected = { video ->
+                    navigateToVideoOrShort(video)
                 },
                 onNavigateBack = { navController.popBackStack() }
             )
@@ -500,3 +554,19 @@ fun NavHostController.navigateToHomeFromWatch() {
         }
     }
 }
+
+internal object HistoryInitialTabStore {
+    @Volatile
+    private var openShortsTab: Boolean = false
+
+    fun requestShortsTab(shorts: Boolean) {
+        openShortsTab = shorts
+    }
+
+    fun consumeShortsTab(): Boolean {
+        val result = openShortsTab
+        openShortsTab = false
+        return result
+    }
+}
+

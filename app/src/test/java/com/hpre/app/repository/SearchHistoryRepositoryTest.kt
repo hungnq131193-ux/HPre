@@ -171,26 +171,26 @@ class SearchHistoryRepositoryTest {
         val dao = FakeSearchHistoryDao()
         val dispatcher = StandardTestDispatcher(testScheduler)
 
-        // Test injected max > 100 clamped to 100
-        val repoOver = DefaultSearchHistoryRepository(dao, dispatcher, maxEntries = 150)
-        for (i in 1..120) {
+        // Test injected max > 200 clamped to 200
+        val repoOver = DefaultSearchHistoryRepository(dao, dispatcher, maxEntries = 250)
+        for (i in 1..220) {
             repoOver.recordQuery("q$i", timestamp = i.toLong())
         }
-        assertEquals(100, dao.storage.size)
+        assertEquals(200, dao.storage.size)
 
         // Test negative / 0 maxEntries clamped to 1
         val repoNeg = DefaultSearchHistoryRepository(dao, dispatcher, maxEntries = -5)
         repoNeg.recordQuery("single_item", timestamp = 1000L)
         assertEquals(1, dao.storage.size)
 
-        // Test observeRecentQueries with limit > 100 clamped to 100, and limit <= 0 clamped to 1
-        val repoNormal = DefaultSearchHistoryRepository(dao, dispatcher, maxEntries = 100)
+        // Test observeRecentQueries with limit > 200 clamped to 200, and limit <= 0 clamped to 1
+        val repoNormal = DefaultSearchHistoryRepository(dao, dispatcher, maxEntries = 200)
         dao.clearAll()
-        for (i in 1..100) {
+        for (i in 1..200) {
             repoNormal.recordQuery("query_$i", timestamp = i.toLong())
         }
-        val observedOver = repoNormal.observeRecentQueries(limit = 200).first()
-        assertEquals(100, observedOver.size)
+        val observedOver = repoNormal.observeRecentQueries(limit = 300).first()
+        assertEquals(200, observedOver.size)
 
         val observedZero = repoNormal.observeRecentQueries(limit = 0).first()
         assertEquals(1, observedZero.size)

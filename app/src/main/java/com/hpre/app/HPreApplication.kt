@@ -30,8 +30,8 @@ open class HPreApplication : Application(), ImageLoaderFactory {
             connectTimeoutSeconds = 15,
             readTimeoutSeconds = 20,
             callTimeoutSeconds = 30,
-            maxIdleConnections = 8,
-            keepAliveDurationMinutes = 5
+            maxIdleConnections = 16,
+            keepAliveDurationMinutes = 10
         ).createOkHttpClient()
     }
 

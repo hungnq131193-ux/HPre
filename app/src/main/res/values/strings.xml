@@ -2,8 +2,12 @@
 <resources>
     <string name="app_name">HPre</string>
     <string name="nav_home">Trang chủ</string>
+    <string name="nav_shorts">Shorts</string>
     <string name="nav_subscriptions">Kênh đăng ký</string>
     <string name="nav_library">Thư viện</string>
+    <string name="shorts_badge">SHORTS</string>
+    <string name="shorts_empty">Chưa có video Shorts phù hợp</string>
+    <string name="shorts_open_watch">Mở trình phát đầy đủ</string>
     <string name="action_search">Tìm kiếm</string>
     <string name="action_settings">Cài đặt</string>
     <string name="action_back">Quay lại</string>
@@ -100,6 +104,15 @@
     <string name="playlist_remove_video">Xóa khỏi danh sách phát</string>
     <string name="library_history">Lịch sử</string>
     <string name="library_history_empty">Chưa có video đã xem</string>
+    <string name="library_shorts_history">Lịch sử Shorts</string>
+    <string name="library_shorts_history_empty">Chưa có video Shorts đã xem</string>
+    <string name="history_tab_videos">Video thường</string>
+    <string name="history_tab_shorts">Shorts</string>
+    <string name="history_shorts_empty">Chưa có lịch sử xem Shorts</string>
+    <string name="history_clear_videos_title">Xóa lịch sử xem video thường?</string>
+    <string name="history_clear_videos_message">Thao tác này sẽ xóa toàn bộ lịch sử xem video thường trên thiết bị.</string>
+    <string name="history_clear_shorts_title">Xóa lịch sử xem Shorts?</string>
+    <string name="history_clear_shorts_message">Thao tác này sẽ xóa toàn bộ lịch sử xem Shorts trên thiết bị.</string>
     <string name="library_playlists_empty">Chưa tạo danh sách phát trên thiết bị</string>
     <string name="library_subscriptions_empty">Chưa theo dõi kênh nào</string>
     <string name="screen_comments">Bình luận</string>

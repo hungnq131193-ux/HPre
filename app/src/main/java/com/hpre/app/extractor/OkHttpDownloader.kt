@@ -49,6 +49,8 @@ open class OkHttpDownloader(
     companion object {
         const val USER_AGENT = com.hpre.app.core.network.NetworkPolicy.DEFAULT_USER_AGENT
         private const val VISITOR_ID_URL_PREFIX = "https://www.youtube.com/youtubei/v1/visitor_id"
+        private const val YOUTUBEI_PLAYER_URL_PREFIX = "https://www.youtube.com/youtubei/v1/player"
+        private const val GLOBAL_VISITOR_KEY = "__global_visitor_id__"
         private const val VISITOR_ID_CACHE_TTL_MS = 10 * 60 * 1000L
 
         private val activeCallsByThread = ConcurrentHashMap<Long, Call>()
@@ -113,7 +115,7 @@ open class OkHttpDownloader(
             url.startsWith(VISITOR_ID_URL_PREFIX)
         if (isVisitorIdRequest) {
             val nowMs = System.currentTimeMillis()
-            val cached = visitorIdCache[effectiveUserAgent]
+            val cached = visitorIdCache[effectiveUserAgent] ?: visitorIdCache[GLOBAL_VISITOR_KEY]
             if (cached != null && nowMs - cached.timestampMs < VISITOR_ID_CACHE_TTL_MS) {
                 return cached.response
             }
@@ -190,10 +192,12 @@ open class OkHttpDownloader(
                     if (visitorIdCache.size >= 16) {
                         visitorIdCache.clear()
                     }
-                    visitorIdCache[effectiveUserAgent] = CachedVisitorResponse(
+                    val entry = CachedVisitorResponse(
                         response = mappedResponse,
                         timestampMs = System.currentTimeMillis()
                     )
+                    visitorIdCache[effectiveUserAgent] = entry
+                    visitorIdCache[GLOBAL_VISITOR_KEY] = entry
                 }
                 mappedResponse
             }

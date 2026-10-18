@@ -301,10 +301,10 @@ class HPrePlaybackService : MediaLibraryService() {
         val selector = DefaultTrackSelector(
             this,
             AdaptiveTrackSelection.Factory(
-                /* minDurationForQualityIncreaseMs = */ 2_500,
-                /* maxDurationForQualityDecreaseMs = */ 20_000,
-                /* minDurationToRetainAfterDiscardMs = */ 3_000,
-                /* bandwidthFraction = */ 0.8f
+                /* minDurationForQualityIncreaseMs = */ 1_200,
+                /* maxDurationForQualityDecreaseMs = */ 22_000,
+                /* minDurationToRetainAfterDiscardMs = */ 2_500,
+                /* bandwidthFraction = */ 0.88f
             )
         )
         trackSelector = selector
@@ -508,6 +508,18 @@ class HPrePlaybackService : MediaLibraryService() {
                     PlaybackStreamType.DASH -> QualityPreference.ExactOrBelow(
                         (currentQualityPolicy as? UserQualityPolicy.Auto)?.maxHeight ?: Int.MAX_VALUE
                     )
+                    PlaybackStreamType.MERGED_AV -> available
+                        .firstOrNull { it.streamType == PlaybackStreamType.PROGRESSIVE }
+                        ?.let(QualityPreference::SpecificOption)
+                        ?: available.firstOrNull { it.streamType == PlaybackStreamType.DASH || it.streamType == PlaybackStreamType.HLS }
+                            ?.let(QualityPreference::SpecificOption)
+                    PlaybackStreamType.PROGRESSIVE -> available
+                        .firstOrNull {
+                            it.streamType == PlaybackStreamType.MERGED_AV &&
+                                it.codec?.lowercase()?.startsWith("avc1") == true
+                        }?.let(QualityPreference::SpecificOption)
+                        ?: available.firstOrNull { it.streamType == PlaybackStreamType.DASH || it.streamType == PlaybackStreamType.HLS }
+                            ?.let(QualityPreference::SpecificOption)
                     else -> null
                 }
                 if (failedType != null) attemptedSourceTypes += failedType
@@ -858,14 +870,18 @@ class HPrePlaybackService : MediaLibraryService() {
         builder.setForceLowestBitrate(false)
         when (policy) {
             is UserQualityPolicy.Auto -> {
-                val maxHeight = policy.maxHeight ?: Int.MAX_VALUE
+                val rawMaxHeight = policy.maxHeight ?: Int.MAX_VALUE
+                // Vertical 9:16 Shorts have height = width * 16 / 9 (e.g. 1280 for 720p, 1920 for 1080p)
+                val maxHeight = if (rawMaxHeight in 1..4320) (rawMaxHeight * 16) / 9 else rawMaxHeight
                 builder.setMinVideoSize(0, 0)
                 builder.setMaxVideoSize(Int.MAX_VALUE, maxHeight)
                 builder.setMaxVideoBitrate(policy.maxBitrate ?: Int.MAX_VALUE)
             }
             is UserQualityPolicy.Fixed -> {
                 val height = policy.option.height
-                if (height > 0) {
+                val isSingleTrackSource = currentStreamType == PlaybackStreamType.PROGRESSIVE ||
+                    currentStreamType == PlaybackStreamType.MERGED_AV
+                if (height > 0 && !isSingleTrackSource) {
                     builder.setMinVideoSize(0, height)
                     builder.setMaxVideoSize(Int.MAX_VALUE, height)
                 } else {
@@ -886,9 +902,15 @@ class HPrePlaybackService : MediaLibraryService() {
         }
         val player = exoPlayer ?: return
         val policy = currentQualityPolicy as UserQualityPolicy.Auto
+        val userMax = policy.maxHeight
+        val effectiveCeiling = when {
+            userMax != null && userMax in 1..719 -> (userMax * 16) / 9
+            ceiling in 1..4320 -> maxOf(1920, (ceiling * 16) / 9)
+            else -> ceiling
+        }
         player.trackSelectionParameters = player.trackSelectionParameters.buildUpon()
             .setForceLowestBitrate(false)
-            .setMaxVideoSize(Int.MAX_VALUE, ceiling)
+            .setMaxVideoSize(Int.MAX_VALUE, effectiveCeiling)
             .setMaxVideoBitrate(policy.maxBitrate ?: Int.MAX_VALUE)
             .build()
     }

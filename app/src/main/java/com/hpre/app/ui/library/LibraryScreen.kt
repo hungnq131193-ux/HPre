@@ -80,6 +80,7 @@ import com.hpre.app.repository.WatchHistoryItem
 fun LibraryScreen(
     viewModel: LibraryViewModel,
     onNavigateToHistory: () -> Unit,
+    onNavigateToShortsHistory: () -> Unit = onNavigateToHistory,
     onNavigateToSubscriptions: () -> Unit,
     onNavigateToPlaylists: () -> Unit,
     onNavigateToDownloads: () -> Unit = {},
@@ -87,10 +88,13 @@ fun LibraryScreen(
     onVideoClick: (ContentKey) -> Unit,
     onChannelClick: (ContentKey) -> Unit,
     onVideoSelected: ((ContentKey, String?) -> Unit)? = null,
+    onShortSelected: ((VideoSummary) -> Unit)? = null,
     modifier: Modifier = Modifier
 ) {
-    val historyList by viewModel.recentHistory.collectAsStateWithLifecycle()
-    val historyCount by viewModel.historyCount.collectAsStateWithLifecycle()
+    val recentVideoList by viewModel.recentVideoHistory.collectAsStateWithLifecycle()
+    val recentShortsList by viewModel.recentShortsHistory.collectAsStateWithLifecycle()
+    val regularVideoHistory by viewModel.regularVideoHistory.collectAsStateWithLifecycle()
+    val shortsHistory by viewModel.shortsHistory.collectAsStateWithLifecycle()
     val subscriptionsList by viewModel.subscriptions.collectAsStateWithLifecycle()
     val playlistsList by viewModel.playlists.collectAsStateWithLifecycle()
     val mutationState by viewModel.mutationState.collectAsStateWithLifecycle()
@@ -103,15 +107,15 @@ fun LibraryScreen(
             .verticalScroll(rememberScrollState())
             .testTag("library_screen")
     ) {
-        // Section: History Header & Recent Horizontal Row
+        // Section 1: Regular Video Watch History
         LibrarySectionHeader(
             title = stringResource(R.string.library_history),
-            count = historyCount,
+            count = regularVideoHistory.size,
             onSeeAllClick = onNavigateToHistory,
             tag = "library_history_header"
         )
 
-        if (historyList.isEmpty()) {
+        if (recentVideoList.isEmpty()) {
             Text(
                 text = stringResource(R.string.library_history_empty),
                 style = MaterialTheme.typography.bodyMedium,
@@ -126,11 +130,53 @@ fun LibraryScreen(
                     .testTag("library_recent_history_row"),
                 horizontalArrangement = Arrangement.spacedBy(12.dp)
             ) {
-                items(historyList, key = { it.key.toString() }, contentType = { "history_card" }) { item ->
+                items(recentVideoList, key = { it.key.toString() }, contentType = { "history_card" }) { item ->
                     RecentHistoryCard(
                         item = item,
                         onClick = {
                             if (onVideoSelected != null) {
+                                onVideoSelected(item.key, item.thumbnailUrl)
+                            } else {
+                                onVideoClick(item.key)
+                            }
+                        }
+                    )
+                }
+            }
+        }
+
+        Spacer(modifier = Modifier.height(14.dp))
+
+        // Section 2: Shorts Watch History (Separated)
+        LibrarySectionHeader(
+            title = stringResource(R.string.library_shorts_history),
+            count = shortsHistory.size,
+            onSeeAllClick = onNavigateToShortsHistory,
+            tag = "library_shorts_history_header"
+        )
+
+        if (recentShortsList.isEmpty()) {
+            Text(
+                text = stringResource(R.string.library_shorts_history_empty),
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)
+            )
+        } else {
+            LazyRow(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 12.dp)
+                    .testTag("library_recent_shorts_history_row"),
+                horizontalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
+                items(recentShortsList, key = { "short_${it.key}" }, contentType = { "short_history_card" }) { item ->
+                    RecentShortHistoryCard(
+                        item = item,
+                        onClick = {
+                            if (onShortSelected != null) {
+                                onShortSelected(item.toVideoSummary())
+                            } else if (onVideoSelected != null) {
                                 onVideoSelected(item.key, item.thumbnailUrl)
                             } else {
                                 onVideoClick(item.key)
@@ -323,7 +369,7 @@ private fun RecentHistoryCard(
 ) {
     Card(
         modifier = Modifier
-            .width(160.dp)
+            .width(164.dp)
             .clickable(onClick = onClick)
             .testTag("recent_history_card_${item.key.nativeId}"),
         shape = RoundedCornerShape(HPreShapes.Card),
@@ -343,6 +389,25 @@ private fun RecentHistoryCard(
                         contentScale = ContentScale.Crop,
                         modifier = Modifier.fillMaxSize()
                     )
+                }
+                item.durationSeconds?.takeIf { it > 0L }?.let { duration ->
+                    val mins = duration / 60L
+                    val secs = duration % 60L
+                    Surface(
+                        color = androidx.compose.ui.graphics.Color.Black.copy(alpha = 0.78f),
+                        shape = RoundedCornerShape(4.dp),
+                        modifier = Modifier
+                            .align(Alignment.BottomEnd)
+                            .padding(end = 6.dp, bottom = 7.dp)
+                    ) {
+                        Text(
+                            text = "%d:%02d".format(mins, secs),
+                            style = MaterialTheme.typography.labelSmall,
+                            color = androidx.compose.ui.graphics.Color.White,
+                            fontWeight = FontWeight.SemiBold,
+                            modifier = Modifier.padding(horizontal = 5.dp, vertical = 1.dp)
+                        )
+                    }
                 }
                 if (item.playbackPositionMs > 0 && HistoryRepository.shouldOfferResume(item.playbackPositionMs, item.durationSeconds)) {
                     val durationMs = (item.durationSeconds ?: 0L) * 1000L
@@ -373,6 +438,89 @@ private fun RecentHistoryCard(
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis
                     )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun RecentShortHistoryCard(
+    item: WatchHistoryItem,
+    onClick: () -> Unit
+) {
+    Card(
+        modifier = Modifier
+            .width(114.dp)
+            .clickable(onClick = onClick)
+            .testTag("recent_short_history_card_${item.key.nativeId}"),
+        shape = RoundedCornerShape(14.dp),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainer)
+    ) {
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .aspectRatio(9f / 16f)
+                .background(MaterialTheme.colorScheme.surfaceVariant)
+        ) {
+            if (!item.thumbnailUrl.isNullOrBlank()) {
+                AsyncImage(
+                    model = item.thumbnailUrl,
+                    contentDescription = item.title,
+                    contentScale = ContentScale.Crop,
+                    modifier = Modifier.fillMaxSize()
+                )
+            }
+            // Top-left SHORTS pill badge
+            Surface(
+                color = androidx.compose.ui.graphics.Color(0xFFE53935).copy(alpha = 0.92f),
+                shape = RoundedCornerShape(6.dp),
+                modifier = Modifier
+                    .align(Alignment.TopStart)
+                    .padding(6.dp)
+            ) {
+                Text(
+                    text = "SHORTS",
+                    style = MaterialTheme.typography.labelSmall,
+                    fontWeight = FontWeight.ExtraBold,
+                    color = androidx.compose.ui.graphics.Color.White,
+                    modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                )
+            }
+            // Bottom dark gradient overlay with title & channel
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .align(Alignment.BottomCenter)
+                    .background(
+                        androidx.compose.ui.graphics.Brush.verticalGradient(
+                            colors = listOf(
+                                androidx.compose.ui.graphics.Color.Transparent,
+                                androidx.compose.ui.graphics.Color.Black.copy(alpha = 0.86f)
+                            )
+                        )
+                    )
+                    .padding(horizontal = 8.dp, vertical = 8.dp)
+            ) {
+                Column {
+                    Text(
+                        text = item.title,
+                        style = MaterialTheme.typography.labelMedium,
+                        fontWeight = FontWeight.SemiBold,
+                        color = androidx.compose.ui.graphics.Color.White,
+                        maxLines = 2,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                    if (!item.channelName.isNullOrBlank()) {
+                        Spacer(modifier = Modifier.height(2.dp))
+                        Text(
+                            text = item.channelName,
+                            style = MaterialTheme.typography.labelSmall,
+                            color = androidx.compose.ui.graphics.Color.White.copy(alpha = 0.8f),
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                    }
                 }
             }
         }

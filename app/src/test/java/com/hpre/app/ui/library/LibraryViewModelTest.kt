@@ -160,6 +160,66 @@ class LibraryViewModelTest {
         assertEquals("unsubscribe", model.mutationState.value.operation)
     }
 
+    @Test
+    fun separates_regular_videos_and_shorts_history_and_clears_by_category() = runTest {
+        val historyRepo = FakeHistoryRepo()
+        historyRepo.listFlow.value = listOf(
+            WatchHistoryItem(
+                key = ContentKey(0, "v1"),
+                canonicalUrl = "https://www.youtube.com/watch?v=v1",
+                title = "Regular Video 1",
+                channelKey = null,
+                channelName = "Channel A",
+                thumbnailUrl = null,
+                durationSeconds = 300L,
+                playbackPositionMs = 50_000L,
+                watchedTimestamp = 3000L
+            ),
+            WatchHistoryItem(
+                key = ContentKey(0, "s1"),
+                canonicalUrl = "https://www.youtube.com/shorts/s1",
+                title = "Funny Cat #shorts",
+                channelKey = null,
+                channelName = "Channel B",
+                thumbnailUrl = null,
+                durationSeconds = 35L,
+                playbackPositionMs = 15_000L,
+                watchedTimestamp = 2000L
+            ),
+            WatchHistoryItem(
+                key = ContentKey(0, "s2"),
+                canonicalUrl = "https://www.youtube.com/shorts/s2",
+                title = "Tech Tip Short",
+                channelKey = null,
+                channelName = "Channel C",
+                thumbnailUrl = null,
+                durationSeconds = 45L,
+                playbackPositionMs = 20_000L,
+                watchedTimestamp = 1000L
+            )
+        )
+        val model = LibraryViewModel(historyRepo, FakeSubscriptionRepo(), FakePlaylistRepo())
+        backgroundScope.launch(UnconfinedTestDispatcher(testScheduler)) { model.regularVideoHistory.collect {} }
+        backgroundScope.launch(UnconfinedTestDispatcher(testScheduler)) { model.shortsHistory.collect {} }
+        backgroundScope.launch(UnconfinedTestDispatcher(testScheduler)) { model.recentVideoHistory.collect {} }
+        backgroundScope.launch(UnconfinedTestDispatcher(testScheduler)) { model.recentShortsHistory.collect {} }
+        runCurrent()
+
+        assertEquals(listOf("v1"), model.regularVideoHistory.value.map { it.key.nativeId })
+        assertEquals(listOf("s1", "s2"), model.shortsHistory.value.map { it.key.nativeId })
+        assertEquals(listOf("v1"), model.recentVideoHistory.value.map { it.key.nativeId })
+        assertEquals(listOf("s1", "s2"), model.recentShortsHistory.value.map { it.key.nativeId })
+
+        model.clearShortsHistory()
+        testScheduler.advanceUntilIdle()
+        assertTrue(model.shortsHistory.value.isEmpty())
+        assertEquals(listOf("v1"), model.regularVideoHistory.value.map { it.key.nativeId })
+
+        model.clearRegularVideoHistory()
+        testScheduler.advanceUntilIdle()
+        assertTrue(model.regularVideoHistory.value.isEmpty())
+    }
+
     private class FakeHistoryRepo : HistoryRepository {
         val listFlow = MutableStateFlow<List<WatchHistoryItem>>(emptyList())
         override fun observeHistory(): Flow<List<WatchHistoryItem>> = listFlow

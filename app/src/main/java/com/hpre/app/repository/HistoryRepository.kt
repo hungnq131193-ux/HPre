@@ -16,7 +16,28 @@ data class WatchHistoryItem(
     val durationSeconds: Long?,
     val playbackPositionMs: Long,
     val watchedTimestamp: Long
-)
+) {
+    val isShort: Boolean
+        get() = canonicalUrl.contains("/shorts/", ignoreCase = true) ||
+            title.contains("#shorts", ignoreCase = true) ||
+            title.contains("#short", ignoreCase = true) ||
+            (durationSeconds != null && durationSeconds in 1L..60L)
+
+    fun toVideoSummary(): VideoSummary = VideoSummary(
+        key = key,
+        title = title,
+        canonicalUrl = canonicalUrl,
+        channelKey = channelKey,
+        channelName = channelName,
+        channelAvatarUrl = null,
+        thumbnailUrl = thumbnailUrl,
+        durationSeconds = durationSeconds,
+        viewCount = null,
+        publishedTimestamp = null,
+        isLive = false,
+        isShort = isShort
+    )
+}
 
 interface HistoryRepository {
     fun observeHistory(): Flow<List<WatchHistoryItem>>

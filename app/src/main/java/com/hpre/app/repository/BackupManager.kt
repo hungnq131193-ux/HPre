@@ -147,19 +147,6 @@ class BackupManager(
         writer.endObject()
     }
 
-    private fun WatchHistoryItem.toVideoSummary() = VideoSummary(
-        key = key,
-        title = title,
-        canonicalUrl = canonicalUrl,
-        channelKey = channelKey,
-        channelName = channelName,
-        channelAvatarUrl = null,
-        thumbnailUrl = thumbnailUrl,
-        durationSeconds = durationSeconds,
-        viewCount = null,
-        publishedTimestamp = null
-    )
-
     private fun LocalPlaylistEntry.toVideoSummary() = VideoSummary(
         key = videoKey,
         title = title,
