@@ -99,6 +99,23 @@ class DownloadPlanTest {
     }
 
     @Test
+    fun `video prefers 1080p split over 360p muxed when audio is available`() {
+        val info = StreamInfo(
+            key = key,
+            title = "t",
+            videoStreams = listOf(
+                videoStream(360, videoOnly = false, url = "https://v/mux360"),
+                videoStream(1080, videoOnly = true, url = "https://v/only1080")
+            ),
+            audioStreams = listOf(audioStream(128_000, "https://a/best"))
+        )
+        val plan = DownloadPlan.select(info, audioOnly = false)
+        assertEquals(2, plan?.size)
+        assertEquals("https://v/only1080", plan!![0].url)
+        assertEquals("https://a/best", plan[1].url)
+    }
+
+    @Test
     fun `ids encode content key`() {
         assertEquals("hpre:0:abc123", DownloadPlan.primaryId(key))
         assertEquals("hpre:0:abc123|a", DownloadPlan.audioId(key))

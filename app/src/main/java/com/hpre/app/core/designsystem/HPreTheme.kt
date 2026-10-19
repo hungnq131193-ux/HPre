@@ -88,6 +88,17 @@ internal val LightColorScheme = lightColorScheme(
     scrim = Color.Black
 )
 
+internal val AmoledColorScheme = DarkColorScheme.copy(
+    background = Color.Black,
+    surface = Color.Black,
+    surfaceContainerLowest = Color.Black,
+    surfaceContainerLow = Color(0xFF0A0B10),
+    surfaceContainer = Color(0xFF12131C),
+    surfaceContainerHigh = Color(0xFF1A1C28),
+    surfaceContainerHighest = Color(0xFF222433),
+    surfaceDim = Color.Black
+)
+
 internal val HPreMaterialShapes = Shapes(
     extraSmall = RoundedCornerShape(8.dp),
     small = RoundedCornerShape(12.dp),
@@ -99,9 +110,14 @@ internal val HPreMaterialShapes = Shapes(
 @Composable
 fun HPreTheme(
     darkTheme: Boolean = isSystemInDarkTheme(),
+    amoledTheme: Boolean = false,
     content: @Composable () -> Unit
 ) {
-    val colorScheme = if (darkTheme) DarkColorScheme else LightColorScheme
+    val colorScheme = when {
+        amoledTheme -> AmoledColorScheme
+        darkTheme -> DarkColorScheme
+        else -> LightColorScheme
+    }
 
     MaterialTheme(
         colorScheme = colorScheme,

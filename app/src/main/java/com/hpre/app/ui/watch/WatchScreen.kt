@@ -11,6 +11,7 @@ import android.view.Window
 import androidx.activity.compose.BackHandler
 import androidx.annotation.VisibleForTesting
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.animateContentSize
 import androidx.compose.animation.core.LinearOutSlowInEasing
 import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.animate
@@ -834,6 +835,8 @@ fun WatchMetadataContent(
                 maxLines = if (isTitleExpanded) Int.MAX_VALUE else 2,
                 overflow = TextOverflow.Ellipsis,
                 modifier = Modifier
+                    .fillMaxWidth()
+                    .animateContentSize()
                     .clickable { isTitleExpanded = !isTitleExpanded }
                     .testTag("watch_video_title")
             )
@@ -979,6 +982,7 @@ fun WatchMetadataContent(
                         .fillMaxWidth()
                         .clip(RoundedCornerShape(HPreShapes.Card))
                         .background(MaterialTheme.colorScheme.surfaceContainer)
+                        .animateContentSize()
                         .clickable { isDescriptionExpanded = !isDescriptionExpanded }
                         .padding(12.dp)
                         .testTag("watch_description_container")

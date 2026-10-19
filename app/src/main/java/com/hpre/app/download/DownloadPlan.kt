@@ -38,19 +38,38 @@ object DownloadPlan {
         val muxed = info.videoStreams
             .filter { !it.isVideoOnly }
             .maxByOrNull { it.height ?: 0 }
-        if (muxed != null) {
+        if (muxed != null && (muxed.height ?: 0) >= 720) {
             return listOf(Request(primaryId(info.key), muxed.url, isVideo = true))
         }
 
-        val video = info.videoStreams
-            .filter { it.isVideoOnly }
-            .maxByOrNull { it.height ?: 0 }
-            ?: return null
-        val audio = info.audioStreams.maxByOrNull { it.averageBitrate ?: it.bitrate ?: 0L }
-            ?: return null
-        return listOf(
-            Request(primaryId(info.key), video.url, isVideo = true),
-            Request(audioId(info.key), audio.url, isVideo = false)
+        val videoCandidates = info.videoStreams.filter { it.isVideoOnly }
+        val cappedCandidates = videoCandidates.filter {
+            val shortSide = minOf(it.width ?: Int.MAX_VALUE, it.height ?: Int.MAX_VALUE)
+            val nominal = if (shortSide in 1..4320) shortSide else (it.height ?: 0)
+            nominal <= 1080
+        }.ifEmpty { videoCandidates }
+
+        val video = cappedCandidates.maxWithOrNull(
+            compareBy<com.hpre.app.model.VideoStream> {
+                val codec = it.codec?.lowercase().orEmpty()
+                when {
+                    codec.startsWith("avc1") || codec.startsWith("h264") -> 2
+                    codec.startsWith("av01") -> 0
+                    else -> 1
+                }
+            }.thenBy { it.height ?: 0 }.thenBy { it.bitrate ?: 0L }
         )
+        val audio = info.audioStreams.maxByOrNull { it.averageBitrate ?: it.bitrate ?: 0L }
+        if (video != null && audio != null) {
+            return listOf(
+                Request(primaryId(info.key), video.url, isVideo = true),
+                Request(audioId(info.key), audio.url, isVideo = false)
+            )
+        }
+
+        if (muxed != null) {
+            return listOf(Request(primaryId(info.key), muxed.url, isVideo = true))
+        }
+        return null
     }
 }

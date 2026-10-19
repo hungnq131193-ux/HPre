@@ -220,17 +220,18 @@ fun PlayerControlsOverlay(
     val lifecycle = androidx.lifecycle.compose.LocalLifecycleOwner.current.lifecycle
     val accessibilityManager = androidx.compose.ui.platform.LocalAccessibilityManager.current
 
-    LaunchedEffect(controlsVisible, playbackState.key, lifecycle) {
+    LaunchedEffect(controlsVisible, playbackState.key, playbackState.isPlaying, lifecycle) {
         if (controlsVisible) {
             lifecycle.repeatOnLifecycle(androidx.lifecycle.Lifecycle.State.STARTED) {
-            while (true) {
-                try {
-                    localProgress = currentReadProgress.value()
-                } catch (e: Exception) {
-                    if (e is kotlinx.coroutines.CancellationException) throw e
+                while (true) {
+                    try {
+                        localProgress = currentReadProgress.value()
+                    } catch (e: Exception) {
+                        if (e is kotlinx.coroutines.CancellationException) throw e
+                    }
+                    if (!playbackState.isPlaying) break
+                    delay(PlayerControlsPolicy.PROGRESS_POLL_INTERVAL_MS)
                 }
-                delay(PlayerControlsPolicy.PROGRESS_POLL_INTERVAL_MS)
-            }
             }
         }
     }

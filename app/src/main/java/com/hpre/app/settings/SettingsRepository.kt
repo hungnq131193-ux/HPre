@@ -42,7 +42,7 @@ class DataStoreSettingsRepository(
         const val DEFAULT_SPEED = 1.0f
         const val DEFAULT_AUTOPLAY = true
         const val DEFAULT_SPONSOR_BLOCK = true
-        val DEFAULT_THEME = AppTheme.DARK
+        val DEFAULT_THEME = AppTheme.AMOLED
         val DEFAULT_LANGUAGE = AppLanguage.VIETNAMESE
     }
 

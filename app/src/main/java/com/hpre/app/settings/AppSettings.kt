@@ -3,7 +3,8 @@ package com.hpre.app.settings
 enum class AppTheme {
     SYSTEM,
     LIGHT,
-    DARK
+    DARK,
+    AMOLED
 }
 
 enum class AppLanguage(val code: String) {
@@ -19,7 +20,7 @@ enum class QualityPreferenceSetting(val label: String, val maxResolution: Int?) 
 }
 
 data class AppSettings(
-    val theme: AppTheme = AppTheme.DARK,
+    val theme: AppTheme = AppTheme.AMOLED,
     val language: AppLanguage = AppLanguage.VIETNAMESE,
     val backgroundPlaybackEnabled: Boolean = true,
     val pipEnabled: Boolean = true,

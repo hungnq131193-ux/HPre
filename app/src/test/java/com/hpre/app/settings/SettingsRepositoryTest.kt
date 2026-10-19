@@ -47,7 +47,7 @@ class SettingsRepositoryTest {
     @Test
     fun default_settings_match_specification() = runTest {
         val settings = repository.settings.first()
-        assertEquals(AppTheme.DARK, settings.theme)
+        assertEquals(AppTheme.AMOLED, settings.theme)
         assertTrue(settings.backgroundPlaybackEnabled)
         assertTrue(settings.pipEnabled)
         assertTrue(settings.historyEnabled)
@@ -63,7 +63,7 @@ class SettingsRepositoryTest {
             preferences[DataStoreSettingsRepository.KEY_THEME] = "NOT_A_THEME"
         }
 
-        assertEquals(AppTheme.DARK, repository.settings.first().theme)
+        assertEquals(AppTheme.AMOLED, repository.settings.first().theme)
     }
 
     @Test

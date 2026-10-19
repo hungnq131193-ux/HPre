@@ -205,6 +205,7 @@
     <string name="settings_theme_system">System</string>
     <string name="settings_theme_light">Light</string>
     <string name="settings_theme_dark">Dark</string>
+    <string name="settings_theme_amoled">Pure Black (AMOLED battery saver)</string>
     <string name="settings_choose_theme">Choose theme</string>
     <string name="settings_language">Language</string>
     <string name="settings_choose_language">Choose language</string>
@@ -264,4 +265,20 @@
     <string name="error_unsupported_format">This format is not supported.</string>
     <string name="error_extraction_failed">Could not read video data. Retry; if it still fails, check for HPre updates in Settings.</string>
     <string name="error_unknown">An unexpected error occurred.</string>
+    <string name="settings_donate_section">Support the developer</string>
+    <string name="settings_donate_title">Buy me a coffee ☕ (50,000 VND)</string>
+    <string name="settings_donate_message">Nếu thấy HPre hữu ích và mang lại trải nghiệm tốt cho bạn, hãy ủng hộ mình một cốc cà phê (50.000đ) để có thêm động lực duy trì và phát triển app nhé! ☕❤️</string>
+    <string name="settings_donate_button">Buy me a coffee (50,000 VND)</string>
+    <string name="settings_donate_dialog_title">Buy me a coffee ☕</string>
+    <string name="settings_donate_bank_label">Bank: MB Bank</string>
+    <string name="settings_donate_account_name_label">Account Name: NGUYEN QUOC HUNG</string>
+    <string name="settings_donate_account_number_label">Account No: 89988889993</string>
+    <string name="settings_donate_amount_label">Amount: 50,000 VND (1 coffee ☕)</string>
+    <string name="settings_donate_content_label">Message: Moi HPre ca phe</string>
+    <string name="settings_donate_copy_account">Copy Account No</string>
+    <string name="settings_donate_copied_toast">Copied account number 89988889993</string>
+    <string name="settings_donate_save_qr">Save QR image</string>
+    <string name="settings_donate_saved_qr_toast">Saved QR image to Gallery</string>
+    <string name="settings_donate_save_qr_error_toast">Could not save QR image</string>
+    <string name="settings_donate_qr_hint">Save QR image or scan with any banking app (50,000 VND • Moi HPre ca phe)</string>
 </resources>

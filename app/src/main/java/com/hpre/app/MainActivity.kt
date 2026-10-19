@@ -79,8 +79,10 @@ open class MainActivity : ComponentActivity() {
             val darkTheme = when (settings.theme) {
                 com.hpre.app.settings.AppTheme.SYSTEM -> androidx.compose.foundation.isSystemInDarkTheme()
                 com.hpre.app.settings.AppTheme.LIGHT -> false
-                com.hpre.app.settings.AppTheme.DARK -> true
+                com.hpre.app.settings.AppTheme.DARK,
+                com.hpre.app.settings.AppTheme.AMOLED -> true
             }
+            val amoledTheme = settings.theme == com.hpre.app.settings.AppTheme.AMOLED
 
             SideEffect {
                 if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.R) {
@@ -114,7 +116,7 @@ open class MainActivity : ComponentActivity() {
             }
 
             AppLocaleProvider(language = settings.language) {
-                HPreTheme(darkTheme = darkTheme) {
+                HPreTheme(darkTheme = darkTheme, amoledTheme = amoledTheme) {
                     val playbackUiState by app.playbackUiCoordinator.state.collectAsStateWithLifecycle()
                     // Auto-PiP only depends on four playback facts. Project the frequently-updating
                     // PlaybackState to those facts so position/buffering/quality ticks do not

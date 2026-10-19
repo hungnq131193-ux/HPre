@@ -65,6 +65,7 @@ fun SettingsScreen(
     var showMobileQualityDialog by remember { mutableStateOf(false) }
     var showSpeedDialog by remember { mutableStateOf(false) }
     var showClearVideoCacheDialog by remember { mutableStateOf(false) }
+    var showDonateDialog by remember { mutableStateOf(false) }
 
     Scaffold(
         topBar = {
@@ -101,6 +102,7 @@ fun SettingsScreen(
                     AppTheme.SYSTEM -> stringResource(R.string.settings_theme_system)
                     AppTheme.LIGHT -> stringResource(R.string.settings_theme_light)
                     AppTheme.DARK -> stringResource(R.string.settings_theme_dark)
+                    AppTheme.AMOLED -> stringResource(R.string.settings_theme_amoled)
                 },
                 tag = "setting_theme_item",
                 onClick = { showThemeDialog = true }
@@ -374,7 +376,58 @@ fun SettingsScreen(
                     }
                 }
             }
+
+            HorizontalDivider()
+
+            // Donate / Support the Developer Section
+            SettingsSectionHeader(
+                title = stringResource(R.string.settings_donate_section),
+                modifier = Modifier.testTag("settings_donate_section")
+            )
+
+            androidx.compose.material3.Surface(
+                onClick = { showDonateDialog = true },
+                color = MaterialTheme.colorScheme.surfaceContainerHigh,
+                shape = androidx.compose.foundation.shape.RoundedCornerShape(16.dp),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp, vertical = 8.dp)
+                    .testTag("setting_donate_card")
+            ) {
+                Column(modifier = Modifier.padding(16.dp)) {
+                    Text(
+                        text = stringResource(R.string.settings_donate_title),
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.onSurface
+                    )
+                    Spacer(modifier = Modifier.height(6.dp))
+                    Text(
+                        text = stringResource(R.string.settings_donate_message),
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    Spacer(modifier = Modifier.height(12.dp))
+                    androidx.compose.material3.Button(
+                        onClick = { showDonateDialog = true },
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .testTag("setting_donate_button")
+                    ) {
+                        Text(
+                            text = stringResource(R.string.settings_donate_button),
+                            fontWeight = FontWeight.SemiBold
+                        )
+                    }
+                }
+            }
+
+            Spacer(modifier = Modifier.height(24.dp))
         }
+    }
+
+    if (showDonateDialog) {
+        DonateCoffeeDialog(onDismiss = { showDonateDialog = false })
     }
 
     if (showThemeDialog) {
@@ -383,7 +436,8 @@ fun SettingsScreen(
             options = listOf(
                 AppTheme.SYSTEM to stringResource(R.string.settings_theme_system),
                 AppTheme.LIGHT to stringResource(R.string.settings_theme_light),
-                AppTheme.DARK to stringResource(R.string.settings_theme_dark)
+                AppTheme.DARK to stringResource(R.string.settings_theme_dark),
+                AppTheme.AMOLED to stringResource(R.string.settings_theme_amoled)
             ),
             selectedOption = settings.theme,
             tagPrefix = "theme_option",
@@ -653,3 +707,201 @@ private fun <T> SingleChoiceDialog(
         }
     )
 }
+
+@Composable
+private fun DonateCoffeeDialog(
+    onDismiss: () -> Unit
+) {
+    val context = LocalContext.current
+    val copiedToastText = stringResource(R.string.settings_donate_copied_toast)
+    val savedQrToastText = stringResource(R.string.settings_donate_saved_qr_toast)
+    val saveQrErrorToastText = stringResource(R.string.settings_donate_save_qr_error_toast)
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = {
+            Text(
+                text = stringResource(R.string.settings_donate_dialog_title),
+                fontWeight = FontWeight.Bold
+            )
+        },
+        text = {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .verticalScroll(rememberScrollState()),
+                horizontalAlignment = Alignment.CenterHorizontally
+            ) {
+                Text(
+                    text = stringResource(R.string.settings_donate_message),
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+
+                Spacer(modifier = Modifier.height(12.dp))
+
+                androidx.compose.foundation.Image(
+                    painter = androidx.compose.ui.res.painterResource(id = R.drawable.donate_qr_mbbank),
+                    contentDescription = "MB Bank VietQR 50.000 VND",
+                    contentScale = androidx.compose.ui.layout.ContentScale.Fit,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 8.dp)
+                        .testTag("donate_qr_image")
+                )
+
+                Spacer(modifier = Modifier.height(10.dp))
+
+                androidx.compose.material3.Button(
+                    onClick = {
+                        val saved = saveDonateQrToGallery(context)
+                        android.widget.Toast.makeText(
+                            context,
+                            if (saved) savedQrToastText else saveQrErrorToastText,
+                            android.widget.Toast.LENGTH_SHORT
+                        ).show()
+                    },
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 8.dp)
+                        .testTag("donate_save_qr_button")
+                ) {
+                    Text(
+                        text = stringResource(R.string.settings_donate_save_qr),
+                        fontWeight = FontWeight.SemiBold
+                    )
+                }
+
+                Spacer(modifier = Modifier.height(6.dp))
+
+                Text(
+                    text = stringResource(R.string.settings_donate_qr_hint),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.primary
+                )
+
+                Spacer(modifier = Modifier.height(12.dp))
+
+                androidx.compose.material3.Surface(
+                    color = MaterialTheme.colorScheme.surfaceContainer,
+                    shape = androidx.compose.foundation.shape.RoundedCornerShape(12.dp),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Column(modifier = Modifier.padding(12.dp)) {
+                        Text(
+                            text = stringResource(R.string.settings_donate_bank_label),
+                            style = MaterialTheme.typography.bodyMedium,
+                            fontWeight = FontWeight.SemiBold
+                        )
+                        Spacer(modifier = Modifier.height(4.dp))
+                        Text(
+                            text = stringResource(R.string.settings_donate_account_name_label),
+                            style = MaterialTheme.typography.bodyMedium,
+                            fontWeight = FontWeight.SemiBold
+                        )
+                        Spacer(modifier = Modifier.height(4.dp))
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text(
+                                text = stringResource(R.string.settings_donate_account_number_label),
+                                style = MaterialTheme.typography.bodyMedium,
+                                fontWeight = FontWeight.Bold,
+                                color = MaterialTheme.colorScheme.primary,
+                                modifier = Modifier.weight(1f)
+                            )
+                            androidx.compose.material3.FilledTonalButton(
+                                onClick = {
+                                    val clipboard = context.getSystemService(android.content.Context.CLIPBOARD_SERVICE)
+                                        as? android.content.ClipboardManager
+                                    clipboard?.setPrimaryClip(
+                                        android.content.ClipData.newPlainText("MB Bank Account", "89988889993")
+                                    )
+                                    android.widget.Toast.makeText(
+                                        context,
+                                        copiedToastText,
+                                        android.widget.Toast.LENGTH_SHORT
+                                    ).show()
+                                },
+                                modifier = Modifier.testTag("donate_copy_account_button")
+                            ) {
+                                Text(stringResource(R.string.settings_donate_copy_account))
+                            }
+                        }
+                        Spacer(modifier = Modifier.height(4.dp))
+                        Text(
+                            text = stringResource(R.string.settings_donate_amount_label),
+                            style = MaterialTheme.typography.bodyMedium,
+                            fontWeight = FontWeight.SemiBold
+                        )
+                        Spacer(modifier = Modifier.height(4.dp))
+                        Text(
+                            text = stringResource(R.string.settings_donate_content_label),
+                            style = MaterialTheme.typography.bodyMedium,
+                            fontWeight = FontWeight.SemiBold
+                        )
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(
+                onClick = onDismiss,
+                modifier = Modifier.testTag("donate_dialog_close_button")
+            ) {
+                Text(stringResource(R.string.action_close))
+            }
+        },
+        modifier = Modifier.testTag("donate_coffee_dialog")
+    )
+}
+
+private fun saveDonateQrToGallery(context: android.content.Context): Boolean {
+    return runCatching {
+        val bitmap = android.graphics.BitmapFactory.decodeResource(
+            context.resources,
+            R.drawable.donate_qr_mbbank
+        ) ?: return false
+
+        val fileName = "HPre_VietQR_MBBank_50k_${System.currentTimeMillis()}.jpg"
+        val resolver = context.contentResolver
+        val contentValues = android.content.ContentValues().apply {
+            put(android.provider.MediaStore.MediaColumns.DISPLAY_NAME, fileName)
+            put(android.provider.MediaStore.MediaColumns.MIME_TYPE, "image/jpeg")
+            if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.Q) {
+                put(
+                    android.provider.MediaStore.MediaColumns.RELATIVE_PATH,
+                    android.os.Environment.DIRECTORY_PICTURES + "/HPre"
+                )
+                put(android.provider.MediaStore.MediaColumns.IS_PENDING, 1)
+            }
+        }
+
+        val uri = resolver.insert(
+            android.provider.MediaStore.Images.Media.EXTERNAL_CONTENT_URI,
+            contentValues
+        ) ?: return false
+
+        try {
+            resolver.openOutputStream(uri)?.use { out ->
+                if (!bitmap.compress(android.graphics.Bitmap.CompressFormat.JPEG, 95, out)) {
+                    throw java.io.IOException("Failed to compress QR bitmap")
+                }
+            } ?: return false
+
+            if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.Q) {
+                val completeValues = android.content.ContentValues().apply {
+                    put(android.provider.MediaStore.MediaColumns.IS_PENDING, 0)
+                }
+                resolver.update(uri, completeValues, null, null)
+            }
+            true
+        } catch (t: Throwable) {
+            runCatching { resolver.delete(uri, null, null) }
+            throw t
+        }
+    }.getOrDefault(false)
+}
+
+

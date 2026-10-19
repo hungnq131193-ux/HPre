@@ -590,6 +590,7 @@ class HPrePlaybackService : MediaLibraryService() {
         override fun onIsPlayingChanged(isPlaying: Boolean) {
             persistCurrentSnapshot()
             historyScheduler.update(isPlaying && currentStreamInfo?.isLive != true)
+            updateSponsorPollLoop()
         }
 
         override fun onTracksChanged(tracks: androidx.media3.common.Tracks) {
@@ -746,25 +747,47 @@ class HPrePlaybackService : MediaLibraryService() {
         sponsorSkip.reset()
         sponsorFetchJob?.cancel()
         sponsorPollJob?.cancel()
+        sponsorPollJob = null
         if (key.serviceId != 0) return
+        if (settingsSnapshot?.value?.sponsorBlockEnabled == false) return
         sponsorFetchJob = serviceScope.launch(Dispatchers.IO) {
             val segments = sponsorClient.fetchSegments(key.nativeId)
             withContext(Dispatchers.Main) {
                 if (isReleased || currentKey != key || segments.isEmpty()) return@withContext
                 sponsorSkip.setSegments(segments)
-                sponsorPollJob = serviceScope.launch(Dispatchers.Main) {
-                    while (true) {
-                        val player = exoPlayer
-                        if (player != null && player.isPlaying && currentKey == key &&
-                            settingsSnapshot?.value?.sponsorBlockEnabled == true
-                        ) {
-                            sponsorSkip.skipTargetFor(player.currentPosition)
-                                ?.let { player.seekTo(it) }
-                        }
-                        kotlinx.coroutines.delay(500L)
-                    }
-                }
+                updateSponsorPollLoop()
             }
+        }
+    }
+
+    private fun updateSponsorPollLoop() {
+        val player = exoPlayer
+        val key = currentKey
+        val shouldPoll = !isReleased &&
+            player != null &&
+            player.isPlaying &&
+            key != null &&
+            key.serviceId == 0 &&
+            settingsSnapshot?.value?.sponsorBlockEnabled != false
+        if (!shouldPoll) {
+            sponsorPollJob?.cancel()
+            sponsorPollJob = null
+            return
+        }
+        if (sponsorPollJob?.isActive == true) return
+        sponsorPollJob = serviceScope.launch(Dispatchers.Main) {
+            while (true) {
+                val activePlayer = exoPlayer
+                if (activePlayer == null || !activePlayer.isPlaying || currentKey != key ||
+                    settingsSnapshot?.value?.sponsorBlockEnabled == false
+                ) {
+                    break
+                }
+                sponsorSkip.skipTargetFor(activePlayer.currentPosition)
+                    ?.let { activePlayer.seekTo(it) }
+                kotlinx.coroutines.delay(500L)
+            }
+            sponsorPollJob = null
         }
     }
 

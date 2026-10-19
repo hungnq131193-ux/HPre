@@ -33,6 +33,10 @@ internal class DefaultExtractorOperations(
     private val streamExtractorFactory: ((StreamingService, ContentKey) -> StreamExtractor)? = null
 ) : ExtractorOperations, StagedVideoExtractorOperations {
 
+    companion object {
+        private val iosFallbackLock = Any()
+    }
+
     override val serviceId: Int
         get() = streamingService.serviceId
 
@@ -174,21 +178,27 @@ internal class DefaultExtractorOperations(
             info.videoStreams.maxOfOrNull { maxOf(it.width ?: 0, it.height ?: 0) } ?: 0
 
         fun extractWithIosFallback(): Pair<StreamExtractor, StreamInfo> {
-            synchronized(NewPipeMappers.YoutubeJsLock) {
-                runCatching {
-                    org.schabi.newpipe.extractor.services.youtube.YoutubeJavaScriptPlayerManager.clearAllCaches()
-                }
+            val retryExtractor = synchronized(iosFallbackLock) {
                 org.schabi.newpipe.extractor.services.youtube.extractors.YoutubeStreamExtractor.setFetchIosClient(true)
-            }
-            return try {
-                val retryExtractor = service.getStreamExtractor(linkHandler)
-                ExtractorLocalization.apply(retryExtractor)
-                attemptExtract(retryExtractor)
-            } finally {
-                synchronized(NewPipeMappers.YoutubeJsLock) {
+                try {
+                    service.getStreamExtractor(linkHandler).also { extractor ->
+                        ExtractorLocalization.apply(extractor)
+                        extractor.fetchPage()
+                    }
+                } finally {
                     org.schabi.newpipe.extractor.services.youtube.extractors.YoutubeStreamExtractor.setFetchIosClient(false)
                 }
             }
+            val extractedKey = ContentKey(retryExtractor.serviceId, retryExtractor.id)
+            if (extractedKey != key) {
+                throw ExtractionException("Returned video key does not match requested key $key")
+            }
+            val streams = NewPipeMappers.mapStreamExtractor(retryExtractor, key, serviceId)
+                ?: throw ContentNotSupportedException("No usable playback streams or manifests found")
+            if (streams.key != key) {
+                throw ExtractionException("Returned video key does not match requested key $key")
+            }
+            return retryExtractor to streams
         }
 
         return try {

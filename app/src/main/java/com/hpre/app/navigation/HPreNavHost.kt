@@ -79,6 +79,10 @@ fun HPreNavHost(
     NavHost(
         navController = navController,
         startDestination = Screen.Home.route,
+        enterTransition = { androidx.compose.animation.fadeIn(androidx.compose.animation.core.tween(120)) },
+        exitTransition = { androidx.compose.animation.fadeOut(androidx.compose.animation.core.tween(90)) },
+        popEnterTransition = { androidx.compose.animation.fadeIn(androidx.compose.animation.core.tween(120)) },
+        popExitTransition = { androidx.compose.animation.fadeOut(androidx.compose.animation.core.tween(90)) },
         modifier = modifier
     ) {
         composable(Screen.Home.route) {
@@ -110,6 +114,7 @@ fun HPreNavHost(
         }
 
         composable(Screen.Shorts.route) {
+            val playerController = androidx.compose.runtime.remember(container) { container.createPlayerController() }
             val shortsViewModel: ShortsViewModel = viewModel(
                 factory = ShortsViewModel.provideFactory(
                     catalogRepository = container.catalogRepository,
@@ -117,7 +122,7 @@ fun HPreNavHost(
                     searchHistoryRepository = container.searchHistoryRepository,
                     historyRepository = container.historyRepository,
                     playbackPreferences = container.playbackPreferences,
-                    playerController = container.createPlayerController(),
+                    playerController = playerController,
                     mediaSourceFactory = container.mediaSourceFactory,
                     mediaCacheManager = container.mediaCacheManager
                 )

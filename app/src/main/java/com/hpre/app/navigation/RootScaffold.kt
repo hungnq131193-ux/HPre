@@ -163,7 +163,7 @@ fun RootScaffold(
     val isPlaybackKeepingScreenOn by isPlaybackKeepingScreenOnFlow.collectAsStateWithLifecycle(
         initialValue = false
     )
-    val shouldKeepScreenOn = isPlaybackKeepingScreenOn || isShortsScreen
+    val shouldKeepScreenOn = isPlaybackKeepingScreenOn
     val currentContext = LocalContext.current
     val currentView = androidx.compose.ui.platform.LocalView.current
     DisposableEffect(shouldKeepScreenOn, currentContext, currentView) {
@@ -329,9 +329,9 @@ fun RootScaffold(
                                     )
                                 },
                                 colors = NavigationBarItemDefaults.colors(
-                                    selectedIconColor = MaterialTheme.colorScheme.onPrimary,
+                                    selectedIconColor = MaterialTheme.colorScheme.onPrimaryContainer,
                                     selectedTextColor = MaterialTheme.colorScheme.primary,
-                                    indicatorColor = MaterialTheme.colorScheme.primary,
+                                    indicatorColor = MaterialTheme.colorScheme.primaryContainer,
                                     unselectedIconColor = MaterialTheme.colorScheme.onSurfaceVariant,
                                     unselectedTextColor = MaterialTheme.colorScheme.onSurfaceVariant
                                 ),

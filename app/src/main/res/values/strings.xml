@@ -204,6 +204,7 @@
     <string name="settings_theme_system">Theo hệ thống</string>
     <string name="settings_theme_light">Sáng</string>
     <string name="settings_theme_dark">Tối</string>
+    <string name="settings_theme_amoled">Đen tuyền (AMOLED tiết kiệm pin)</string>
     <string name="settings_choose_theme">Chọn chủ đề</string>
     <string name="settings_language">Ngôn ngữ</string>
     <string name="settings_choose_language">Chọn ngôn ngữ</string>
@@ -263,4 +264,20 @@
     <string name="error_unsupported_format">Định dạng này không được hỗ trợ.</string>
     <string name="error_extraction_failed">Không đọc được dữ liệu video. Hãy thử lại; nếu vẫn lỗi, kiểm tra cập nhật HPre trong Cài đặt.</string>
     <string name="error_unknown">Đã xảy ra lỗi không mong muốn.</string>
+    <string name="settings_donate_section">Ủng hộ nhà phát triển</string>
+    <string name="settings_donate_title">Ủng hộ mình cốc cà phê ☕ (50.000đ)</string>
+    <string name="settings_donate_message">Nếu thấy HPre hữu ích và mang lại trải nghiệm tốt cho bạn, hãy ủng hộ mình một cốc cà phê (50.000đ) để có thêm động lực duy trì và phát triển app nhé! ☕❤️</string>
+    <string name="settings_donate_button">Ủng hộ cốc cà phê (50.000đ)</string>
+    <string name="settings_donate_dialog_title">Ủng hộ cốc cà phê ☕</string>
+    <string name="settings_donate_bank_label">Ngân hàng: MB Bank (Quân Đội)</string>
+    <string name="settings_donate_account_name_label">Chủ TK: NGUYEN QUOC HUNG</string>
+    <string name="settings_donate_account_number_label">Số TK: 89988889993</string>
+    <string name="settings_donate_amount_label">Số tiền: 50.000 VNĐ (1 cốc cà phê ☕)</string>
+    <string name="settings_donate_content_label">Nội dung: Moi HPre ca phe</string>
+    <string name="settings_donate_copy_account">Sao chép STK</string>
+    <string name="settings_donate_copied_toast">Đã sao chép số tài khoản 89988889993</string>
+    <string name="settings_donate_save_qr">Lưu ảnh mã QR</string>
+    <string name="settings_donate_saved_qr_toast">Đã lưu ảnh mã QR vào Thư viện ảnh</string>
+    <string name="settings_donate_save_qr_error_toast">Không lưu được ảnh mã QR</string>
+    <string name="settings_donate_qr_hint">Lưu ảnh QR hoặc quét bằng ứng dụng ngân hàng (đã điền sẵn 50.000đ • Moi HPre ca phe)</string>
 </resources>

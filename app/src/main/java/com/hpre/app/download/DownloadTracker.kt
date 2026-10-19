@@ -194,33 +194,45 @@ class DownloadTracker(
             download.request.data?.let { JSONObject(String(it, Charsets.UTF_8)) }
         }.getOrNull()
 
+    @Volatile
+    private var refreshPending = false
+    private var refreshJob: kotlinx.coroutines.Job? = null
+
     private fun refresh() {
-        val index = downloadManager.downloadIndex
-        val out = ArrayList<Entry>()
-        val cursor = index.getDownloads()
-        try {
-            while (cursor.moveToNext()) {
-                val d = cursor.download
-                val id = d.request.id
-                if (id.endsWith("|a")) continue // secondary request folds into its primary entry
-                val meta = metadataOf(d)
-                val key = parseId(id) ?: continue
-                out += Entry(
-                    key = key,
-                    title = meta?.optString("title") ?: "",
-                    channel = meta?.optString("channel")?.takeIf { it.isNotBlank() },
-                    thumbnailUrl = meta?.optString("thumbnail")?.takeIf { it.isNotBlank() },
-                    audioOnly = meta?.optBoolean("audioOnly") ?: false,
-                    state = d.state,
-                    percent = d.percentDownloaded,
-                    bytesDownloaded = d.bytesDownloaded,
-                    failureReason = d.failureReason
-                )
+        refreshPending = true
+        if (refreshJob?.isActive == true) return
+        refreshJob = scope.launch(Dispatchers.IO) {
+            while (refreshPending) {
+                refreshPending = false
+                val index = downloadManager.downloadIndex
+                val out = ArrayList<Entry>()
+                val cursor = index.getDownloads()
+                try {
+                    while (cursor.moveToNext()) {
+                        val d = cursor.download
+                        val id = d.request.id
+                        if (id.endsWith("|a")) continue // secondary request folds into its primary entry
+                        val meta = metadataOf(d)
+                        val key = parseId(id) ?: continue
+                        out += Entry(
+                            key = key,
+                            title = meta?.optString("title") ?: "",
+                            channel = meta?.optString("channel")?.takeIf { it.isNotBlank() },
+                            thumbnailUrl = meta?.optString("thumbnail")?.takeIf { it.isNotBlank() },
+                            audioOnly = meta?.optBoolean("audioOnly") ?: false,
+                            state = d.state,
+                            percent = d.percentDownloaded,
+                            bytesDownloaded = d.bytesDownloaded,
+                            failureReason = d.failureReason
+                        )
+                    }
+                } finally {
+                    cursor.close()
+                }
+                _downloads.value = out
+                kotlinx.coroutines.delay(150L)
             }
-        } finally {
-            cursor.close()
         }
-        _downloads.value = out
     }
 
     private fun parseId(id: String): ContentKey? {

@@ -102,7 +102,8 @@ fun MiniPlayer(
         ) {
             MiniPlayerProgress(
                 playerController = playerController,
-                currentKey = currentKey
+                currentKey = currentKey,
+                isPlaying = state.isPlaying
             )
 
             Row(
@@ -199,22 +200,24 @@ fun MiniPlayer(
 @Composable
 private fun MiniPlayerProgress(
     playerController: PlayerController,
-    currentKey: ContentKey?
+    currentKey: ContentKey?,
+    isPlaying: Boolean
 ) {
     var progressState by remember(currentKey) {
         mutableStateOf(com.hpre.app.player.PlaybackProgress())
     }
     val lifecycle = androidx.lifecycle.compose.LocalLifecycleOwner.current.lifecycle
-    LaunchedEffect(playerController, currentKey, lifecycle) {
+    LaunchedEffect(playerController, currentKey, isPlaying, lifecycle) {
         lifecycle.repeatOnLifecycle(androidx.lifecycle.Lifecycle.State.STARTED) {
-        while (true) {
-            try {
-                progressState = playerController.readProgress()
-            } catch (e: Exception) {
-                if (e is kotlinx.coroutines.CancellationException) throw e
+            while (true) {
+                try {
+                    progressState = playerController.readProgress()
+                } catch (e: Exception) {
+                    if (e is kotlinx.coroutines.CancellationException) throw e
+                }
+                if (!isPlaying) break
+                kotlinx.coroutines.delay(com.hpre.app.ui.watch.PlayerControlsPolicy.PROGRESS_POLL_INTERVAL_MS)
             }
-            kotlinx.coroutines.delay(com.hpre.app.ui.watch.PlayerControlsPolicy.PROGRESS_POLL_INTERVAL_MS)
-        }
         }
     }
     val progress = if (progressState.durationMs > 0L) {

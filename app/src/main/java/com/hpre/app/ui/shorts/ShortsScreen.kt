@@ -141,12 +141,7 @@ fun ShortsScreen(
         onDispose {
             viewModel.onScreenDisposed()
             if (!handedOffToWatch) {
-                val controller = viewModel.playerController
-                if (controller is SessionPlayerController) {
-                    controller.clearMedia()
-                } else {
-                    controller.pause()
-                }
+                viewModel.playerController.stopForTransition()
             }
         }
     }
@@ -219,6 +214,7 @@ fun ShortsScreen(
                             viewModel.playerController.seekTo(0L)
                             viewModel.playerController.play()
                         }
+                        if (!playbackState.isPlaying) break
                         delay(200L)
                     }
                 }

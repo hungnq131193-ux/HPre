@@ -40,12 +40,10 @@ fun PlayerSurface(
                 )
                 this.useController = useController
                 this.resizeMode = surfaceResizeMode
-                this.keepScreenOn = true
                 setShowBuffering(PlayerView.SHOW_BUFFERING_NEVER) // Handled by custom Compose overlay
             }
         },
         update = { playerView ->
-            playerView.keepScreenOn = true
             // A reused AndroidView must also switch back to FIT without restarting playback.
             if (playerView.resizeMode != surfaceResizeMode) {
                 playerView.resizeMode = surfaceResizeMode

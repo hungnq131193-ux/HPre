@@ -578,7 +578,7 @@ class ShortsViewModel(
     }
 
     /**
-     * Pre-extracts StreamInfo AND pre-downloads the first 768 KB of 720p/1080p H.264 video/audio
+     * Pre-extracts StreamInfo AND pre-downloads the first 512 KB of 720p/1080p H.264 video/audio
      * into SimpleCache so swiping to any of the next 3 Shorts starts playing in 0ms without lag.
      * Also enriches channelName, channelAvatarUrl, and channelKey from the cached bundle.
      * Unplayable Shorts are pruned from the upcoming queue before the user ever reaches them.
@@ -616,7 +616,7 @@ class ShortsViewModel(
                         mediaSourceFactory?.preCacheFirstBytes(
                             streamInfo = streamInfo,
                             preferredQuality = fastQuality,
-                            maxBytes = 1_048_576L
+                            maxBytes = 524_288L
                         )
                     }
                 }

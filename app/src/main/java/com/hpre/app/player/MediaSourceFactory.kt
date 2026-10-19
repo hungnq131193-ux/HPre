@@ -315,11 +315,12 @@ class MediaSourceFactory(
      */
     internal fun nominalResolution(option: QualityOption): Int {
         val fromLabel = resolutionLabelRegex.find(option.label)?.groupValues?.getOrNull(1)?.toIntOrNull()
-        if (fromLabel != null && fromLabel in 144..2160 && fromLabel != option.height) {
+        if (fromLabel != null && fromLabel in setOf(144, 240, 360, 480, 720, 1080, 1440, 2160) && fromLabel != option.height) {
             return fromLabel
         }
         return when {
             option.height in listOf(1920, 1280, 854, 640, 426, 256) -> (option.height * 9 + 8) / 16
+            fromLabel != null && fromLabel in setOf(144, 240, 360, 480, 720, 1080, 1440, 2160) -> fromLabel
             option.height in 1700..2000 -> 1080
             option.height in 1150..1699 -> 720
             else -> option.height

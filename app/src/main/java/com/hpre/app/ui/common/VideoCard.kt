@@ -211,7 +211,6 @@ private fun VideoThumbnail(
                     .fillMaxSize()
                     .testTag("video_thumbnail"),
                 contentScale = ContentScale.Crop,
-                placeholder = fallbackPainter,
                 error = fallbackPainter
             )
         } else {
